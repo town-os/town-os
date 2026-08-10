@@ -1,5 +1,7 @@
 package account
 
+import "context"
+
 // DefaultSettings are seeded into the database on first init.
 // Existing values are never overwritten. Build-tagged additions (e.g.
 // proton_image when the `proton` tag is set) register themselves in init().
@@ -66,8 +68,24 @@ var DefaultSettings = map[string]string{
 // it is skipped when the ingress is disabled, since the HTTP views are only
 // reachable through it.
 
+// SettingsManager reads and writes the key/value settings table.
+//
+// Every method takes a context, and that is not decoration. The SQLite managers
+// used to open their own 30-second root context per query (dbCtx), so nothing a
+// caller did could cancel or bound a query: an abandoned HTTP request kept
+// working, and graceful shutdown could not interrupt one. With
+// SetMaxOpenConns(1) — SQLite allows a single writer, so every query is
+// serialized behind that one connection — a slow query held every other caller
+// behind an uninterruptible 30-second ceiling.
+//
+// dbTimeout survives as a *ceiling*, applied on top of whatever the caller
+// passed, so a caller with no deadline of its own still cannot hang forever.
+//
+// Handlers pass the request context. Background goroutines pass the
+// server-scoped context, never a request's — the operation must outlive the
+// request that triggered it (see the Performance Conventions in CLAUDE.md).
 type SettingsManager interface {
-	Get(key string) (string, error)
-	Set(key, value string) error
-	List() (map[string]string, error)
+	Get(ctx context.Context, key string) (string, error)
+	Set(ctx context.Context, key, value string) error
+	List(ctx context.Context) (map[string]string, error)
 }

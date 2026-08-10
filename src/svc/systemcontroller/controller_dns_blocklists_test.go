@@ -23,11 +23,11 @@ func TestStoredBlocklistRoundtrip(t *testing.T) {
 		},
 	}
 
-	if err := saveStoredBlocklist(mgr, settingDNSRblConfig, want); err != nil {
+	if err := saveStoredBlocklist(t.Context(), mgr, settingDNSRblConfig, want); err != nil {
 		t.Fatalf("saveStoredBlocklist: %v", err)
 	}
 
-	got, ok := loadStoredBlocklist(mgr, settingDNSRblConfig)
+	got, ok := loadStoredBlocklist(t.Context(), mgr, settingDNSRblConfig)
 	if !ok {
 		t.Fatal("expected the saved config to load")
 	}
@@ -47,17 +47,17 @@ func TestStoredBlocklistRoundtrip(t *testing.T) {
 func TestLoadStoredBlocklistDistinguishesUnsetFromEmpty(t *testing.T) {
 	mgr := testBlocklistSettings()
 
-	if _, ok := loadStoredBlocklist(mgr, settingDNSRblConfig); ok {
+	if _, ok := loadStoredBlocklist(t.Context(), mgr, settingDNSRblConfig); ok {
 		t.Fatal("an unwritten setting must not report as configured")
 	}
-	if _, ok := loadStoredBlocklist(nil, settingDNSRblConfig); ok {
+	if _, ok := loadStoredBlocklist(t.Context(), nil, settingDNSRblConfig); ok {
 		t.Fatal("a nil settings manager must not report as configured")
 	}
 
-	if err := saveStoredBlocklist(mgr, settingDNSRblConfig, RblConfigRequest{}); err != nil {
+	if err := saveStoredBlocklist(t.Context(), mgr, settingDNSRblConfig, RblConfigRequest{}); err != nil {
 		t.Fatalf("saveStoredBlocklist: %v", err)
 	}
-	cfg, ok := loadStoredBlocklist(mgr, settingDNSRblConfig)
+	cfg, ok := loadStoredBlocklist(t.Context(), mgr, settingDNSRblConfig)
 	if !ok {
 		t.Fatal("an explicitly stored empty config must report as configured")
 	}
@@ -68,10 +68,10 @@ func TestLoadStoredBlocklistDistinguishesUnsetFromEmpty(t *testing.T) {
 
 func TestLoadStoredBlocklistIgnoresGarbage(t *testing.T) {
 	mgr := testBlocklistSettings()
-	if err := mgr.Set(settingDNSDnsblConfig, "{not json"); err != nil {
+	if err := mgr.Set(t.Context(), settingDNSDnsblConfig, "{not json"); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
-	if _, ok := loadStoredBlocklist(mgr, settingDNSDnsblConfig); ok {
+	if _, ok := loadStoredBlocklist(t.Context(), mgr, settingDNSDnsblConfig); ok {
 		t.Fatal("unparseable stored config must not report as configured")
 	}
 }
@@ -176,10 +176,10 @@ func TestReconcileBlocklistsRestoresWipedConfig(t *testing.T) {
 		Enabled:   true,
 		Providers: []RblProviderDTO{{Zone: "dbl.spamhaus.org", Enabled: true}},
 	}
-	if err := saveStoredBlocklist(mgr, settingDNSRblConfig, stored); err != nil {
+	if err := saveStoredBlocklist(t.Context(), mgr, settingDNSRblConfig, stored); err != nil {
 		t.Fatalf("save rbl: %v", err)
 	}
-	if err := saveStoredBlocklist(mgr, settingDNSDnsblConfig, dnsblStored); err != nil {
+	if err := saveStoredBlocklist(t.Context(), mgr, settingDNSDnsblConfig, dnsblStored); err != nil {
 		t.Fatalf("save dnsbl: %v", err)
 	}
 
@@ -212,7 +212,7 @@ func TestReconcileBlocklistsRestoresWipedConfig(t *testing.T) {
 func TestReconcileBlocklistsNoOpWhenInSync(t *testing.T) {
 	mgr := testBlocklistSettings()
 	stored := RblConfigRequest{Enabled: true, Providers: []RblProviderDTO{{Zone: "zen.spamhaus.org", Enabled: true}}}
-	if err := saveStoredBlocklist(mgr, settingDNSRblConfig, stored); err != nil {
+	if err := saveStoredBlocklist(t.Context(), mgr, settingDNSRblConfig, stored); err != nil {
 		t.Fatalf("save rbl: %v", err)
 	}
 
@@ -236,7 +236,7 @@ func TestReconcileBlocklistsNoOpWhenInSync(t *testing.T) {
 // config would be Town OS asserting an instruction it was never given.
 func TestReconcileBlocklistsSkipsUnconfiguredLists(t *testing.T) {
 	mgr := testBlocklistSettings()
-	if err := saveStoredBlocklist(mgr, settingDNSRblConfig, RblConfigRequest{Enabled: true, Providers: []RblProviderDTO{{Zone: "zen.spamhaus.org", Enabled: true}}}); err != nil {
+	if err := saveStoredBlocklist(t.Context(), mgr, settingDNSRblConfig, RblConfigRequest{Enabled: true, Providers: []RblProviderDTO{{Zone: "zen.spamhaus.org", Enabled: true}}}); err != nil {
 		t.Fatalf("save rbl: %v", err)
 	}
 
@@ -269,7 +269,7 @@ func TestReconcileBlocklistsToleratesMissingDependencies(t *testing.T) {
 // with no blocklists at all.
 func TestStoredBlocklistsSeedsRolodexConfig(t *testing.T) {
 	mgr := testBlocklistSettings()
-	if err := saveStoredBlocklist(mgr, settingDNSDnsblConfig, RblConfigRequest{
+	if err := saveStoredBlocklist(t.Context(), mgr, settingDNSDnsblConfig, RblConfigRequest{
 		Enabled:             true,
 		RefusalCooldownSecs: 900,
 		Providers:           []RblProviderDTO{{Zone: "dbl.spamhaus.org", Enabled: true, RefusalCodes: []string{"none"}}},
@@ -277,7 +277,7 @@ func TestStoredBlocklistsSeedsRolodexConfig(t *testing.T) {
 		t.Fatalf("save dnsbl: %v", err)
 	}
 
-	rbl, dnsbl := StoredBlocklists(mgr)
+	rbl, dnsbl := StoredBlocklists(t.Context(), mgr)
 	if rbl.Enabled || len(rbl.Providers) != 0 {
 		t.Fatalf("an unconfigured list must seed as the zero value: %+v", rbl)
 	}
@@ -288,7 +288,7 @@ func TestStoredBlocklistsSeedsRolodexConfig(t *testing.T) {
 		t.Fatalf("unexpected DNSBL provider: %+v", dnsbl.Providers[0])
 	}
 
-	rblNil, dnsblNil := StoredBlocklists(nil)
+	rblNil, dnsblNil := StoredBlocklists(t.Context(), nil)
 	if rblNil.Enabled || dnsblNil.Enabled || len(rblNil.Providers) != 0 || len(dnsblNil.Providers) != 0 {
 		t.Fatal("a nil settings manager must seed empty lists")
 	}

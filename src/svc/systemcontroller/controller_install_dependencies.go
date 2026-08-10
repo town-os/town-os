@@ -233,7 +233,7 @@ func (s *SystemControllerHandlers) installDependencies(
 		depCompiled, err := depIP.CompileWithContext(depResponses, packages.CompileContext{
 			ExternalHost: s.Controller.GetExternalIP(),
 			InternalHost: s.Controller.GetInternalIP(),
-			PackageDNS:   effectiveName + "." + depRepo + "." + s.getDNSTLDValue(),
+			PackageDNS:   effectiveName + "." + depRepo + "." + s.getDNSTLDValue(ctx),
 		})
 		if err != nil {
 			return nil, nil, nil, nil, fmt.Errorf("dependency %q: compile: %w", depKey, err)
@@ -254,7 +254,7 @@ func (s *SystemControllerHandlers) installDependencies(
 		}
 
 		// Provision volumes.
-		if err := s.provisionVolumes(depRepo, effectiveName, depVersion, "", false, depCompiled); err != nil {
+		if err := s.provisionVolumes(ctx, depRepo, effectiveName, depVersion, "", false, depCompiled); err != nil {
 			return nil, nil, nil, nil, fmt.Errorf("dependency %q: provision volumes: %w", depKey, err)
 		}
 

@@ -55,7 +55,7 @@ func (s *SystemControllerHandlers) rebuildGit(c *echo.Context) error {
 	// a non-default-network package's env to .home). Falls back to dns_tld for
 	// default-network packages.
 	network, _ := inst.LoadNetwork(req.Repo, req.Name)
-	tld := s.networkTLD(network)
+	tld := s.networkTLD(c.Request().Context(), network)
 	compiled, err := ip.CompileWithContext(responses, packages.CompileContext{
 		ExternalHost: s.Controller.GetExternalIP(),
 		InternalHost: s.Controller.GetInternalIP(),

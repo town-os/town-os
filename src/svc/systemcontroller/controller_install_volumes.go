@@ -26,7 +26,7 @@ import (
 // is issued (or refreshed) for the package and every external port is
 // marked TLS=true so the NC terminates TLS on the host-facing port instead
 // of running a plain socat forwarder.
-func (s *SystemControllerHandlers) writePackageNetworkState(repoName, pkgName, version, network string, compiled *packages.Package, supplies []string) error {
+func (s *SystemControllerHandlers) writePackageNetworkState(ctx context.Context, repoName, pkgName, version, network string, compiled *packages.Package, supplies []string) error {
 	statePath := s.Controller.GetNetworkStatePath()
 	if statePath == "" {
 		return nil
@@ -43,7 +43,7 @@ func (s *SystemControllerHandlers) writePackageNetworkState(repoName, pkgName, v
 	// also reach the package by raw WireGuard address.
 	if err := applyPackageTLS(
 		&state, s.Controller.GetTLSCA(), s.Controller.GetBtrfsBasePath(),
-		repoName, pkgName, version, s.Controller.GetInternalIP(), s.networkTLD(network),
+		repoName, pkgName, version, s.Controller.GetInternalIP(), s.networkTLD(ctx, network),
 		s.networkOverlayIP(network), compiled, supplies,
 	); err != nil {
 		return err
@@ -191,7 +191,7 @@ func (s *SystemControllerHandlers) prepareActiveVersion(ctx context.Context, rr 
 }
 
 // provisionVolumes creates, reuses, or imports storage volumes for the package.
-func (s *SystemControllerHandlers) provisionVolumes(repoName, effectiveName, version, importFromVersion string, reuseVolumes bool, compiled *packages.Package) error {
+func (s *SystemControllerHandlers) provisionVolumes(ctx context.Context, repoName, effectiveName, version, importFromVersion string, reuseVolumes bool, compiled *packages.Package) error {
 	st := s.Controller.GetStorage()
 	if st == nil {
 		return nil
@@ -206,7 +206,7 @@ func (s *SystemControllerHandlers) provisionVolumes(repoName, effectiveName, ver
 		}
 	}
 
-	defQuota := s.defaultQuota()
+	defQuota := s.defaultQuota(ctx)
 	for volName, vol := range compiled.Volumes {
 		quota := vol.Quota
 		if quota == 0 {

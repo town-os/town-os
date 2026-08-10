@@ -15,13 +15,13 @@ import (
 )
 
 // maxArchiveSize returns the configured maximum archive size in bytes.
-func (s *SystemControllerHandlers) maxArchiveSize() int64 {
+func (s *SystemControllerHandlers) maxArchiveSize(ctx context.Context) int64 {
 	mgr := s.Controller.GetSettingsManager()
 	if mgr == nil {
 		return DefaultMaxArchiveSize
 	}
 
-	val, err := mgr.Get("max_archive_size")
+	val, err := mgr.Get(ctx, "max_archive_size")
 	if err != nil {
 		return DefaultMaxArchiveSize
 	}
@@ -35,13 +35,13 @@ func (s *SystemControllerHandlers) maxArchiveSize() int64 {
 }
 
 // archiveUnpackTimeout returns the configured unpack timeout.
-func (s *SystemControllerHandlers) archiveUnpackTimeout() time.Duration {
+func (s *SystemControllerHandlers) archiveUnpackTimeout(ctx context.Context) time.Duration {
 	mgr := s.Controller.GetSettingsManager()
 	if mgr == nil {
 		return time.Duration(DefaultUnpackTimeout) * time.Second
 	}
 
-	val, err := mgr.Get("archive_unpack_timeout")
+	val, err := mgr.Get(ctx, "archive_unpack_timeout")
 	if err != nil {
 		return time.Duration(DefaultUnpackTimeout) * time.Second
 	}
@@ -145,11 +145,11 @@ func (s *SystemControllerHandlers) streamUnpackToSubvolume(ctx context.Context, 
 	}
 
 	// Enforce size limit: LimitReader caps at maxSize+1 so we can detect overflow.
-	maxSize := s.maxArchiveSize()
+	maxSize := s.maxArchiveSize(ctx)
 	cr := &countingReader{r: io.LimitReader(archiveReader, maxSize+1)}
 
 	// Unpack with timeout.
-	timeout := s.archiveUnpackTimeout()
+	timeout := s.archiveUnpackTimeout(ctx)
 	unpackCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 

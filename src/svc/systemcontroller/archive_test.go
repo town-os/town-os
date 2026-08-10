@@ -201,7 +201,7 @@ type testSettingsManager struct {
 	values map[string]string
 }
 
-func (m *testSettingsManager) Get(key string) (string, error) {
+func (m *testSettingsManager) Get(_ context.Context, key string) (string, error) {
 	v, ok := m.values[key]
 	if !ok {
 		return "", fmt.Errorf("setting %q not found", key)
@@ -209,18 +209,18 @@ func (m *testSettingsManager) Get(key string) (string, error) {
 	return v, nil
 }
 
-func (m *testSettingsManager) Set(key, value string) error {
+func (m *testSettingsManager) Set(_ context.Context, key, value string) error {
 	m.values[key] = value
 	return nil
 }
 
-func (m *testSettingsManager) List() (map[string]string, error) {
+func (m *testSettingsManager) List(_ context.Context) (map[string]string, error) {
 	return m.values, nil
 }
 
 func TestMaxArchiveSizeDefault(t *testing.T) {
 	s := &SystemControllerHandlers{Controller: &archiveTestBackend{}}
-	got := s.maxArchiveSize()
+	got := s.maxArchiveSize(t.Context())
 	if got != DefaultMaxArchiveSize {
 		t.Fatalf("expected %d, got %d", DefaultMaxArchiveSize, got)
 	}
@@ -231,7 +231,7 @@ func TestMaxArchiveSizeFromSettings(t *testing.T) {
 		"max_archive_size": "104857600", // 100 MB
 	}}
 	s := &SystemControllerHandlers{Controller: &archiveTestBackend{settingsMgr: mgr}}
-	got := s.maxArchiveSize()
+	got := s.maxArchiveSize(t.Context())
 	if got != 104857600 {
 		t.Fatalf("expected 104857600, got %d", got)
 	}
@@ -239,7 +239,7 @@ func TestMaxArchiveSizeFromSettings(t *testing.T) {
 
 func TestArchiveUnpackTimeoutDefault(t *testing.T) {
 	s := &SystemControllerHandlers{Controller: &archiveTestBackend{}}
-	got := s.archiveUnpackTimeout()
+	got := s.archiveUnpackTimeout(t.Context())
 	expected := time.Duration(DefaultUnpackTimeout) * time.Second
 	if got != expected {
 		t.Fatalf("expected %v, got %v", expected, got)
@@ -251,7 +251,7 @@ func TestArchiveUnpackTimeoutFromSettings(t *testing.T) {
 		"archive_unpack_timeout": "300",
 	}}
 	s := &SystemControllerHandlers{Controller: &archiveTestBackend{settingsMgr: mgr}}
-	got := s.archiveUnpackTimeout()
+	got := s.archiveUnpackTimeout(t.Context())
 	expected := 5 * time.Minute
 	if got != expected {
 		t.Fatalf("expected %v, got %v", expected, got)

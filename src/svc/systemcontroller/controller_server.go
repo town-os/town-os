@@ -894,7 +894,7 @@ func (s *serverBase) startNetworkPoller(ctx context.Context) {
 	// Own goroutine so the reap + transport re-render can't stall the IP/DNS
 	// ticks. Cheap at steady state — ReapExpiredPeers is a single indexed delete.
 	go func() {
-		ticker := time.NewTicker(peerReapInterval(getHandler(ctx, s).peerTTL()))
+		ticker := time.NewTicker(peerReapInterval(getHandler(ctx, s).peerTTL(ctx)))
 		defer ticker.Stop()
 		for {
 			select {
@@ -1091,7 +1091,7 @@ func NewHandler(ctx context.Context, cfg ServerConfig) (http.Handler, error) {
 		// AllowedHosts.
 		cfg.AllowedHosts = append(cfg.AllowedHosts, hostname, hostname+".local")
 		if cfg.SettingsMgr != nil {
-			if tld, err := cfg.SettingsMgr.Get("dns_tld"); err == nil && tld != "" {
+			if tld, err := cfg.SettingsMgr.Get(ctx, "dns_tld"); err == nil && tld != "" {
 				cfg.AllowedHosts = append(cfg.AllowedHosts, hostname+"."+tld)
 			}
 		}

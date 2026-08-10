@@ -251,8 +251,8 @@ func (s *SystemControllerHandlers) listGfeh(c *echo.Context) error {
 
 	ctx := c.Request().Context()
 	nm := s.Controller.GetNetworkManager()
-	tld := reconcileDNSTLD(s.Controller.GetSettingsManager())
-	quota := gfehPartitionQuota(s.Controller.GetSettingsManager())
+	tld := reconcileDNSTLD(c.Request().Context(), s.Controller.GetSettingsManager())
+	quota := gfehPartitionQuota(c.Request().Context(), s.Controller.GetSettingsManager())
 
 	// The one /gfeh/* read that names no network, so gfehClientFor's scope check
 	// cannot cover it: it enumerates them. A scoped account gets the partitions
@@ -555,7 +555,7 @@ func (s *SystemControllerHandlers) gfehPublishedLinkBase(ctx context.Context, ne
 		// collector selects with the empty filter rather than by name.
 		filter = ""
 	}
-	tld := reconcileDNSTLD(s.Controller.GetSettingsManager())
+	tld := reconcileDNSTLD(ctx, s.Controller.GetSettingsManager())
 	for _, site := range collectGfehSites(ctx, reg, s.Controller.GetNetworkManager(), tld, filter) {
 		if site.Network == network && site.View == gfeh.ViewHTTP && site.FQDN != "" {
 			return "https://" + site.FQDN + "/f/"

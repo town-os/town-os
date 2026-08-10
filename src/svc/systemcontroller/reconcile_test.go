@@ -1966,7 +1966,7 @@ type mockSettingsManager struct {
 	values map[string]string
 }
 
-func (m *mockSettingsManager) Get(key string) (string, error) {
+func (m *mockSettingsManager) Get(_ context.Context, key string) (string, error) {
 	v, ok := m.values[key]
 	if !ok {
 		return "", fmt.Errorf("setting %q not found", key)
@@ -1974,19 +1974,19 @@ func (m *mockSettingsManager) Get(key string) (string, error) {
 	return v, nil
 }
 
-func (m *mockSettingsManager) Set(key, value string) error {
+func (m *mockSettingsManager) Set(_ context.Context, key, value string) error {
 	m.values[key] = value
 	return nil
 }
 
-func (m *mockSettingsManager) List() (map[string]string, error) {
+func (m *mockSettingsManager) List(_ context.Context) (map[string]string, error) {
 	out := make(map[string]string, len(m.values))
 	maps.Copy(out, m.values)
 	return out, nil
 }
 
 func TestReconcileDNSTLDDefault(t *testing.T) {
-	got := reconcileDNSTLD(nil)
+	got := reconcileDNSTLD(t.Context(), nil)
 	if got != "home" {
 		t.Fatalf("expected %q, got %q", "home", got)
 	}
@@ -1994,7 +1994,7 @@ func TestReconcileDNSTLDDefault(t *testing.T) {
 
 func TestReconcileDNSTLDFromSettings(t *testing.T) {
 	mgr := &mockSettingsManager{values: map[string]string{"dns_tld": "lan"}}
-	got := reconcileDNSTLD(mgr)
+	got := reconcileDNSTLD(t.Context(), mgr)
 	if got != "lan" {
 		t.Fatalf("expected %q, got %q", "lan", got)
 	}

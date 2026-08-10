@@ -303,7 +303,7 @@ func (b *boot) openStores(ctx context.Context) error {
 		return fmt.Errorf("init audit manager: %w", err)
 	}
 
-	if b.settingsMgr, err = account.InitSettingsManager(b.db); err != nil {
+	if b.settingsMgr, err = account.InitSettingsManager(ctx, b.db); err != nil {
 		return fmt.Errorf("init settings manager: %w", err)
 	}
 
@@ -419,8 +419,6 @@ func (b *boot) seedRepositories() error {
 // settings, which have to be known before the pull set is assembled.
 //
 // Non-fatal throughout: a box with no DNS still boots, and says so on stderr.
-//
-//nolint:contextcheck // SettingsManager.Get accepts no context; see account.dbCtx
 func (b *boot) bootDNS(ctx context.Context) error {
 	b.bs.Step("boot_dns")
 
@@ -435,7 +433,7 @@ func (b *boot) bootDNS(ctx context.Context) error {
 	// invalid stored value is ignored so a bad setting can never render a
 	// rolodex.yml that rolodex refuses to start with.
 	resolutionMode := rolodex.DefaultResolutionMode
-	if v, modeErr := b.settingsMgr.Get("dns_resolution_mode"); modeErr == nil && rolodex.ValidResolutionMode(v) {
+	if v, modeErr := b.settingsMgr.Get(ctx, "dns_resolution_mode"); modeErr == nil && rolodex.ValidResolutionMode(v) {
 		resolutionMode = v
 	}
 
@@ -447,7 +445,7 @@ func (b *boot) bootDNS(ctx context.Context) error {
 	// direction is the one that does not hand the local network every name the
 	// household looks up.
 	localForwarders := false
-	if v, fwdErr := b.settingsMgr.Get("dns_local_forwarders"); fwdErr == nil {
+	if v, fwdErr := b.settingsMgr.Get(ctx, "dns_local_forwarders"); fwdErr == nil {
 		if parsed, parseErr := strconv.ParseBool(strings.TrimSpace(v)); parseErr == nil {
 			localForwarders = parsed
 		}
@@ -463,7 +461,7 @@ func (b *boot) bootDNS(ctx context.Context) error {
 	// gRPC re-assert in RebuildDNS is the repair path; this is what makes
 	// rolodex correct from its first second, including the window before the
 	// systemcontroller has finished booting.
-	storedRBL, storedDNSBL := systemcontroller.StoredBlocklists(b.settingsMgr)
+	storedRBL, storedDNSBL := systemcontroller.StoredBlocklists(ctx, b.settingsMgr)
 
 	b.rolMgr = rolodex.NewManager(rolodex.Config{
 		Systemd:         b.sd,
@@ -500,7 +498,7 @@ func (b *boot) bootDNS(ctx context.Context) error {
 	// inter-package DNS resolution works (container -> aardvark ->
 	// resolved -> rolodex for .tld queries). Non-fatal.
 	b.dnsTLD = "home"
-	if v, tldErr := b.settingsMgr.Get("dns_tld"); tldErr == nil && v != "" {
+	if v, tldErr := b.settingsMgr.Get(ctx, "dns_tld"); tldErr == nil && v != "" {
 		b.dnsTLD = v
 	}
 	// resolved can only route a domain to a resolver on :53, so this is skipped
@@ -513,7 +511,7 @@ func (b *boot) bootDNS(ctx context.Context) error {
 	}
 
 	b.resolveRemainingImages()
-	b.readMonitoringSettings()
+	b.readMonitoringSettings(ctx)
 	return nil
 }
 
@@ -552,14 +550,14 @@ func (b *boot) resolveRemainingImages() {
 	}
 }
 
-func (b *boot) readMonitoringSettings() {
+func (b *boot) readMonitoringSettings(ctx context.Context) {
 	// Host ports for the three monitoring system services. The zero value means
 	// the production defaults; the harness relocates them (see ports.go).
 	b.monPorts = withScrapeTargets(monitoringPortsFromEnv(), b.rolMgr, b.listenAddr, b.srv.TLSConfig != nil)
 
 	// Determine monitoring backend (uplot or grafana).
 	b.monBackend = monitoring.BackendUPlot
-	if v, settingsErr := b.settingsMgr.Get("monitoring_backend"); settingsErr == nil && v != "" {
+	if v, settingsErr := b.settingsMgr.Get(ctx, "monitoring_backend"); settingsErr == nil && v != "" {
 		b.monBackend = v
 	}
 
@@ -567,7 +565,9 @@ func (b *boot) readMonitoringSettings() {
 	// so the monitoring dashboards can sum node_disk_* metrics over only
 	// those devices. Non-fatal: on failure the Disk I/O panel renders
 	// empty rather than aggregating unrelated host disks.
-	diskDevices, diskErr := monitoring.BtrfsDevices(b.btrfsPath)
+	// monitoring.BtrfsDevices shells out to `btrfs filesystem show` on its own
+	// root context; it is not one of the account managers this change covers.
+	diskDevices, diskErr := monitoring.BtrfsDevices(b.btrfsPath) //nolint:contextcheck // BtrfsDevices accepts no context
 	if diskErr != nil {
 		fmt.Fprintf(os.Stderr, "btrfs disk device discovery: %v\n", diskErr)
 	}

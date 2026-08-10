@@ -244,7 +244,7 @@ func TestEnsurePagesWebroot(t *testing.T) {
 
 func TestCaddyImageDefault(t *testing.T) {
 	s := &SystemControllerHandlers{Controller: &archiveTestBackend{}}
-	got := s.caddyImage()
+	got := s.caddyImage(t.Context())
 	if got != DefaultCaddyImage {
 		t.Fatalf("expected %q, got %q", DefaultCaddyImage, got)
 	}
@@ -255,7 +255,7 @@ func TestCaddyImageFromSettings(t *testing.T) {
 		"caddy_image": "docker.io/library/caddy:2.7",
 	}}
 	s := &SystemControllerHandlers{Controller: &archiveTestBackend{settingsMgr: mgr}}
-	got := s.caddyImage()
+	got := s.caddyImage(t.Context())
 	if got != "docker.io/library/caddy:2.7" {
 		t.Fatalf("expected %q, got %q", "docker.io/library/caddy:2.7", got)
 	}

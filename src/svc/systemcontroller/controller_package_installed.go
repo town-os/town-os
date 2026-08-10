@@ -137,7 +137,7 @@ func (s *SystemControllerHandlers) getInstalledInfo(c *echo.Context) error {
 	// global dns_tld. An unknown/default network falls back to dns_tld via
 	// networkTLD.
 	network, _ := inst.LoadNetwork(req.Repo, req.Name)
-	tld := s.networkTLD(network)
+	tld := s.networkTLD(c.Request().Context(), network)
 
 	ctx := packages.CompileContext{
 		ExternalHost: s.Controller.GetExternalIP(),

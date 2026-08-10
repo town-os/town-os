@@ -89,7 +89,7 @@ func (s *SystemControllerHandlers) setPageDNS(ctx context.Context, domain, netwo
 		return
 	}
 	nm := s.Controller.GetNetworkManager()
-	globalTLD := reconcileDNSTLD(s.Controller.GetSettingsManager())
+	globalTLD := reconcileDNSTLD(ctx, s.Controller.GetSettingsManager())
 	tld := pageNetworkTLD(nm, network, globalTLD)
 	if pageIsPublic(domain, tld) {
 		return
@@ -231,7 +231,7 @@ func (s *SystemControllerHandlers) createPage(c *echo.Context) error {
 	// All page storage (content subvolume, webroot symlink, the host the static
 	// server matches) is keyed by the page's served FQDN — which is named under
 	// the page's NETWORK TLD, not its short name and not the global dns_tld.
-	dir := s.pageDirName(req.Domain, network)
+	dir := s.pageDirName(c.Request().Context(), req.Domain, network)
 	if dir == "" {
 		if rerr := mgr.Remove(req.Name); rerr != nil {
 			slog.Debug(fmt.Sprintf("pages rollback remove %s: %v", req.Name, rerr))
@@ -366,7 +366,7 @@ func (s *SystemControllerHandlers) updatePage(c *echo.Context) error {
 	// from a directory nothing points at.
 	if old != nil && (pageDomain(*old) != pageDomain(*page) || old.Network != page.Network) {
 		s.setPageDNS(ctx, pageDomain(*old), old.Network, false)
-		s.migratePageDir(*old, *page)
+		s.migratePageDir(c.Request().Context(), *old, *page)
 	}
 	s.setPageDNS(ctx, pageDomain(*page), page.Network, true)
 	s.refreshPages(ctx)
@@ -398,9 +398,9 @@ func (s *SystemControllerHandlers) removePage(c *echo.Context) error {
 
 	// Resolve the FQDN directory from the captured record (falling back to the
 	// name when the record could not be read).
-	dir := s.pageDirName(req.Name, "")
+	dir := s.pageDirName(c.Request().Context(), req.Name, "")
 	if removed != nil {
-		dir = s.pageDirName(pageDomain(*removed), removed.Network)
+		dir = s.pageDirName(c.Request().Context(), pageDomain(*removed), removed.Network)
 	}
 
 	btrfsBase := s.Controller.GetBtrfsBasePath()
@@ -477,7 +477,7 @@ func (s *SystemControllerHandlers) rebuildPage(c *echo.Context) error {
 		return errors.New(i18n.T(locale, i18n.MsgPagesDirNotConfigured))
 	}
 
-	dir := s.pageDirName(pageDomain(*page), page.Network)
+	dir := s.pageDirName(c.Request().Context(), pageDomain(*page), page.Network)
 	targetDir := s.pagesSubvolumePath(dir)
 	pagesDir := filepath.Join(btrfsBase, PagesVolumePrefix)
 
@@ -564,7 +564,7 @@ func (s *SystemControllerHandlers) uploadPageArchive(c *echo.Context) error {
 
 	// Check Content-Length against max size.
 	if c.Request().ContentLength > 0 {
-		maxSize := s.maxArchiveSize()
+		maxSize := s.maxArchiveSize(c.Request().Context())
 		if c.Request().ContentLength > maxSize {
 			return echo.NewHTTPError(http.StatusForbidden, ErrArchiveTooLarge.Error())
 		}
@@ -580,7 +580,7 @@ func (s *SystemControllerHandlers) uploadPageArchive(c *echo.Context) error {
 		}
 	}()
 
-	dir := s.pageDirName(pageDomain(*page), page.Network)
+	dir := s.pageDirName(c.Request().Context(), pageDomain(*page), page.Network)
 	targetDir := s.pagesSubvolumePath(dir)
 	if targetDir == "" {
 		return errors.New(i18n.T(locale, i18n.MsgPagesDirNotConfigured))
@@ -611,10 +611,10 @@ func (s *SystemControllerHandlers) uploadPageArchive(c *echo.Context) error {
 	}
 
 	// Enforce size limit.
-	maxSize := s.maxArchiveSize()
+	maxSize := s.maxArchiveSize(c.Request().Context())
 	cr := &countingReader{r: io.LimitReader(br, maxSize+1)}
 
-	timeout := s.archiveUnpackTimeout()
+	timeout := s.archiveUnpackTimeout(c.Request().Context())
 	unpackCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -678,23 +678,23 @@ func (s *SystemControllerHandlers) pagesSubvolumePath(dir string) string {
 // verbatim). The content subvolume, webroot symlink, and the host the static
 // pages server matches are all keyed by this name, so two pages whose short
 // labels collide (e.g. blog.a.com and blog.b.com) never share a directory.
-func (s *SystemControllerHandlers) pageDirName(domain, network string) string {
-	return pageHostname(domain, s.pageTLDFor(network))
+func (s *SystemControllerHandlers) pageDirName(ctx context.Context, domain, network string) string {
+	return pageHostname(domain, s.pageTLDFor(ctx, network))
 }
 
 // pageTLDFor resolves the TLD a page on the given network is named under: the
 // network's own TLD, or the global dns_tld for the default network.
-func (s *SystemControllerHandlers) pageTLDFor(network string) string {
+func (s *SystemControllerHandlers) pageTLDFor(ctx context.Context, network string) string {
 	return pageNetworkTLD(s.Controller.GetNetworkManager(), network,
-		reconcileDNSTLD(s.Controller.GetSettingsManager()))
+		reconcileDNSTLD(ctx, s.Controller.GetSettingsManager()))
 }
 
 // migratePageDir renames a page's content subvolume and webroot symlink when its
 // served FQDN changes (a domain edit, or a network move that changes the TLD).
 // Best-effort: failures are logged and the periodic reconcile is the backstop.
-func (s *SystemControllerHandlers) migratePageDir(old, updated account.PageSite) {
-	oldDir := s.pageDirName(pageDomain(old), old.Network)
-	newDir := s.pageDirName(pageDomain(updated), updated.Network)
+func (s *SystemControllerHandlers) migratePageDir(ctx context.Context, old, updated account.PageSite) {
+	oldDir := s.pageDirName(ctx, pageDomain(old), old.Network)
+	newDir := s.pageDirName(ctx, pageDomain(updated), updated.Network)
 	if oldDir == "" || newDir == "" || oldDir == newDir {
 		return
 	}

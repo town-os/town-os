@@ -1,6 +1,7 @@
 package account
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -10,8 +11,8 @@ type SQLiteSettingsManager struct {
 	db *sql.DB
 }
 
-func InitSettingsManager(db *sql.DB) (*SQLiteSettingsManager, error) {
-	ctx, cancel := dbCtx()
+func InitSettingsManager(ctx context.Context, db *sql.DB) (*SQLiteSettingsManager, error) {
+	ctx, cancel := queryCtx(ctx)
 	defer cancel()
 
 	_, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS settings (
@@ -33,8 +34,8 @@ func InitSettingsManager(db *sql.DB) (*SQLiteSettingsManager, error) {
 	return &SQLiteSettingsManager{db: db}, nil
 }
 
-func (m *SQLiteSettingsManager) Get(key string) (string, error) {
-	ctx, cancel := dbCtx()
+func (m *SQLiteSettingsManager) Get(ctx context.Context, key string) (string, error) {
+	ctx, cancel := queryCtx(ctx)
 	defer cancel()
 
 	var value string
@@ -48,8 +49,8 @@ func (m *SQLiteSettingsManager) Get(key string) (string, error) {
 	return value, nil
 }
 
-func (m *SQLiteSettingsManager) Set(key, value string) error {
-	ctx, cancel := dbCtx()
+func (m *SQLiteSettingsManager) Set(ctx context.Context, key, value string) error {
+	ctx, cancel := queryCtx(ctx)
 	defer cancel()
 
 	_, err := m.db.ExecContext(ctx,
@@ -62,8 +63,8 @@ func (m *SQLiteSettingsManager) Set(key, value string) error {
 	return nil
 }
 
-func (m *SQLiteSettingsManager) List() (_ map[string]string, err error) {
-	ctx, cancel := dbCtx()
+func (m *SQLiteSettingsManager) List(ctx context.Context) (_ map[string]string, err error) {
+	ctx, cancel := queryCtx(ctx)
 	defer cancel()
 
 	rows, err := m.db.QueryContext(ctx, `SELECT key, value FROM settings ORDER BY key`)

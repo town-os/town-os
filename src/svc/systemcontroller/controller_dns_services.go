@@ -1,6 +1,7 @@
 package systemcontroller
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,12 +22,12 @@ func dnsServiceKey(repo, name string) string { return repo + "/" + name }
 
 // loadDNSExcludedServices reads the excluded-service set from settings. A nil
 // manager or unset/blank/invalid value yields an empty set (publish all).
-func loadDNSExcludedServices(mgr account.SettingsManager) map[string]bool {
+func loadDNSExcludedServices(ctx context.Context, mgr account.SettingsManager) map[string]bool {
 	out := map[string]bool{}
 	if mgr == nil {
 		return out
 	}
-	val, err := mgr.Get(settingDNSExcludedServices)
+	val, err := mgr.Get(ctx, settingDNSExcludedServices)
 	if err != nil || val == "" {
 		return out
 	}
@@ -42,7 +43,7 @@ func loadDNSExcludedServices(mgr account.SettingsManager) map[string]bool {
 
 // saveDNSExcludedServices persists the excluded-service set as a sorted JSON
 // array (sorted for deterministic, diff-friendly storage).
-func saveDNSExcludedServices(mgr account.SettingsManager, set map[string]bool) error {
+func saveDNSExcludedServices(ctx context.Context, mgr account.SettingsManager, set map[string]bool) error {
 	if mgr == nil {
 		return errors.New("settings manager not available")
 	}
@@ -57,7 +58,7 @@ func saveDNSExcludedServices(mgr account.SettingsManager, set map[string]bool) e
 	if err != nil {
 		return fmt.Errorf("marshal excluded services: %w", err)
 	}
-	return mgr.Set(settingDNSExcludedServices, string(data))
+	return mgr.Set(ctx, settingDNSExcludedServices, string(data))
 }
 
 // DNSServiceEntry describes an installed package service and whether it is
@@ -91,7 +92,7 @@ func (s *SystemControllerHandlers) listDNSServices(c *echo.Context) error {
 		return echo.NewHTTPError(500, fmt.Sprintf("list installed: %v", err))
 	}
 
-	excluded := loadDNSExcludedServices(s.Controller.GetSettingsManager())
+	excluded := loadDNSExcludedServices(c.Request().Context(), s.Controller.GetSettingsManager())
 	rr := s.Controller.GetRepositoryRoot()
 
 	seen := map[string]bool{}
@@ -112,7 +113,7 @@ func (s *SystemControllerHandlers) listDNSServices(c *echo.Context) error {
 		// its published FQDN must use the network TLD rather than dns_tld. An
 		// unknown/default network falls back to dns_tld via networkTLD.
 		network, _ := inst.LoadNetwork(pi.Repo, pi.Name)
-		tld := s.networkTLD(network)
+		tld := s.networkTLD(c.Request().Context(), network)
 
 		var domains []string
 		if rr != nil {
@@ -171,13 +172,13 @@ func (s *SystemControllerHandlers) setDNSService(c *echo.Context) error {
 	}
 
 	key := dnsServiceKey(req.Repo, req.Name)
-	excluded := loadDNSExcludedServices(mgr)
+	excluded := loadDNSExcludedServices(c.Request().Context(), mgr)
 	if req.Published {
 		delete(excluded, key)
 	} else {
 		excluded[key] = true
 	}
-	if err := saveDNSExcludedServices(mgr, excluded); err != nil {
+	if err := saveDNSExcludedServices(c.Request().Context(), mgr, excluded); err != nil {
 		return echo.NewHTTPError(500, fmt.Sprintf("save excluded services: %v", err))
 	}
 

@@ -66,7 +66,7 @@ func (s *SystemControllerHandlers) getSettings(c *echo.Context) error {
 		return c.JSON(200, map[string]string{})
 	}
 
-	settings, err := mgr.List()
+	settings, err := mgr.List(c.Request().Context())
 	if err != nil {
 		return err
 	}
@@ -88,7 +88,7 @@ func (s *SystemControllerHandlers) getSetting(c *echo.Context) error {
 		return echo.NewHTTPError(404, i18n.T(locale, i18n.MsgSettingNotFound, req.Key))
 	}
 
-	value, err := mgr.Get(req.Key)
+	value, err := mgr.Get(c.Request().Context(), req.Key)
 	if err != nil {
 		return echo.NewHTTPError(404, i18n.T(locale, i18n.MsgSettingNotFound, req.Key))
 	}
@@ -130,7 +130,7 @@ func (s *SystemControllerHandlers) setSetting(c *echo.Context) error {
 		return echo.NewHTTPError(500, i18n.T(locale, i18n.MsgSettingsMgrMissing))
 	}
 
-	if err := mgr.Set(req.Key, value); err != nil {
+	if err := mgr.Set(c.Request().Context(), req.Key, value); err != nil {
 		return err
 	}
 

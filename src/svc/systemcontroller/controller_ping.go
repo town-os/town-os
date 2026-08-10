@@ -247,7 +247,7 @@ func (s *SystemControllerHandlers) ping(c *echo.Context) error {
 	resp.UpgradesAvailable = len(upgrades)
 	if len(upgrades) > 0 {
 		if mgr := s.Controller.GetSettingsManager(); mgr != nil {
-			dismissed, err := mgr.Get("dismissed_upgrades_hash")
+			dismissed, err := mgr.Get(c.Request().Context(), "dismissed_upgrades_hash")
 			if err == nil && dismissed == upgradesHash(upgrades) {
 				resp.UpgradesDismissed = true
 			}

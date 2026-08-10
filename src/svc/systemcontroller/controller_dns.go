@@ -76,7 +76,7 @@ func (s *SystemControllerHandlers) dnsStatus(c *echo.Context) error {
 	}
 
 	status := mgr.Status(c.Request().Context())
-	tld := s.getDNSTLDValue()
+	tld := s.getDNSTLDValue(c.Request().Context())
 
 	var recordCount int
 	if rc := s.Controller.GetRolodexClient(); rc != nil {
@@ -132,7 +132,7 @@ func (s *SystemControllerHandlers) listDNSRecords(c *echo.Context) error {
 	}
 	if len(zones) == 0 {
 		// No network manager / no networks: fall back to the global zone only.
-		zones = []zone{{tld: s.getDNSTLDValue(), global: true}}
+		zones = []zone{{tld: s.getDNSTLDValue(c.Request().Context()), global: true}}
 	}
 
 	views := []DNSRecordView{}
@@ -217,7 +217,7 @@ func (s *SystemControllerHandlers) removeDNSRecord(c *echo.Context) error {
 }
 
 func (s *SystemControllerHandlers) getDNSTLD(c *echo.Context) error {
-	tld := s.getDNSTLDValue()
+	tld := s.getDNSTLDValue(c.Request().Context())
 	return c.JSON(200, map[string]string{"tld": tld})
 }
 
@@ -236,11 +236,11 @@ func (s *SystemControllerHandlers) setDNSTLD(c *echo.Context) error {
 		return echo.NewHTTPError(503, "rolodex not available")
 	}
 
-	oldTLD := s.getDNSTLDValue()
+	oldTLD := s.getDNSTLDValue(c.Request().Context())
 	ctx := c.Request().Context()
 
 	// Collect installed packages for re-registration.
-	pkgs := s.collectInstalledPackageDNSInfo()
+	pkgs := s.collectInstalledPackageDNSInfo(c.Request().Context())
 
 	ipv4 := s.Controller.GetInternalIP()
 	ipv6 := s.Controller.GetInternalIPv6()
@@ -250,7 +250,7 @@ func (s *SystemControllerHandlers) setDNSTLD(c *echo.Context) error {
 
 	mgr := s.Controller.GetSettingsManager()
 	if mgr != nil {
-		if err := mgr.Set("dns_tld", req.TLD); err != nil {
+		if err := mgr.Set(c.Request().Context(), "dns_tld", req.TLD); err != nil {
 			return echo.NewHTTPError(500, fmt.Sprintf("save TLD setting: %v", err))
 		}
 	}
@@ -284,7 +284,7 @@ func (s *SystemControllerHandlers) setupDNS(c *echo.Context) error {
 		return echo.NewHTTPError(503, "rolodex not available")
 	}
 
-	tld := s.getDNSTLDValue()
+	tld := s.getDNSTLDValue(c.Request().Context())
 	ctx := c.Request().Context()
 	ipv4 := s.Controller.GetInternalIP()
 	ipv6 := s.Controller.GetInternalIPv6()
@@ -293,7 +293,7 @@ func (s *SystemControllerHandlers) setupDNS(c *echo.Context) error {
 		return echo.NewHTTPError(500, fmt.Sprintf("setup TLD: %v", err))
 	}
 
-	pkgs := s.collectInstalledPackageDNSInfo()
+	pkgs := s.collectInstalledPackageDNSInfo(c.Request().Context())
 	registered := 0
 	for _, pkg := range pkgs {
 		if err := rolodex.RegisterPackageDNS(ctx, rc, pkg.Repo, pkg.Name, tld, ipv4, ipv6, pkg.Domains); err != nil {
@@ -307,13 +307,13 @@ func (s *SystemControllerHandlers) setupDNS(c *echo.Context) error {
 }
 
 // getDNSTLDValue returns the current TLD from settings, defaulting to "home".
-func (s *SystemControllerHandlers) getDNSTLDValue() string {
+func (s *SystemControllerHandlers) getDNSTLDValue(ctx context.Context) string {
 	mgr := s.Controller.GetSettingsManager()
 	if mgr == nil {
 		return "home"
 	}
 
-	val, err := mgr.Get("dns_tld")
+	val, err := mgr.Get(ctx, "dns_tld")
 	if err != nil || val == "" {
 		return "home"
 	}
@@ -329,7 +329,7 @@ func (s *SystemControllerHandlers) registerPackageDNS(ctx context.Context, repoN
 		return
 	}
 
-	tld := s.getDNSTLDValue()
+	tld := s.getDNSTLDValue(ctx)
 	if tld == "" {
 		return
 	}
@@ -349,7 +349,7 @@ func (s *SystemControllerHandlers) unregisterPackageDNS(ctx context.Context, rep
 		return
 	}
 
-	tld := s.getDNSTLDValue()
+	tld := s.getDNSTLDValue(ctx)
 	if tld == "" {
 		return
 	}
@@ -387,7 +387,7 @@ func (s *SystemControllerHandlers) publishPackageTLSA(ctx context.Context, repoN
 	if rc == nil {
 		return
 	}
-	tld := s.networkTLD(network)
+	tld := s.networkTLD(ctx, network)
 	if tld == "" {
 		return
 	}
@@ -422,7 +422,7 @@ func (s *SystemControllerHandlers) unpublishPackageTLSA(ctx context.Context, rep
 	if rc == nil {
 		return
 	}
-	tld := s.getDNSTLDValue()
+	tld := s.getDNSTLDValue(ctx)
 	if tld == "" {
 		return
 	}
@@ -448,7 +448,7 @@ func (s *SystemControllerHandlers) unpublishPackageTLSA(ctx context.Context, rep
 
 // collectInstalledPackageDNSInfo returns DNS info for all installed packages
 // that are published in the DNS zone (excluded services are filtered out).
-func (s *SystemControllerHandlers) collectInstalledPackageDNSInfo() []rolodex.PackageDNSInfo {
-	pkgs := collectInstalledDNSInfo(s.Controller.GetInstaller(), s.Controller.GetRepositoryRoot(), s.getDNSTLDValue())
-	return filterExcludedDNSInfo(pkgs, loadDNSExcludedServices(s.Controller.GetSettingsManager()))
+func (s *SystemControllerHandlers) collectInstalledPackageDNSInfo(ctx context.Context) []rolodex.PackageDNSInfo {
+	pkgs := collectInstalledDNSInfo(s.Controller.GetInstaller(), s.Controller.GetRepositoryRoot(), s.getDNSTLDValue(ctx))
+	return filterExcludedDNSInfo(pkgs, loadDNSExcludedServices(ctx, s.Controller.GetSettingsManager()))
 }

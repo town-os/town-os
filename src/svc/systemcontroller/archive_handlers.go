@@ -55,7 +55,7 @@ func (s *SystemControllerHandlers) uploadArchive(c *echo.Context) error {
 
 	// Check Content-Length against max size.
 	if c.Request().ContentLength > 0 {
-		maxSize := s.maxArchiveSize()
+		maxSize := s.maxArchiveSize(c.Request().Context())
 		if c.Request().ContentLength > maxSize {
 			return echo.NewHTTPError(http.StatusForbidden, ErrArchiveTooLarge.Error())
 		}

@@ -60,7 +60,7 @@ func initWireGuardTestEnvWith(t *testing.T, tweak func(*ServerConfig)) *wgTestEn
 	if err != nil {
 		t.Fatalf("InitAuditManager: %v", err)
 	}
-	settingsMgr, err := account.InitSettingsManager(db)
+	settingsMgr, err := account.InitSettingsManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitSettingsManager: %v", err)
 	}
@@ -416,21 +416,21 @@ func TestPeerTTLReadsSetting(t *testing.T) {
 		ctx:        context.Background(),
 	}
 	// Default seed is 7200s == 2h.
-	if got := h.peerTTL(); got != 2*time.Hour {
+	if got := h.peerTTL(t.Context()); got != 2*time.Hour {
 		t.Errorf("default peerTTL = %v, want 2h", got)
 	}
 	// A changed setting is honored.
-	if err := e.settings.Set("peer_ttl", "60"); err != nil {
+	if err := e.settings.Set(t.Context(), "peer_ttl", "60"); err != nil {
 		t.Fatalf("Set peer_ttl: %v", err)
 	}
-	if got := h.peerTTL(); got != time.Minute {
+	if got := h.peerTTL(t.Context()); got != time.Minute {
 		t.Errorf("peerTTL after set = %v, want 1m", got)
 	}
 	// A corrupt setting falls back to two hours, never zero.
-	if err := e.settings.Set("peer_ttl", "garbage"); err != nil {
+	if err := e.settings.Set(t.Context(), "peer_ttl", "garbage"); err != nil {
 		t.Fatalf("Set peer_ttl: %v", err)
 	}
-	if got := h.peerTTL(); got != 2*time.Hour {
+	if got := h.peerTTL(t.Context()); got != 2*time.Hour {
 		t.Errorf("peerTTL on corrupt setting = %v, want 2h fallback", got)
 	}
 }

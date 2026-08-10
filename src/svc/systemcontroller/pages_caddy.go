@@ -4,6 +4,7 @@
 package systemcontroller
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -275,13 +276,13 @@ func pruneStalePageSymlinks(btrfsBasePath string, valid map[string]struct{}) {
 }
 
 // caddyImage returns the configured Caddy container image from settings.
-func (s *SystemControllerHandlers) caddyImage() string {
+func (s *SystemControllerHandlers) caddyImage(ctx context.Context) string {
 	mgr := s.Controller.GetSettingsManager()
 	if mgr == nil {
 		return DefaultCaddyImage
 	}
 
-	val, err := mgr.Get("caddy_image")
+	val, err := mgr.Get(ctx, "caddy_image")
 	if err != nil || val == "" {
 		return DefaultCaddyImage
 	}

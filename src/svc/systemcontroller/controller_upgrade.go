@@ -110,7 +110,7 @@ func (s *SystemControllerHandlers) dismissUpgrades(c *echo.Context) error {
 		return echo.NewHTTPError(500, i18n.T(s.getLocale(), i18n.MsgUpgradeSettingsMissing))
 	}
 
-	if err := mgr.Set("dismissed_upgrades_hash", hash); err != nil {
+	if err := mgr.Set(c.Request().Context(), "dismissed_upgrades_hash", hash); err != nil {
 		return err
 	}
 

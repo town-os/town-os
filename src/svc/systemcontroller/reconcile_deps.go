@@ -1,6 +1,8 @@
 package systemcontroller
 
 import (
+	"context"
+
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -19,6 +21,7 @@ import (
 // the parent's compiled environment does not include these values (they were
 // injected at install time), so both are rebuilt here from the records.
 func buildDepEnvVarsFromRecords(
+	ctx context.Context,
 	depRecs map[string]packages.DependencyRecord,
 	rr *packages.RepositoryRoot,
 	inst packages.Installer,
@@ -27,7 +30,7 @@ func buildDepEnvVarsFromRecords(
 ) (map[string]string, map[string]packages.TemplateDep) {
 	envVars := map[string]string{}
 	depMap := map[string]packages.TemplateDep{}
-	tld := reconcileDNSTLD(settingsMgr)
+	tld := reconcileDNSTLD(ctx, settingsMgr)
 
 	for depKey, rec := range depRecs {
 		// Load and compile the dependency to discover its ports.

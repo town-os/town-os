@@ -61,7 +61,7 @@ func TestPackageLeafSANFollowsNetworkTLD(t *testing.T) {
 	nm := seedNetwork(t)
 	s, btrfs := certNetworkHandler(t, nm, nil)
 
-	if err := s.writePackageNetworkState("repo-a", "gitea", "2.0", "fart", httpPackage(), []string{"http"}); err != nil {
+	if err := s.writePackageNetworkState(t.Context(), "repo-a", "gitea", "2.0", "fart", httpPackage(), []string{"http"}); err != nil {
 		t.Fatalf("writePackageNetworkState: %v", err)
 	}
 
@@ -79,7 +79,7 @@ func TestPackageLeafSANDefaultNetworkUsesHome(t *testing.T) {
 	nm := account.InitMockNetworkManager()
 	s, btrfs := certNetworkHandler(t, nm, nil)
 
-	if err := s.writePackageNetworkState("repo-a", "nginx", "1.0", account.DefaultNetworkName, httpPackage(), []string{"http"}); err != nil {
+	if err := s.writePackageNetworkState(t.Context(), "repo-a", "nginx", "1.0", account.DefaultNetworkName, httpPackage(), []string{"http"}); err != nil {
 		t.Fatalf("writePackageNetworkState: %v", err)
 	}
 
@@ -98,7 +98,7 @@ func TestPublishPackageTLSAScopedUnderNetworkTLD(t *testing.T) {
 	s, _ := certNetworkHandler(t, nm, mc)
 
 	// Provision the state file + leaf so buildTLSAEntries has something to pin.
-	if err := s.writePackageNetworkState("repo-a", "gitea", "2.0", "fart", httpPackage(), []string{"http"}); err != nil {
+	if err := s.writePackageNetworkState(t.Context(), "repo-a", "gitea", "2.0", "fart", httpPackage(), []string{"http"}); err != nil {
 		t.Fatalf("writePackageNetworkState: %v", err)
 	}
 
@@ -119,7 +119,7 @@ func TestPublishPackageTLSADefaultNetworkGlobalHome(t *testing.T) {
 	mc := &rolodex.MockClient{}
 	s, _ := certNetworkHandler(t, nm, mc)
 
-	if err := s.writePackageNetworkState("repo-a", "nginx", "1.0", account.DefaultNetworkName, httpPackage(), []string{"http"}); err != nil {
+	if err := s.writePackageNetworkState(t.Context(), "repo-a", "nginx", "1.0", account.DefaultNetworkName, httpPackage(), []string{"http"}); err != nil {
 		t.Fatalf("writePackageNetworkState: %v", err)
 	}
 
@@ -139,17 +139,17 @@ func TestNetworkTLDResolvesInstallNetwork(t *testing.T) {
 	nm := seedNetwork(t)
 	s := dnsNetworkHandler(nm, nil)
 
-	if got := s.networkTLD("fart"); got != "fart" {
+	if got := s.networkTLD(t.Context(), "fart"); got != "fart" {
 		t.Errorf("networkTLD(fart) = %q, want fart", got)
 	}
-	if got := s.networkTLD(account.DefaultNetworkName); got != "home" {
+	if got := s.networkTLD(t.Context(), account.DefaultNetworkName); got != "home" {
 		t.Errorf("networkTLD(home) = %q, want home", got)
 	}
-	if got := s.networkTLD(""); got != "home" {
+	if got := s.networkTLD(t.Context(), ""); got != "home" {
 		t.Errorf("networkTLD(\"\") = %q, want home", got)
 	}
 	// Unknown networks fall back to the global default rather than inventing a TLD.
-	if got := s.networkTLD("nope"); got != "home" {
+	if got := s.networkTLD(t.Context(), "nope"); got != "home" {
 		t.Errorf("networkTLD(nope) = %q, want home", got)
 	}
 }

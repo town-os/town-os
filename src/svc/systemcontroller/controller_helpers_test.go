@@ -381,7 +381,7 @@ func initSettingsTestClient(t *testing.T) (*SystemdClient, string) {
 		t.Fatalf("InitAuditManager: %v", err)
 	}
 
-	settingsMgr, err := account.InitSettingsManager(db)
+	settingsMgr, err := account.InitSettingsManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitSettingsManager: %v", err)
 	}
@@ -708,7 +708,7 @@ func initUpgradesTestServer(t *testing.T) (*SystemdClient, *packages.InstallMana
 	}
 	t.Cleanup(func() { if err := db.Close(); err != nil { t.Errorf("db.Close: %v", err) } })
 
-	settingsMgr, err := account.InitSettingsManager(db)
+	settingsMgr, err := account.InitSettingsManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitSettingsManager: %v", err)
 	}

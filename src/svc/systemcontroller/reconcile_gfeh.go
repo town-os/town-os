@@ -151,7 +151,7 @@ func ReconcileGfeh(ctx context.Context, reg *gfehRegistry) {
 	// network set rather than of map iteration order.
 	sort.Slice(nets, func(i, j int) bool { return nets[i].Name < nets[j].Name })
 
-	quota := gfehPartitionQuota(cfg.SettingsMgr)
+	quota := gfehPartitionQuota(ctx, cfg.SettingsMgr)
 
 	// No town_os section is rendered, and so no credential exists for one.
 	//
@@ -478,11 +478,11 @@ const SettingGfehPartitionQuota = "gfeh_partition_quota"
 // Zero means unlimited, and is the default: a partition is the box's object
 // storage, and capping it at the per-user volume default would surprise
 // somebody the first time a photo library outgrew it.
-func gfehPartitionQuota(settingsMgr account.SettingsManager) uint64 {
+func gfehPartitionQuota(ctx context.Context, settingsMgr account.SettingsManager) uint64 {
 	if settingsMgr == nil {
 		return 0
 	}
-	raw, err := settingsMgr.Get(SettingGfehPartitionQuota)
+	raw, err := settingsMgr.Get(ctx, SettingGfehPartitionQuota)
 	if err != nil || strings.TrimSpace(raw) == "" {
 		return 0
 	}

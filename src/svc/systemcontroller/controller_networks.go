@@ -1,6 +1,7 @@
 package systemcontroller
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -449,7 +450,7 @@ func (s *SystemControllerHandlers) addNetworkPeer(c *echo.Context) error {
 			if !acct.MayAdministerNetwork(n.Name) {
 				return echo.NewHTTPError(403, i18n.T(s.getLocale(), i18n.MsgAuthNetworkOnlyNetworkDenied))
 			}
-			exp := time.Now().Add(s.peerTTL()).UTC()
+			exp := time.Now().Add(s.peerTTL(c.Request().Context())).UTC()
 			expiresAt = &exp
 		}
 	}
@@ -544,7 +545,7 @@ func (s *SystemControllerHandlers) refreshNetworkPeer(c *echo.Context) error {
 		}
 	}
 
-	expiresAt := time.Now().Add(s.peerTTL()).UTC()
+	expiresAt := time.Now().Add(s.peerTTL(c.Request().Context())).UTC()
 	if err := nm.RefreshPeer(req.Network, req.PublicKey, expiresAt); err != nil {
 		if errors.Is(err, account.ErrNetworkPeerNotFound) {
 			return echo.NewHTTPError(404, "peer not found")
@@ -576,13 +577,13 @@ func (s *SystemControllerHandlers) peerOwnedBy(nm account.NetworkManager, networ
 // setting (raw seconds) and falls back to two hours if the setting is missing,
 // blank, unparseable, or non-positive — a corrupt setting must never yield a
 // zero TTL that would expire every enrollment on the next reaper tick.
-func (s *SystemControllerHandlers) peerTTL() time.Duration {
+func (s *SystemControllerHandlers) peerTTL(ctx context.Context) time.Duration {
 	const fallback = 2 * time.Hour
 	mgr := s.Controller.GetSettingsManager()
 	if mgr == nil {
 		return fallback
 	}
-	val, err := mgr.Get("peer_ttl")
+	val, err := mgr.Get(ctx, "peer_ttl")
 	if err != nil {
 		return fallback
 	}

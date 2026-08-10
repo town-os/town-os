@@ -80,13 +80,13 @@ type InstallPreview struct {
 // defaultQuota returns the system-wide default quota in bytes.
 // If no settings manager is configured or the value is missing/invalid, it
 // returns 0 (no quota).
-func (s *SystemControllerHandlers) defaultQuota() uint64 {
+func (s *SystemControllerHandlers) defaultQuota(ctx context.Context) uint64 {
 	mgr := s.Controller.GetSettingsManager()
 	if mgr == nil {
 		return 0
 	}
 
-	val, err := mgr.Get("default_quota")
+	val, err := mgr.Get(ctx, "default_quota")
 	if err != nil {
 		return 0
 	}
@@ -285,7 +285,7 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 	compiled, err := ip.CompileWithContext(req.Responses, packages.CompileContext{
 		ExternalHost: s.Controller.GetExternalIP(),
 		InternalHost: s.Controller.GetInternalIP(),
-		PackageDNS:   effectiveName + "." + repoName + "." + s.networkTLD(network),
+		PackageDNS:   effectiveName + "." + repoName + "." + s.networkTLD(c.Request().Context(), network),
 	})
 	if err != nil {
 		return err
@@ -304,7 +304,7 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 	}
 
 	pw.Step("provisioning_volumes")
-	if err := s.provisionVolumes(repoName, effectiveName, req.Version, req.ImportFromVersion, req.ReuseVolumes, compiled); err != nil {
+	if err := s.provisionVolumes(c.Request().Context(), repoName, effectiveName, req.Version, req.ImportFromVersion, req.ReuseVolumes, compiled); err != nil {
 		pw.Err(err)
 		return nil
 	}
@@ -446,7 +446,7 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 		}
 
 		units := systemd.GeneratePackageUnits(cfg)
-		if err := s.writePackageNetworkState(repoName, effectiveName, req.Version, network, compiled, ip.Supplies); err != nil {
+		if err := s.writePackageNetworkState(c.Request().Context(), repoName, effectiveName, req.Version, network, compiled, ip.Supplies); err != nil {
 			pw.Err(err)
 			return nil
 		}

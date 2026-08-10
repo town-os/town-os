@@ -86,12 +86,12 @@ func (c ReconcileConfig) gitClient() git.Client {
 
 // reconcileDefaultQuota returns the system-wide default quota in bytes from the
 // settings manager. Returns 0 if unconfigured.
-func reconcileDefaultQuota(mgr account.SettingsManager) uint64 {
+func reconcileDefaultQuota(ctx context.Context, mgr account.SettingsManager) uint64 {
 	if mgr == nil {
 		return 0
 	}
 
-	val, err := mgr.Get("default_quota")
+	val, err := mgr.Get(ctx, "default_quota")
 	if err != nil {
 		return 0
 	}
@@ -148,7 +148,7 @@ func Reconcile(ctx context.Context, cfg ReconcileConfig) error {
 			}
 		}
 
-		defQuota := reconcileDefaultQuota(cfg.SettingsMgr)
+		defQuota := reconcileDefaultQuota(ctx, cfg.SettingsMgr)
 
 		// Batch-load all dependency records upfront so the per-package
 		// loop does not issue N separate I/O calls.
@@ -170,7 +170,7 @@ func Reconcile(ctx context.Context, cfg ReconcileConfig) error {
 		// reusing the result avoids races between dep and parent
 		// goroutines that would otherwise both want to load the parent.
 		parentDepBlocks := map[repoNameKey]map[string]packages.InputPackageDependency{}
-		tldForCompile := reconcileDNSTLD(cfg.SettingsMgr)
+		tldForCompile := reconcileDNSTLD(ctx, cfg.SettingsMgr)
 		for parentKey := range allDeps {
 			pi, ok := byRepoName[parentKey]
 			if !ok {
@@ -352,7 +352,7 @@ func Reconcile(ctx context.Context, cfg ReconcileConfig) error {
 	// pages). This runs independent of the pages feature — packages need the
 	// ingress even when no pages exist.
 	if cfg.IngressClient != nil {
-		tld := reconcileDNSTLD(cfg.SettingsMgr)
+		tld := reconcileDNSTLD(ctx, cfg.SettingsMgr)
 		if err := RebuildIngress(ctx, cfg.IngressClient, cfg.PagesManager, cfg.NetworkMgr, cfg.Installer,
 			cfg.Gfeh, cfg.TLSCA, cfg.BtrfsBasePath, cfg.NetworkStatePath, tld, cfg.InternalIP); err != nil {
 			slog.Error(fmt.Sprintf("reconcile: ingress: %v", err))
@@ -421,7 +421,7 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 	// rewrite the unit and restart the service with a broken URL. LoadNetwork
 	// returns "" for default-network packages, which falls back to dns_tld.
 	network, _ := cfg.Installer.LoadNetwork(repoName, pi.Name)
-	tld := networkTLDValue(cfg.NetworkMgr, cfg.SettingsMgr, network)
+	tld := networkTLDValue(ctx, cfg.NetworkMgr, cfg.SettingsMgr, network)
 	compiled, err := ip.CompileWithContext(responses, packages.CompileContext{
 		ExternalHost: cfg.ExternalIP,
 		InternalHost: cfg.InternalIP,
@@ -439,7 +439,7 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 	var depMap map[string]packages.TemplateDep
 	var depEnvVars map[string]string
 	if len(depRecs) > 0 {
-		envVars, deps := buildDepEnvVarsFromRecords(depRecs, cfg.RepositoryRoot, cfg.Installer, cfg.SettingsMgr, cfg.ExternalIP, cfg.InternalIP)
+		envVars, deps := buildDepEnvVarsFromRecords(ctx, depRecs, cfg.RepositoryRoot, cfg.Installer, cfg.SettingsMgr, cfg.ExternalIP, cfg.InternalIP)
 		depMap = deps
 		depEnvVars = envVars
 		if len(depEnvVars) > 0 {
@@ -586,7 +586,7 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 		return ip.CompileWithContext(responses, packages.CompileContext{
 			ExternalHost: cfg.ExternalIP,
 			InternalHost: cfg.InternalIP,
-			PackageDNS:   rec.EffectiveName + "." + rec.Repo + "." + reconcileDNSTLD(cfg.SettingsMgr),
+			PackageDNS:   rec.EffectiveName + "." + rec.Repo + "." + reconcileDNSTLD(ctx, cfg.SettingsMgr),
 		})
 	}
 
@@ -726,12 +726,12 @@ func installUnitIfChanged(ctx context.Context, sd systemd.Manager, name, content
 }
 
 // reconcileDNSTLD returns the current TLD from settings, defaulting to "home".
-func reconcileDNSTLD(mgr account.SettingsManager) string {
+func reconcileDNSTLD(ctx context.Context, mgr account.SettingsManager) string {
 	if mgr == nil {
 		return "home"
 	}
 
-	val, err := mgr.Get("dns_tld")
+	val, err := mgr.Get(ctx, "dns_tld")
 	if err != nil || val == "" {
 		return "home"
 	}
@@ -830,7 +830,7 @@ type ReconcileDNSConfig struct {
 // here — those need to stay non-disruptive and use ReconcileDNS / the
 // per-package helpers instead.
 func RebuildDNS(ctx context.Context, cfg ReconcileDNSConfig) error {
-	tld := reconcileDNSTLD(cfg.SettingsMgr)
+	tld := reconcileDNSTLD(ctx, cfg.SettingsMgr)
 
 	// Re-assert the blocklist provider lists. Rolodex keeps them in memory
 	// only, so a restart it performed without us — and a boot is exactly that
@@ -851,7 +851,7 @@ func RebuildDNS(ctx context.Context, cfg ReconcileDNSConfig) error {
 		return fmt.Errorf("setup TLD %s: %w", tld, err)
 	}
 
-	excluded := loadDNSExcludedServices(cfg.SettingsMgr)
+	excluded := loadDNSExcludedServices(ctx, cfg.SettingsMgr)
 	for _, pkg := range filterExcludedDNSInfo(collectInstalledDNSInfo(cfg.Installer, cfg.RepositoryRoot, tld), excluded) {
 		if err := rolodex.RegisterPackageDNS(ctx, cfg.Client, pkg.Repo, pkg.Name, tld, cfg.InternalIP, cfg.InternalIPv6, pkg.Domains); err != nil {
 			slog.Debug(fmt.Sprintf("rebuild DNS %s/%s: %v", pkg.Repo, pkg.Name, err))
@@ -929,7 +929,7 @@ func RebuildNetworkDNS(ctx context.Context, cfg ReconcileDNSConfig) error {
 		return fmt.Errorf("list networks: %w", err)
 	}
 
-	excluded := loadDNSExcludedServices(cfg.SettingsMgr)
+	excluded := loadDNSExcludedServices(ctx, cfg.SettingsMgr)
 	for i := range nets {
 		n := nets[i]
 		if n.Name == account.DefaultNetworkName || n.TLD == "" {
@@ -1146,7 +1146,7 @@ func collectInstalledTLSA(cfg ReconcileDNSConfig, tld string) []rolodex.TLSAEntr
 // Errors on individual records are logged and skipped so a transient
 // rolodex hiccup on one record never aborts the whole reconcile.
 func ReconcileDNS(ctx context.Context, cfg ReconcileDNSConfig) error {
-	tld := reconcileDNSTLD(cfg.SettingsMgr)
+	tld := reconcileDNSTLD(ctx, cfg.SettingsMgr)
 	zone := tld + "."
 
 	// Blocklists are diffed the same way the records below are, and for the
@@ -1189,7 +1189,7 @@ func ReconcileDNS(ctx context.Context, cfg ReconcileDNSConfig) error {
 			desired[recKey{name: name, value: cfg.InternalIPv6, rtype: upstream.RecordTypeAAAA}] = struct{}{}
 		}
 	}
-	pkgs := filterExcludedDNSInfo(collectInstalledDNSInfo(cfg.Installer, cfg.RepositoryRoot, tld), loadDNSExcludedServices(cfg.SettingsMgr))
+	pkgs := filterExcludedDNSInfo(collectInstalledDNSInfo(cfg.Installer, cfg.RepositoryRoot, tld), loadDNSExcludedServices(ctx, cfg.SettingsMgr))
 	for _, pkg := range pkgs {
 		baseName := pkg.Name + "." + pkg.Repo + "." + zone
 		addDesired(baseName)
@@ -1311,7 +1311,7 @@ func reconcilePages(ctx context.Context, cfg ReconcileConfig) error {
 	// `valid` drives pruneStalePageSymlinks below, so naming a fart-network page
 	// as blog.home here would both miss its real blog.fart directory AND prune the
 	// live symlink the ingress is serving from.
-	globalTLD := reconcileDNSTLD(cfg.SettingsMgr)
+	globalTLD := reconcileDNSTLD(ctx, cfg.SettingsMgr)
 	valid := make(map[string]struct{}, len(pages))
 	for _, page := range pages {
 		dir := pageFQDN(cfg.NetworkMgr, page, globalTLD)

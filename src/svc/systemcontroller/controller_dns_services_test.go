@@ -15,16 +15,16 @@ import (
 func TestDNSExcludedServicesRoundtrip(t *testing.T) {
 	mgr := &mockSettingsManager{values: map[string]string{}}
 
-	if got := loadDNSExcludedServices(mgr); len(got) != 0 {
+	if got := loadDNSExcludedServices(t.Context(), mgr); len(got) != 0 {
 		t.Fatalf("expected empty set initially, got %v", got)
 	}
 
 	set := map[string]bool{"default/nginx": true, "extras/redis": true}
-	if err := saveDNSExcludedServices(mgr, set); err != nil {
+	if err := saveDNSExcludedServices(t.Context(), mgr, set); err != nil {
 		t.Fatalf("saveDNSExcludedServices: %v", err)
 	}
 
-	got := loadDNSExcludedServices(mgr)
+	got := loadDNSExcludedServices(t.Context(), mgr)
 	if len(got) != 2 || !got["default/nginx"] || !got["extras/redis"] {
 		t.Fatalf("roundtrip mismatch: %v", got)
 	}
@@ -36,17 +36,17 @@ func TestDNSExcludedServicesRoundtrip(t *testing.T) {
 }
 
 func TestSaveDNSExcludedServicesNilManager(t *testing.T) {
-	if err := saveDNSExcludedServices(nil, map[string]bool{"a/b": true}); err == nil {
+	if err := saveDNSExcludedServices(t.Context(), nil, map[string]bool{"a/b": true}); err == nil {
 		t.Fatal("expected error with nil settings manager")
 	}
 }
 
 func TestLoadDNSExcludedServicesNilAndInvalid(t *testing.T) {
-	if got := loadDNSExcludedServices(nil); len(got) != 0 {
+	if got := loadDNSExcludedServices(t.Context(), nil); len(got) != 0 {
 		t.Fatalf("nil manager should yield empty set, got %v", got)
 	}
 	mgr := &mockSettingsManager{values: map[string]string{settingDNSExcludedServices: "not json"}}
-	if got := loadDNSExcludedServices(mgr); len(got) != 0 {
+	if got := loadDNSExcludedServices(t.Context(), mgr); len(got) != 0 {
 		t.Fatalf("invalid JSON should yield empty set, got %v", got)
 	}
 }

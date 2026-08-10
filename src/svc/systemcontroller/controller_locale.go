@@ -26,7 +26,7 @@ type LocaleListResponse struct {
 func (s *SystemControllerHandlers) listLocales(c *echo.Context) error {
 	current := i18n.DefaultLocale
 	if mgr := s.Controller.GetSettingsManager(); mgr != nil {
-		if val, err := mgr.Get("locale"); err == nil && val != "" {
+		if val, err := mgr.Get(c.Request().Context(), "locale"); err == nil && val != "" {
 			current = val
 		}
 	}
@@ -42,9 +42,25 @@ func (s *SystemControllerHandlers) listLocales(c *echo.Context) error {
 }
 
 // getLocale reads the system locale from settings, falling back to the default.
+//
+// It uses the server-scoped context rather than taking one, and that is a
+// deliberate exception to the rule that a handler passes its request context
+// down. getLocale is called from ~55 sites, almost all of them building an
+// error message, and threading a context through every one of them would be a
+// large diff for a lookup whose only failure mode is "use English".
+//
+// The request context would also be the wrong context to bound it with: the
+// one case where it is already cancelled is a client that hung up, and then
+// the message being formatted is not going to be delivered either way — so
+// cancelling here converts a rendered-but-undelivered message into a
+// default-locale-but-undelivered one, which is no better and loses the locale
+// on any path that does still write a response.
+//
+// s.ctx is nil in tests that construct SystemControllerHandlers directly;
+// account.queryCtx treats that as context.Background(), so those keep working.
 func (s *SystemControllerHandlers) getLocale() string {
 	if mgr := s.Controller.GetSettingsManager(); mgr != nil {
-		if val, err := mgr.Get("locale"); err == nil && val != "" {
+		if val, err := mgr.Get(s.ctx, "locale"); err == nil && val != "" {
 			return val
 		}
 	}

@@ -219,7 +219,7 @@ func (s *SystemControllerHandlers) reprogramIngress(ctx context.Context) {
 	if ic == nil {
 		return
 	}
-	tld := reconcileDNSTLD(s.Controller.GetSettingsManager())
+	tld := reconcileDNSTLD(ctx, s.Controller.GetSettingsManager())
 	if err := RebuildIngress(ctx, ic, s.Controller.GetPagesManager(), s.Controller.GetNetworkManager(),
 		s.Controller.GetInstaller(), s.Controller.GetGfehRegistry(),
 		s.Controller.GetTLSCA(), s.Controller.GetBtrfsBasePath(), s.Controller.GetNetworkStatePath(),

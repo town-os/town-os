@@ -334,7 +334,7 @@ func TestReconcileGfehRunsWithNoSettingsManager(t *testing.T) {
 // about a control that no longer exists.
 func TestReconcileGfehIgnoresAStaleOffSetting(t *testing.T) {
 	reg, _, _, base := gfehTestRegistry(t, "home")
-	if err := reg.cfg.SettingsMgr.Set("object_storage_enabled", "false"); err != nil {
+	if err := reg.cfg.SettingsMgr.Set(t.Context(), "object_storage_enabled", "false"); err != nil {
 		t.Fatalf("seed stale setting: %v", err)
 	}
 

@@ -48,8 +48,8 @@ func (s *SystemControllerHandlers) resolveInstallNetwork(requested string) (stri
 // TLD as its address records: the global dns_tld for the default network (or an
 // unknown/unavailable one), otherwise the network's own TLD. A gitea instance on
 // the "fart" network must get a cert for gitea.<repo>.fart, not <...>.home.
-func (s *SystemControllerHandlers) networkTLD(network string) string {
-	return networkTLDValue(s.Controller.GetNetworkManager(), s.Controller.GetSettingsManager(), network)
+func (s *SystemControllerHandlers) networkTLD(ctx context.Context, network string) string {
+	return networkTLDValue(ctx, s.Controller.GetNetworkManager(), s.Controller.GetSettingsManager(), network)
 }
 
 // networkTLDValue is the free-function core of networkTLD, so the reconcile
@@ -57,13 +57,13 @@ func (s *SystemControllerHandlers) networkTLD(network string) string {
 // per-network TLD. It maps a package's install network to the TLD its DNS
 // names use: the global dns_tld for the default network (or an unknown/
 // unavailable one), otherwise the network's own TLD.
-func networkTLDValue(nm account.NetworkManager, settingsMgr account.SettingsManager, network string) string {
+func networkTLDValue(ctx context.Context, nm account.NetworkManager, settingsMgr account.SettingsManager, network string) string {
 	if network == "" || network == account.DefaultNetworkName || nm == nil {
-		return reconcileDNSTLD(settingsMgr)
+		return reconcileDNSTLD(ctx, settingsMgr)
 	}
 	n, err := nm.Get(network)
 	if err != nil || n.TLD == "" {
-		return reconcileDNSTLD(settingsMgr)
+		return reconcileDNSTLD(ctx, settingsMgr)
 	}
 	return n.TLD
 }
@@ -765,12 +765,12 @@ func (s *SystemControllerHandlers) reconcilePeerForwarders(ctx context.Context, 
 // TLD had been changed kept a home network claiming the old one -- and
 // applyNetworkTransport hands n.TLD to rolodex.EnsureNetworkScope, which is
 // what decides which zone the home scope owns.
-func (s *SystemControllerHandlers) ensureDefaultNetwork() error {
+func (s *SystemControllerHandlers) ensureDefaultNetwork(ctx context.Context) error {
 	nm := s.Controller.GetNetworkManager()
 	if nm == nil {
 		return nil
 	}
-	tld := s.getDNSTLDValue()
+	tld := s.getDNSTLDValue(ctx)
 	if existing, err := nm.Get(account.DefaultNetworkName); err == nil {
 		if existing.TLD == tld {
 			return nil
@@ -783,7 +783,7 @@ func (s *SystemControllerHandlers) ensureDefaultNetwork() error {
 		return fmt.Errorf("get default network: %w", err)
 	}
 
-	n, err := s.buildNetwork(account.DefaultNetworkName, s.getDNSTLDValue(), true)
+	n, err := s.buildNetwork(account.DefaultNetworkName, s.getDNSTLDValue(ctx), true)
 	if err != nil {
 		return err
 	}
@@ -801,7 +801,7 @@ func (s *SystemControllerHandlers) reconcileNetworks(ctx context.Context) {
 	if nm == nil {
 		return
 	}
-	if err := s.ensureDefaultNetwork(); err != nil {
+	if err := s.ensureDefaultNetwork(ctx); err != nil {
 		logNonFatal("ensure default network", err)
 	}
 	nets, err := nm.List()

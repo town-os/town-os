@@ -23,7 +23,7 @@ func TestEnsureDefaultNetworkFindsTheSeededRow(t *testing.T) {
 	nm := account.InitMockNetworkManager()
 	s := newDefaultNetworkHandler(nm, "home")
 
-	if err := s.ensureDefaultNetwork(); err != nil {
+	if err := s.ensureDefaultNetwork(t.Context()); err != nil {
 		t.Fatalf("ensureDefaultNetwork: %v", err)
 	}
 
@@ -45,7 +45,7 @@ func TestEnsureDefaultNetworkReconcilesTheTLD(t *testing.T) {
 	nm := account.InitMockNetworkManager()
 	s := newDefaultNetworkHandler(nm, "lan")
 
-	if err := s.ensureDefaultNetwork(); err != nil {
+	if err := s.ensureDefaultNetwork(t.Context()); err != nil {
 		t.Fatalf("ensureDefaultNetwork: %v", err)
 	}
 
@@ -64,7 +64,7 @@ func TestEnsureDefaultNetworkIsQuietWhenTheTLDMatches(t *testing.T) {
 	nm := account.InitMockNetworkManager()
 	s := newDefaultNetworkHandler(nm, "home")
 
-	if err := s.ensureDefaultNetwork(); err != nil {
+	if err := s.ensureDefaultNetwork(t.Context()); err != nil {
 		t.Fatalf("ensureDefaultNetwork: %v", err)
 	}
 

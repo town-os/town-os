@@ -296,7 +296,7 @@ func initSystemControllerSettingsTest(t *testing.T) *systemcontroller.SystemdCli
 		t.Fatalf("InitAuditManager: %v", err)
 	}
 
-	settingsMgr, err := account.InitSettingsManager(db)
+	settingsMgr, err := account.InitSettingsManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitSettingsManager: %v", err)
 	}
@@ -511,7 +511,7 @@ type mockSettingsManager struct {
 	values map[string]string
 }
 
-func (m *mockSettingsManager) Get(key string) (string, error) {
+func (m *mockSettingsManager) Get(_ context.Context, key string) (string, error) {
 	v, ok := m.values[key]
 	if !ok {
 		return "", fmt.Errorf("setting %q not found", key)
@@ -519,12 +519,12 @@ func (m *mockSettingsManager) Get(key string) (string, error) {
 	return v, nil
 }
 
-func (m *mockSettingsManager) Set(key, value string) error {
+func (m *mockSettingsManager) Set(_ context.Context, key, value string) error {
 	m.values[key] = value
 	return nil
 }
 
-func (m *mockSettingsManager) List() (map[string]string, error) {
+func (m *mockSettingsManager) List(_ context.Context) (map[string]string, error) {
 	out := make(map[string]string, len(m.values))
 	maps.Copy(out, m.values)
 	return out, nil

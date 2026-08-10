@@ -20,7 +20,7 @@ func initTestSettingsDB(t *testing.T) *SQLiteSettingsManager {
 		}
 	})
 
-	mgr, err := InitSettingsManager(db)
+	mgr, err := InitSettingsManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitSettingsManager: %v", err)
 	}
@@ -31,7 +31,7 @@ func TestSettingsDefaultsSeeded(t *testing.T) {
 	mgr := initTestSettingsDB(t)
 
 	for key, expected := range DefaultSettings {
-		val, err := mgr.Get(key)
+		val, err := mgr.Get(t.Context(), key)
 		if err != nil {
 			t.Fatalf("Get(%q): %v", key, err)
 		}
@@ -44,11 +44,11 @@ func TestSettingsDefaultsSeeded(t *testing.T) {
 func TestSettingsSetAndGet(t *testing.T) {
 	mgr := initTestSettingsDB(t)
 
-	if err := mgr.Set("custom_key", "custom_value"); err != nil {
+	if err := mgr.Set(t.Context(), "custom_key", "custom_value"); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
 
-	val, err := mgr.Get("custom_key")
+	val, err := mgr.Get(t.Context(), "custom_key")
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -60,14 +60,14 @@ func TestSettingsSetAndGet(t *testing.T) {
 func TestSettingsSetOverwrites(t *testing.T) {
 	mgr := initTestSettingsDB(t)
 
-	if err := mgr.Set("key", "first"); err != nil {
+	if err := mgr.Set(t.Context(), "key", "first"); err != nil {
 		t.Fatalf("Set first: %v", err)
 	}
-	if err := mgr.Set("key", "second"); err != nil {
+	if err := mgr.Set(t.Context(), "key", "second"); err != nil {
 		t.Fatalf("Set second: %v", err)
 	}
 
-	val, err := mgr.Get("key")
+	val, err := mgr.Get(t.Context(), "key")
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -79,7 +79,7 @@ func TestSettingsSetOverwrites(t *testing.T) {
 func TestSettingsGetNotFound(t *testing.T) {
 	mgr := initTestSettingsDB(t)
 
-	_, err := mgr.Get("nonexistent_key")
+	_, err := mgr.Get(t.Context(), "nonexistent_key")
 	if err == nil {
 		t.Fatal("expected error for nonexistent key")
 	}
@@ -88,11 +88,11 @@ func TestSettingsGetNotFound(t *testing.T) {
 func TestSettingsList(t *testing.T) {
 	mgr := initTestSettingsDB(t)
 
-	if err := mgr.Set("extra_key", "extra_value"); err != nil {
+	if err := mgr.Set(t.Context(), "extra_key", "extra_value"); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
 
-	all, err := mgr.List()
+	all, err := mgr.List(t.Context())
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -117,22 +117,22 @@ func TestSettingsDefaultsNotOverwritten(t *testing.T) {
 		}
 	})
 
-	mgr, err := InitSettingsManager(db)
+	mgr, err := InitSettingsManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("first InitSettingsManager: %v", err)
 	}
 
-	if err := mgr.Set("default_quota", "999"); err != nil {
+	if err := mgr.Set(t.Context(), "default_quota", "999"); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
 
 	// Re-init should not overwrite existing values.
-	mgr2, err := InitSettingsManager(db)
+	mgr2, err := InitSettingsManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("second InitSettingsManager: %v", err)
 	}
 
-	val, err := mgr2.Get("default_quota")
+	val, err := mgr2.Get(t.Context(), "default_quota")
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}

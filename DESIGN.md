@@ -1029,6 +1029,16 @@ Key-value settings are stored in SQLite. Default settings include `default_quota
 - `POST /settings/get` -- get a specific setting by key (admin required).
 - `POST /settings/set` -- set a setting value (admin required, audit logged). Byte-value settings (`default_quota`, `max_archive_size`) accept human-readable strings (e.g., "500GB", "10MB") which are parsed and stored as numeric byte counts.
 
+**`SettingsManager` takes a context on every method, and `dbTimeout` is a ceiling rather than the whole story.** The SQLite managers open their own root context per query (`account.dbCtx`), which means a caller's cancellation stops at the manager boundary: an abandoned HTTP request keeps working, and graceful shutdown cannot interrupt a query. That matters more here than it would elsewhere because `OpenDB` sets `SetMaxOpenConns(1)` — SQLite permits one writer, so every query is serialized behind a single connection and one slow query holds every other caller behind an uninterruptible 30-second wait.
+
+`account.queryCtx` derives from the caller instead: a caller with a shorter deadline keeps it, a caller with none still cannot hang forever, and a cancelled caller stops the query rather than leaving it to run out its own clock. A nil context is read as `context.Background()` rather than panicking — a manager is the wrong layer to take a box down over an argument its caller forgot, and tests that construct handlers directly leave the server context nil.
+
+Handlers pass `c.Request().Context()`; background goroutines pass the server-scoped context, never a request's, since the operation must outlive the request that triggered it.
+
+**`getLocale()` is the one deliberate exception**, using the server context rather than taking one. It is called from ~55 sites, almost all building an error message, and the request context would be the wrong bound anyway: the one case where it is already cancelled is a client that hung up, when the message is not going to be delivered either way.
+
+`SettingsManager` is the first of the six managers converted. `AuditManager`, `PagesManager`, `NetworkManager`, `SessionManager`, and `Manager` still use `dbCtx`; `dbCtx` disappears with the last of them.
+
 ### Settings UI
 
 The system settings screen provides admin-configurable controls for all system-wide settings. Each setting is displayed in a bordered section with a heading, a description showing the current value in human-readable format, and a form with a numeric input, a unit selector, and a save button.

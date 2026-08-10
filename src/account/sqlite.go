@@ -22,8 +22,31 @@ import (
 const dbTimeout = 30 * time.Second
 
 // dbCtx returns a context with the default database timeout.
+//
+// It roots a fresh context per query, so a caller's cancellation and a
+// graceful shutdown both stop at the manager boundary. Each manager interface
+// is being converted to take a context — SettingsManager is done — and this
+// disappears with the last of them. Use queryCtx for anything converted.
 func dbCtx() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), dbTimeout)
+}
+
+// queryCtx bounds one query, derived from the caller's context.
+//
+// dbTimeout becomes a ceiling rather than the whole story: a caller that
+// already has a shorter deadline keeps it (WithTimeout takes the earlier of the
+// two), a caller with none still cannot hang forever, and a cancelled caller
+// stops the query instead of leaving it to run out its own clock against the
+// single connection every other caller is queued behind.
+//
+// A nil ctx is treated as context.Background() rather than panicking: these
+// managers are called from a lot of places, and a manager is the wrong layer to
+// take a box down over an argument its caller forgot.
+func queryCtx(ctx context.Context) (context.Context, context.CancelFunc) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithTimeout(ctx, dbTimeout)
 }
 
 const (
