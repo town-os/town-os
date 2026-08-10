@@ -286,7 +286,7 @@ func initAccountTestClient(t *testing.T) (*SystemdClient, account.AuditManager) 
 		t.Fatalf("InitSessionManager: %v", err)
 	}
 
-	auditMgr, err := account.InitAuditManager(db)
+	auditMgr, err := account.InitAuditManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitAuditManager: %v", err)
 	}
@@ -376,7 +376,7 @@ func initSettingsTestClient(t *testing.T) (*SystemdClient, string) {
 		t.Fatalf("InitSessionManager: %v", err)
 	}
 
-	auditMgr, err := account.InitAuditManager(db)
+	auditMgr, err := account.InitAuditManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitAuditManager: %v", err)
 	}

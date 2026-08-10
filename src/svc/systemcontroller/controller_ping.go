@@ -228,7 +228,7 @@ func (s *SystemControllerHandlers) ping(c *echo.Context) error {
 	}
 
 	if am := s.Controller.GetAuditManager(); am != nil {
-		n, err := am.CountRecentErrors(time.Now().Add(-5 * time.Minute))
+		n, err := am.CountRecentErrors(c.Request().Context(), time.Now().Add(-5 * time.Minute))
 		if err != nil {
 			return err
 		}

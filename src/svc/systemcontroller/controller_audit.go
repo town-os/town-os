@@ -21,7 +21,7 @@ func (s *SystemControllerHandlers) listAuditLog(c *echo.Context) error {
 		return echo.NewHTTPError(500, i18n.T(s.getLocale(), i18n.MsgAuditNotConfigured))
 	}
 
-	page, err := am.List(opts)
+	page, err := am.List(c.Request().Context(), opts)
 	if err != nil {
 		return err
 	}

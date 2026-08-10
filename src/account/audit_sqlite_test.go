@@ -30,7 +30,7 @@ func TestAuditIndexesExist(t *testing.T) {
 		}
 	})
 
-	if _, err := InitAuditManager(db); err != nil {
+	if _, err := InitAuditManager(t.Context(), db); err != nil {
 		t.Fatalf("InitAuditManager: %v", err)
 	}
 
@@ -83,7 +83,7 @@ func initTestAuditDB(t *testing.T) *SQLiteAuditManager {
 		}
 	})
 
-	mgr, err := InitAuditManager(db)
+	mgr, err := InitAuditManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitAuditManager: %v", err)
 	}
@@ -103,12 +103,12 @@ func TestAuditLogEntryAndList(t *testing.T) {
 		CreatedAt: time.Now().UTC(),
 	}
 
-	err := mgr.LogEntry(entry)
+	err := mgr.LogEntry(t.Context(), entry)
 	if err != nil {
 		t.Fatalf("LogEntry: %v", err)
 	}
 
-	page, err := mgr.List(AuditListOptions{})
+	page, err := mgr.List(t.Context(), AuditListOptions{})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -150,12 +150,12 @@ func TestAuditLogEntryWithError(t *testing.T) {
 		CreatedAt: time.Now().UTC(),
 	}
 
-	err := mgr.LogEntry(entry)
+	err := mgr.LogEntry(t.Context(), entry)
 	if err != nil {
 		t.Fatalf("LogEntry: %v", err)
 	}
 
-	page, err := mgr.List(AuditListOptions{})
+	page, err := mgr.List(t.Context(), AuditListOptions{})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -179,7 +179,7 @@ func TestAuditListOffsetPagination(t *testing.T) {
 	mgr := initTestAuditDB(t)
 
 	for i := range 5 {
-		err := mgr.LogEntry(AuditEntry{
+		err := mgr.LogEntry(t.Context(), AuditEntry{
 			Account:   "alice",
 			Action:    fmt.Sprintf("action-%d", i),
 			Path:      "/test",
@@ -192,7 +192,7 @@ func TestAuditListOffsetPagination(t *testing.T) {
 	}
 
 	// First page (offset 0, limit 2) — default desc order
-	page, err := mgr.List(AuditListOptions{Limit: 2, Offset: 0})
+	page, err := mgr.List(t.Context(), AuditListOptions{Limit: 2, Offset: 0})
 	if err != nil {
 		t.Fatalf("List page 1: %v", err)
 	}
@@ -207,7 +207,7 @@ func TestAuditListOffsetPagination(t *testing.T) {
 	}
 
 	// Second page (offset 2, limit 2)
-	page2, err := mgr.List(AuditListOptions{Limit: 2, Offset: 2})
+	page2, err := mgr.List(t.Context(), AuditListOptions{Limit: 2, Offset: 2})
 	if err != nil {
 		t.Fatalf("List page 2: %v", err)
 	}
@@ -222,7 +222,7 @@ func TestAuditListOffsetPagination(t *testing.T) {
 	}
 
 	// Last page (offset 4, limit 2)
-	page3, err := mgr.List(AuditListOptions{Limit: 2, Offset: 4})
+	page3, err := mgr.List(t.Context(), AuditListOptions{Limit: 2, Offset: 4})
 	if err != nil {
 		t.Fatalf("List page 3: %v", err)
 	}
@@ -241,7 +241,7 @@ func TestAuditListOffsetWithSort(t *testing.T) {
 	mgr := initTestAuditDB(t)
 
 	for _, user := range []string{"charlie", "alice", "bob", "dave", "eve"} {
-		err := mgr.LogEntry(AuditEntry{
+		err := mgr.LogEntry(t.Context(), AuditEntry{
 			Account:   user,
 			Action:    "test",
 			Path:      "/test",
@@ -254,7 +254,7 @@ func TestAuditListOffsetWithSort(t *testing.T) {
 	}
 
 	// Page 1 sorted by account asc
-	page, err := mgr.List(AuditListOptions{Limit: 2, Offset: 0, SortBy: "account", SortOrder: "asc"})
+	page, err := mgr.List(t.Context(), AuditListOptions{Limit: 2, Offset: 0, SortBy: "account", SortOrder: "asc"})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -266,7 +266,7 @@ func TestAuditListOffsetWithSort(t *testing.T) {
 	}
 
 	// Page 2 sorted by account asc
-	page2, err := mgr.List(AuditListOptions{Limit: 2, Offset: 2, SortBy: "account", SortOrder: "asc"})
+	page2, err := mgr.List(t.Context(), AuditListOptions{Limit: 2, Offset: 2, SortBy: "account", SortOrder: "asc"})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -284,7 +284,7 @@ func TestAuditListCursorPagination(t *testing.T) {
 	mgr := initTestAuditDB(t)
 
 	for i := range 5 {
-		err := mgr.LogEntry(AuditEntry{
+		err := mgr.LogEntry(t.Context(), AuditEntry{
 			Account:   "alice",
 			Action:    fmt.Sprintf("action-%d", i),
 			Path:      "/test",
@@ -297,7 +297,7 @@ func TestAuditListCursorPagination(t *testing.T) {
 	}
 
 	// Get first page of 2
-	page, err := mgr.List(AuditListOptions{Limit: 2})
+	page, err := mgr.List(t.Context(), AuditListOptions{Limit: 2})
 	if err != nil {
 		t.Fatalf("List page 1: %v", err)
 	}
@@ -317,7 +317,7 @@ func TestAuditListCursorPagination(t *testing.T) {
 
 	// Get second page using cursor
 	cursor := page.Entries[len(page.Entries)-1].ID
-	page, err = mgr.List(AuditListOptions{BeforeID: cursor, Limit: 2})
+	page, err = mgr.List(t.Context(), AuditListOptions{BeforeID: cursor, Limit: 2})
 	if err != nil {
 		t.Fatalf("List page 2: %v", err)
 	}
@@ -333,7 +333,7 @@ func TestAuditListCursorPagination(t *testing.T) {
 
 	// Get last page
 	cursor = page.Entries[len(page.Entries)-1].ID
-	page, err = mgr.List(AuditListOptions{BeforeID: cursor, Limit: 2})
+	page, err = mgr.List(t.Context(), AuditListOptions{BeforeID: cursor, Limit: 2})
 	if err != nil {
 		t.Fatalf("List page 3: %v", err)
 	}
@@ -354,7 +354,7 @@ func TestAuditListAccountFilter(t *testing.T) {
 	mgr := initTestAuditDB(t)
 
 	for _, user := range []string{"alice", "bob", "alice"} {
-		err := mgr.LogEntry(AuditEntry{
+		err := mgr.LogEntry(t.Context(), AuditEntry{
 			Account:   user,
 			Action:    "test",
 			Path:      "/test",
@@ -366,7 +366,7 @@ func TestAuditListAccountFilter(t *testing.T) {
 		}
 	}
 
-	page, err := mgr.List(AuditListOptions{Account: "alice"})
+	page, err := mgr.List(t.Context(), AuditListOptions{Account: "alice"})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -388,7 +388,7 @@ func TestAuditListDefaultLimit(t *testing.T) {
 	mgr := initTestAuditDB(t)
 
 	for i := range 60 {
-		err := mgr.LogEntry(AuditEntry{
+		err := mgr.LogEntry(t.Context(), AuditEntry{
 			Account:   "alice",
 			Action:    fmt.Sprintf("action-%d", i),
 			Path:      "/test",
@@ -400,7 +400,7 @@ func TestAuditListDefaultLimit(t *testing.T) {
 		}
 	}
 
-	page, err := mgr.List(AuditListOptions{})
+	page, err := mgr.List(t.Context(), AuditListOptions{})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -419,7 +419,7 @@ func TestAuditListMaxLimitClamping(t *testing.T) {
 	mgr := initTestAuditDB(t)
 
 	for i := range 210 {
-		err := mgr.LogEntry(AuditEntry{
+		err := mgr.LogEntry(t.Context(), AuditEntry{
 			Account:   "alice",
 			Action:    fmt.Sprintf("action-%d", i),
 			Path:      "/test",
@@ -431,7 +431,7 @@ func TestAuditListMaxLimitClamping(t *testing.T) {
 		}
 	}
 
-	page, err := mgr.List(AuditListOptions{Limit: 500})
+	page, err := mgr.List(t.Context(), AuditListOptions{Limit: 500})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -450,7 +450,7 @@ func TestAuditListSortByAccountAsc(t *testing.T) {
 	mgr := initTestAuditDB(t)
 
 	for _, user := range []string{"charlie", "alice", "bob"} {
-		err := mgr.LogEntry(AuditEntry{
+		err := mgr.LogEntry(t.Context(), AuditEntry{
 			Account:   user,
 			Action:    "test",
 			Path:      "/test",
@@ -462,7 +462,7 @@ func TestAuditListSortByAccountAsc(t *testing.T) {
 		}
 	}
 
-	page, err := mgr.List(AuditListOptions{SortBy: "account", SortOrder: "asc"})
+	page, err := mgr.List(t.Context(), AuditListOptions{SortBy: "account", SortOrder: "asc"})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -483,7 +483,7 @@ func TestAuditListSortByAccountDesc(t *testing.T) {
 	mgr := initTestAuditDB(t)
 
 	for _, user := range []string{"charlie", "alice", "bob"} {
-		err := mgr.LogEntry(AuditEntry{
+		err := mgr.LogEntry(t.Context(), AuditEntry{
 			Account:   user,
 			Action:    "test",
 			Path:      "/test",
@@ -495,7 +495,7 @@ func TestAuditListSortByAccountDesc(t *testing.T) {
 		}
 	}
 
-	page, err := mgr.List(AuditListOptions{SortBy: "account", SortOrder: "desc"})
+	page, err := mgr.List(t.Context(), AuditListOptions{SortBy: "account", SortOrder: "desc"})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -516,7 +516,7 @@ func TestAuditListSortByIDAsc(t *testing.T) {
 	mgr := initTestAuditDB(t)
 
 	for i := range 3 {
-		err := mgr.LogEntry(AuditEntry{
+		err := mgr.LogEntry(t.Context(), AuditEntry{
 			Account:   "alice",
 			Action:    fmt.Sprintf("action-%d", i),
 			Path:      "/test",
@@ -528,7 +528,7 @@ func TestAuditListSortByIDAsc(t *testing.T) {
 		}
 	}
 
-	page, err := mgr.List(AuditListOptions{SortBy: "id", SortOrder: "asc"})
+	page, err := mgr.List(t.Context(), AuditListOptions{SortBy: "id", SortOrder: "asc"})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -549,7 +549,7 @@ func TestAuditListSortByIDAsc(t *testing.T) {
 func TestAuditListSortByInvalidColumn(t *testing.T) {
 	mgr := initTestAuditDB(t)
 
-	err := mgr.LogEntry(AuditEntry{
+	err := mgr.LogEntry(t.Context(), AuditEntry{
 		Account:   "alice",
 		Action:    "test",
 		Path:      "/test",
@@ -561,7 +561,7 @@ func TestAuditListSortByInvalidColumn(t *testing.T) {
 	}
 
 	// Invalid column should fall back to "id" default
-	page, err := mgr.List(AuditListOptions{SortBy: "DROP TABLE audit_log", SortOrder: "asc"})
+	page, err := mgr.List(t.Context(), AuditListOptions{SortBy: "DROP TABLE audit_log", SortOrder: "asc"})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -575,7 +575,7 @@ func TestAuditListSortByAction(t *testing.T) {
 	mgr := initTestAuditDB(t)
 
 	for _, action := range []string{"create filesystem", "add repository", "disable account"} {
-		err := mgr.LogEntry(AuditEntry{
+		err := mgr.LogEntry(t.Context(), AuditEntry{
 			Account:   "alice",
 			Action:    action,
 			Path:      "/test",
@@ -587,7 +587,7 @@ func TestAuditListSortByAction(t *testing.T) {
 		}
 	}
 
-	page, err := mgr.List(AuditListOptions{SortBy: "action", SortOrder: "asc"})
+	page, err := mgr.List(t.Context(), AuditListOptions{SortBy: "action", SortOrder: "asc"})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -619,14 +619,14 @@ func TestInitAuditManagerTwice(t *testing.T) {
 	})
 
 	// First init creates the table and columns.
-	_, err = InitAuditManager(db)
+	_, err = InitAuditManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("first InitAuditManager: %v", err)
 	}
 
 	// Second init should succeed: the "duplicate column" error from
 	// ALTER TABLE ADD COLUMN should be silently tolerated.
-	_, err = InitAuditManager(db)
+	_, err = InitAuditManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("second InitAuditManager: %v", err)
 	}
@@ -646,12 +646,12 @@ func TestAuditLogEntryDetail(t *testing.T) {
 		CreatedAt: time.Now().UTC(),
 	}
 
-	err := mgr.LogEntry(entry)
+	err := mgr.LogEntry(t.Context(), entry)
 	if err != nil {
 		t.Fatalf("LogEntry: %v", err)
 	}
 
-	page, err := mgr.List(AuditListOptions{})
+	page, err := mgr.List(t.Context(), AuditListOptions{})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -671,7 +671,7 @@ func TestAuditLogEntryDetail(t *testing.T) {
 func TestAuditListEmpty(t *testing.T) {
 	mgr := initTestAuditDB(t)
 
-	page, err := mgr.List(AuditListOptions{})
+	page, err := mgr.List(t.Context(), AuditListOptions{})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -689,7 +689,7 @@ func TestAuditListEmpty(t *testing.T) {
 func TestAuditTotalPagesEmpty(t *testing.T) {
 	mgr := initTestAuditDB(t)
 
-	page, err := mgr.List(AuditListOptions{Limit: 10})
+	page, err := mgr.List(t.Context(), AuditListOptions{Limit: 10})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -703,7 +703,7 @@ func TestAuditTotalPagesExactFit(t *testing.T) {
 	mgr := initTestAuditDB(t)
 
 	for i := range 4 {
-		err := mgr.LogEntry(AuditEntry{
+		err := mgr.LogEntry(t.Context(), AuditEntry{
 			Account:   "alice",
 			Action:    fmt.Sprintf("action-%d", i),
 			Path:      "/test",
@@ -715,7 +715,7 @@ func TestAuditTotalPagesExactFit(t *testing.T) {
 		}
 	}
 
-	page, err := mgr.List(AuditListOptions{Limit: 2})
+	page, err := mgr.List(t.Context(), AuditListOptions{Limit: 2})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -729,7 +729,7 @@ func TestAuditTotalPagesPartialLastPage(t *testing.T) {
 	mgr := initTestAuditDB(t)
 
 	for i := range 5 {
-		err := mgr.LogEntry(AuditEntry{
+		err := mgr.LogEntry(t.Context(), AuditEntry{
 			Account:   "bob",
 			Action:    fmt.Sprintf("action-%d", i),
 			Path:      "/test",
@@ -741,7 +741,7 @@ func TestAuditTotalPagesPartialLastPage(t *testing.T) {
 		}
 	}
 
-	page, err := mgr.List(AuditListOptions{Limit: 2})
+	page, err := mgr.List(t.Context(), AuditListOptions{Limit: 2})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -755,7 +755,7 @@ func TestAuditTotalPagesWithAccountFilter(t *testing.T) {
 	mgr := initTestAuditDB(t)
 
 	for i := range 3 {
-		err := mgr.LogEntry(AuditEntry{
+		err := mgr.LogEntry(t.Context(), AuditEntry{
 			Account:   "alice",
 			Action:    fmt.Sprintf("alice-%d", i),
 			Path:      "/test",
@@ -768,7 +768,7 @@ func TestAuditTotalPagesWithAccountFilter(t *testing.T) {
 	}
 
 	for i := range 7 {
-		err := mgr.LogEntry(AuditEntry{
+		err := mgr.LogEntry(t.Context(), AuditEntry{
 			Account:   "bob",
 			Action:    fmt.Sprintf("bob-%d", i),
 			Path:      "/test",
@@ -781,7 +781,7 @@ func TestAuditTotalPagesWithAccountFilter(t *testing.T) {
 	}
 
 	// Without filter: 10 entries / 5 per page = 2 pages
-	page, err := mgr.List(AuditListOptions{Limit: 5})
+	page, err := mgr.List(t.Context(), AuditListOptions{Limit: 5})
 	if err != nil {
 		t.Fatalf("List all: %v", err)
 	}
@@ -790,7 +790,7 @@ func TestAuditTotalPagesWithAccountFilter(t *testing.T) {
 	}
 
 	// With account filter: 3 alice entries / 5 per page = 1 page
-	page2, err := mgr.List(AuditListOptions{Limit: 5, Account: "alice"})
+	page2, err := mgr.List(t.Context(), AuditListOptions{Limit: 5, Account: "alice"})
 	if err != nil {
 		t.Fatalf("List alice: %v", err)
 	}
@@ -803,7 +803,7 @@ func TestAuditTotalPagesConsistentAcrossPages(t *testing.T) {
 	mgr := initTestAuditDB(t)
 
 	for i := range 5 {
-		err := mgr.LogEntry(AuditEntry{
+		err := mgr.LogEntry(t.Context(), AuditEntry{
 			Account:   "alice",
 			Action:    fmt.Sprintf("action-%d", i),
 			Path:      "/test",
@@ -815,17 +815,17 @@ func TestAuditTotalPagesConsistentAcrossPages(t *testing.T) {
 		}
 	}
 
-	page1, err := mgr.List(AuditListOptions{Limit: 2, Offset: 0})
+	page1, err := mgr.List(t.Context(), AuditListOptions{Limit: 2, Offset: 0})
 	if err != nil {
 		t.Fatalf("List page 1: %v", err)
 	}
 
-	page2, err := mgr.List(AuditListOptions{Limit: 2, Offset: 2})
+	page2, err := mgr.List(t.Context(), AuditListOptions{Limit: 2, Offset: 2})
 	if err != nil {
 		t.Fatalf("List page 2: %v", err)
 	}
 
-	page3, err := mgr.List(AuditListOptions{Limit: 2, Offset: 4})
+	page3, err := mgr.List(t.Context(), AuditListOptions{Limit: 2, Offset: 4})
 	if err != nil {
 		t.Fatalf("List page 3: %v", err)
 	}

@@ -40,7 +40,7 @@ func initMonitoringBackendTestClient(t *testing.T) (*SystemdClient, *systemd.Moc
 	if err != nil {
 		t.Fatalf("InitSessionManager: %v", err)
 	}
-	auditMgr, err := account.InitAuditManager(db)
+	auditMgr, err := account.InitAuditManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitAuditManager: %v", err)
 	}

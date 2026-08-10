@@ -291,7 +291,7 @@ func initSystemControllerSettingsTest(t *testing.T) *systemcontroller.SystemdCli
 		t.Fatalf("InitSessionManager: %v", err)
 	}
 
-	auditMgr, err := account.InitAuditManager(db)
+	auditMgr, err := account.InitAuditManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitAuditManager: %v", err)
 	}

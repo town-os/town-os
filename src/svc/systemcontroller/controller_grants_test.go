@@ -56,7 +56,7 @@ func initWireGuardTestEnvWith(t *testing.T, tweak func(*ServerConfig)) *wgTestEn
 	if err != nil {
 		t.Fatalf("InitSessionManager: %v", err)
 	}
-	auditMgr, err := account.InitAuditManager(db)
+	auditMgr, err := account.InitAuditManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitAuditManager: %v", err)
 	}

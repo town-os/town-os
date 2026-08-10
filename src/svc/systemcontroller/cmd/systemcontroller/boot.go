@@ -299,7 +299,7 @@ func (b *boot) openStores(ctx context.Context) error {
 		return fmt.Errorf("init session manager: %w", err)
 	}
 
-	if b.auditMgr, err = account.InitAuditManager(b.db); err != nil {
+	if b.auditMgr, err = account.InitAuditManager(ctx, b.db); err != nil {
 		return fmt.Errorf("init audit manager: %w", err)
 	}
 

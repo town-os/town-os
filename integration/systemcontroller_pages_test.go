@@ -67,7 +67,7 @@ func initSystemControllerPagesEnv(t *testing.T) pagesIntegrationEnv {
 		t.Fatalf("InitSessionManager: %v", err)
 	}
 
-	auditMgr, err := account.InitAuditManager(db)
+	auditMgr, err := account.InitAuditManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitAuditManager: %v", err)
 	}
@@ -422,7 +422,7 @@ func TestPagesAuditRebuildLogged(t *testing.T) {
 		t.Fatalf("RebuildPage: %v", err)
 	}
 
-	page, err := auditMgr.List(account.AuditListOptions{})
+	page, err := auditMgr.List(t.Context(), account.AuditListOptions{})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -450,7 +450,7 @@ func TestPagesAuditCreateLogged(t *testing.T) {
 		t.Fatalf("CreatePage: %v", err)
 	}
 
-	page, err := auditMgr.List(account.AuditListOptions{})
+	page, err := auditMgr.List(t.Context(), account.AuditListOptions{})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -486,7 +486,7 @@ func TestPagesAuditUpdateLogged(t *testing.T) {
 		t.Fatalf("UpdatePage: %v", err)
 	}
 
-	page, err := auditMgr.List(account.AuditListOptions{})
+	page, err := auditMgr.List(t.Context(), account.AuditListOptions{})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -518,7 +518,7 @@ func TestPagesAuditRemoveLogged(t *testing.T) {
 		t.Fatalf("RemovePage: %v", err)
 	}
 
-	page, err := auditMgr.List(account.AuditListOptions{})
+	page, err := auditMgr.List(t.Context(), account.AuditListOptions{})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -550,7 +550,7 @@ func TestPagesAuditListExcluded(t *testing.T) {
 		t.Fatalf("ListPages: %v", err)
 	}
 
-	page, err := auditMgr.List(account.AuditListOptions{})
+	page, err := auditMgr.List(t.Context(), account.AuditListOptions{})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -798,7 +798,7 @@ func TestPagesAuditUploadLogged(t *testing.T) {
 	// Attempt upload (will fail due to invalid content, but audit should still be logged).
 	_, _ = c.UploadPageArchive(context.TODO(), "archive-site", strings.NewReader("not-an-archive"), "test.tar.gz")
 
-	page, err := auditMgr.List(account.AuditListOptions{})
+	page, err := auditMgr.List(t.Context(), account.AuditListOptions{})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -842,7 +842,7 @@ func initSystemControllerPagesTLSEnv(t *testing.T) (*systemcontroller.SystemdCli
 	if err != nil {
 		t.Fatalf("InitSessionManager: %v", err)
 	}
-	auditMgr, err := account.InitAuditManager(db)
+	auditMgr, err := account.InitAuditManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitAuditManager: %v", err)
 	}

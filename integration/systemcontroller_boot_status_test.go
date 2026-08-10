@@ -292,7 +292,7 @@ func TestBootStatusNotAudited(t *testing.T) {
 		}
 	})
 
-	auditMgr, err := account.InitAuditManager(db)
+	auditMgr, err := account.InitAuditManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitAuditManager: %v", err)
 	}
@@ -322,7 +322,7 @@ func TestBootStatusNotAudited(t *testing.T) {
 		t.Fatalf("full-router /boot-status status = %d, want 404", resp.StatusCode)
 	}
 
-	page, err := auditMgr.List(account.AuditListOptions{Limit: 100})
+	page, err := auditMgr.List(t.Context(), account.AuditListOptions{Limit: 100})
 	if err != nil {
 		t.Fatalf("list audit: %v", err)
 	}

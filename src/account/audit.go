@@ -1,6 +1,7 @@
 package account
 
 import (
+	"context"
 	"time"
 
 	"gitea.com/town-os/town-os/src/i18n"
@@ -34,10 +35,23 @@ type AuditPage struct {
 	TotalCount int          `json:"total_count"`
 }
 
+// AuditManager records and queries the audit log.
+//
+// Context-taking for the reasons on SettingsManager: the SQLite managers used
+// to root their own per-query context, so a caller's cancellation and a
+// graceful shutdown both stopped at the manager boundary, behind a single
+// serialized connection.
+//
+// LogEntry is the one worth being careful with. It is called from
+// auditMiddleware AFTER the handler has run, to record what happened — so
+// passing the request context would mean a client that hangs up mid-request
+// cancels the write that records the request. The middleware passes the
+// server-scoped context instead: the log entry has to outlive the request it
+// describes, which is the same rule background goroutines follow.
 type AuditManager interface {
-	LogEntry(entry AuditEntry) error
-	List(opts AuditListOptions) (*AuditPage, error)
-	CountRecentErrors(since time.Time) (int, error)
+	LogEntry(ctx context.Context, entry AuditEntry) error
+	List(ctx context.Context, opts AuditListOptions) (*AuditPage, error)
+	CountRecentErrors(ctx context.Context, since time.Time) (int, error)
 }
 
 // RouteActionKeys maps API paths to i18n message keys for audit log actions.

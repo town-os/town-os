@@ -605,7 +605,15 @@ func (s *SystemControllerHandlers) auditMiddleware(next echo.HandlerFunc) echo.H
 		s.recordAuditEvent(entry.Success)
 
 		// Best-effort audit logging; don't fail the request if logging fails.
-		if err := am.LogEntry(entry); err != nil {
+		//
+		// s.ctx, NOT the request context, and the distinction is the whole
+		// point of auditing. This runs after the handler has returned, to
+		// record what it did — so passing the request context would let a
+		// client that hung up mid-request cancel the write recording the
+		// request. An action that is worth auditing is worth auditing whether
+		// or not its caller waited for the response, and the entry has to
+		// outlive the request it describes.
+		if err := am.LogEntry(s.ctx, entry); err != nil {
 			slog.Debug("audit log entry", "error", err)
 		}
 

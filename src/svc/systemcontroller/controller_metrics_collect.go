@@ -33,7 +33,7 @@ func (s *SystemControllerHandlers) collectMetrics(ctx context.Context) []metrics
 	families = append(families, s.collectPackageMetrics()...)
 	families = append(families, s.collectAccountMetrics()...)
 	families = append(families, s.collectStorageMetrics()...)
-	families = append(families, s.collectAuditMetrics()...)
+	families = append(families, s.collectAuditMetrics(ctx)...)
 
 	return families
 }
@@ -282,12 +282,12 @@ func (s *SystemControllerHandlers) collectStorageMetrics() []metrics.Metric {
 
 // collectAuditMetrics reports the recent-failure count the dashboard renders as
 // its red pill, so an alert can fire on the same number a person would see.
-func (s *SystemControllerHandlers) collectAuditMetrics() []metrics.Metric {
+func (s *SystemControllerHandlers) collectAuditMetrics(ctx context.Context) []metrics.Metric {
 	am := s.Controller.GetAuditManager()
 	if am == nil {
 		return nil
 	}
-	n, err := am.CountRecentErrors(time.Now().Add(-5 * time.Minute))
+	n, err := am.CountRecentErrors(ctx, time.Now().Add(-5 * time.Minute))
 	if err != nil {
 		slog.Error("metrics: counting recent audit errors", "error", err)
 		return nil

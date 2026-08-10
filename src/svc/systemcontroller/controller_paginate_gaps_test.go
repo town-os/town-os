@@ -430,7 +430,7 @@ func TestHTTPAuditLogSearch(t *testing.T) {
 
 	// Insert audit entries with distinct actions
 	for _, action := range []string{"install package", "remove package", "create account"} {
-		if err := auditMgr.LogEntry(account.AuditEntry{
+		if err := auditMgr.LogEntry(t.Context(), account.AuditEntry{
 			Account: "admin",
 			Action:  action,
 			Path:    "/test/" + strings.ReplaceAll(action, " ", "-"),
@@ -475,7 +475,7 @@ func TestHTTPAuditLogFilterByAccount(t *testing.T) {
 
 	// Insert entries from different accounts
 	for _, user := range []string{"alice", "bob", "alice"} {
-		if err := auditMgr.LogEntry(account.AuditEntry{
+		if err := auditMgr.LogEntry(t.Context(), account.AuditEntry{
 			Account: user,
 			Action:  "test action",
 			Path:    "/test",
@@ -517,7 +517,7 @@ func TestHTTPAuditLogTotalPagesAndCount(t *testing.T) {
 
 	// Insert 5 entries
 	for i := range 5 {
-		if err := auditMgr.LogEntry(account.AuditEntry{
+		if err := auditMgr.LogEntry(t.Context(), account.AuditEntry{
 			Account: "admin",
 			Action:  fmt.Sprintf("action-%d", i),
 			Path:    "/test",
@@ -563,7 +563,7 @@ func TestHTTPAuditLogOffsetPagination(t *testing.T) {
 
 	// Insert entries with unique actions
 	for i := range 4 {
-		if err := auditMgr.LogEntry(account.AuditEntry{
+		if err := auditMgr.LogEntry(t.Context(), account.AuditEntry{
 			Account: "admin",
 			Action:  fmt.Sprintf("offset-test-%d", i),
 			Path:    "/test",

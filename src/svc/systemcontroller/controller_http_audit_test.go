@@ -219,7 +219,7 @@ func TestHTTPAuditLogExcludesSessionRoutes(t *testing.T) {
 	}
 
 	// check audit log - session routes, ping, and read-only package/page routes should not be logged
-	page, err := auditMgr.List(account.AuditListOptions{})
+	page, err := auditMgr.List(t.Context(), account.AuditListOptions{})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -306,7 +306,7 @@ func TestHTTPAuditLogExcludesReadOnlyPackageRoutes(t *testing.T) {
 	readOnlyPaths = append(readOnlyPaths, getPaths...)
 
 	// verify none of the read-only package paths appear in the audit log
-	page, err := auditMgr.List(account.AuditListOptions{})
+	page, err := auditMgr.List(t.Context(), account.AuditListOptions{})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -348,7 +348,7 @@ func TestHTTPAuditLogExcludesDNSReadOnlyRoutes(t *testing.T) {
 	}
 
 	// Verify none of the DNS read-only paths appear in the audit log
-	page, err := auditMgr.List(account.AuditListOptions{})
+	page, err := auditMgr.List(t.Context(), account.AuditListOptions{})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -375,7 +375,7 @@ func TestHTTPAuditLogIncludesAuthRoutes(t *testing.T) {
 	}
 
 	// check audit log for authenticate entry
-	page, err := auditMgr.List(account.AuditListOptions{})
+	page, err := auditMgr.List(t.Context(), account.AuditListOptions{})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -407,7 +407,7 @@ func TestHTTPAuditLogSortByAccount(t *testing.T) {
 
 	// Directly insert audit entries with different accounts to test sort
 	for _, user := range []string{"charlie", "alice", "bob"} {
-		if err := auditMgr.LogEntry(account.AuditEntry{
+		if err := auditMgr.LogEntry(t.Context(), account.AuditEntry{
 			Account:   user,
 			Action:    "test",
 			Path:      "/test",
@@ -612,7 +612,7 @@ func TestHTTPAuditDetailCaptured(t *testing.T) {
 		t.Errorf("resp.Body.Close: %v", err)
 	}
 
-	page, err := auditMgr.List(account.AuditListOptions{})
+	page, err := auditMgr.List(t.Context(), account.AuditListOptions{})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -640,7 +640,7 @@ func TestHTTPAuditDetailRedactsPassword(t *testing.T) {
 		t.Fatalf("CreateAccount: %v", err)
 	}
 
-	page, err := auditMgr.List(account.AuditListOptions{})
+	page, err := auditMgr.List(t.Context(), account.AuditListOptions{})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -666,7 +666,7 @@ func TestHTTPAuditDetailValidJSON(t *testing.T) {
 		t.Fatalf("CreateAccount: %v", err)
 	}
 
-	page, err := auditMgr.List(account.AuditListOptions{})
+	page, err := auditMgr.List(t.Context(), account.AuditListOptions{})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -713,7 +713,7 @@ func TestHTTPAuditDetailAuthenticateRedactsPassword(t *testing.T) {
 		t.Fatalf("Authenticate: %v", err)
 	}
 
-	page, err := auditMgr.List(account.AuditListOptions{})
+	page, err := auditMgr.List(t.Context(), account.AuditListOptions{})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -783,7 +783,7 @@ func TestHTTPAuditLogIncludesDNSWriteRoutes(t *testing.T) {
 	}
 
 	// Verify each DNS write route appears in the audit log with the correct action
-	page, err := auditMgr.List(account.AuditListOptions{})
+	page, err := auditMgr.List(t.Context(), account.AuditListOptions{})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -841,7 +841,7 @@ func TestHTTPAuditLogIncludesDnsblAllowlistWrites(t *testing.T) {
 		}
 	}
 
-	page, err := auditMgr.List(account.AuditListOptions{})
+	page, err := auditMgr.List(t.Context(), account.AuditListOptions{})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -879,7 +879,7 @@ func TestHTTPAuditDetailNeverContainsPassword(t *testing.T) {
 		t.Fatalf("UpdateAccount: %v", err)
 	}
 
-	page, err := auditMgr.List(account.AuditListOptions{})
+	page, err := auditMgr.List(t.Context(), account.AuditListOptions{})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}

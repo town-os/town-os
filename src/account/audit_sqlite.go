@@ -1,6 +1,7 @@
 package account
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -28,8 +29,8 @@ type SQLiteAuditManager struct {
 	db *sql.DB
 }
 
-func InitAuditManager(db *sql.DB) (*SQLiteAuditManager, error) {
-	ctx, cancel := dbCtx()
+func InitAuditManager(ctx context.Context, db *sql.DB) (*SQLiteAuditManager, error) {
+	ctx, cancel := queryCtx(ctx)
 	defer cancel()
 
 	_, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS audit_log (
@@ -73,8 +74,8 @@ func InitAuditManager(db *sql.DB) (*SQLiteAuditManager, error) {
 	return &SQLiteAuditManager{db: db}, nil
 }
 
-func (m *SQLiteAuditManager) LogEntry(entry AuditEntry) error {
-	ctx, cancel := dbCtx()
+func (m *SQLiteAuditManager) LogEntry(ctx context.Context, entry AuditEntry) error {
+	ctx, cancel := queryCtx(ctx)
 	defer cancel()
 
 	_, err := m.db.ExecContext(ctx,
@@ -88,7 +89,7 @@ func (m *SQLiteAuditManager) LogEntry(entry AuditEntry) error {
 	return nil
 }
 
-func (m *SQLiteAuditManager) List(opts AuditListOptions) (_ *AuditPage, err error) {
+func (m *SQLiteAuditManager) List(ctx context.Context, opts AuditListOptions) (_ *AuditPage, err error) {
 	limit := opts.Limit
 	if limit <= 0 {
 		limit = auditDefaultLimit
@@ -138,7 +139,7 @@ func (m *SQLiteAuditManager) List(opts AuditListOptions) (_ *AuditPage, err erro
 	}
 
 	query := qb.String()
-	ctx, cancel := dbCtx()
+	ctx, cancel := queryCtx(ctx)
 	defer cancel()
 
 	rows, err := m.db.QueryContext(ctx, query, args...)
@@ -184,8 +185,8 @@ func (m *SQLiteAuditManager) List(opts AuditListOptions) (_ *AuditPage, err erro
 	return &AuditPage{Entries: entries, HasMore: hasMore, TotalPages: totalPages, TotalCount: total}, nil
 }
 
-func (m *SQLiteAuditManager) CountRecentErrors(since time.Time) (int, error) {
-	ctx, cancel := dbCtx()
+func (m *SQLiteAuditManager) CountRecentErrors(ctx context.Context, since time.Time) (int, error) {
+	ctx, cancel := queryCtx(ctx)
 	defer cancel()
 
 	var count int

@@ -71,7 +71,7 @@ func initPagesTestEnv(t *testing.T) pagesTestEnv {
 		t.Fatalf("InitSessionManager: %v", err)
 	}
 
-	auditMgr, err := account.InitAuditManager(db)
+	auditMgr, err := account.InitAuditManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitAuditManager: %v", err)
 	}
@@ -473,7 +473,7 @@ func TestHTTPPagesAuditCreatePage(t *testing.T) {
 		t.Fatalf("CreatePage: %v", err)
 	}
 
-	page, err := auditMgr.List(account.AuditListOptions{})
+	page, err := auditMgr.List(t.Context(), account.AuditListOptions{})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -511,7 +511,7 @@ func TestHTTPPagesAuditUpdatePage(t *testing.T) {
 		t.Fatalf("UpdatePage: %v", err)
 	}
 
-	page, err := auditMgr.List(account.AuditListOptions{})
+	page, err := auditMgr.List(t.Context(), account.AuditListOptions{})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -542,7 +542,7 @@ func TestHTTPPagesAuditRemovePage(t *testing.T) {
 		t.Fatalf("RemovePage: %v", err)
 	}
 
-	page, err := auditMgr.List(account.AuditListOptions{})
+	page, err := auditMgr.List(t.Context(), account.AuditListOptions{})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -576,7 +576,7 @@ func TestHTTPPagesAuditRebuildPage(t *testing.T) {
 		t.Fatalf("RebuildPage: %v", err)
 	}
 
-	page, err := auditMgr.List(account.AuditListOptions{})
+	page, err := auditMgr.List(t.Context(), account.AuditListOptions{})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -604,7 +604,7 @@ func TestHTTPPagesAuditListExcluded(t *testing.T) {
 		t.Fatalf("ListPages: %v", err)
 	}
 
-	page, err := auditMgr.List(account.AuditListOptions{})
+	page, err := auditMgr.List(t.Context(), account.AuditListOptions{})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -1030,7 +1030,7 @@ func TestHTTPPagesAuditUploadPageArchive(t *testing.T) {
 	// Attempt upload (will fail due to invalid archive content, but audit should still be logged).
 	_, _ = c.UploadPageArchive(context.TODO(), "archive-site", strings.NewReader("not-an-archive"), "test.tar.gz")
 
-	page, err := auditMgr.List(account.AuditListOptions{})
+	page, err := auditMgr.List(t.Context(), account.AuditListOptions{})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
