@@ -266,6 +266,19 @@ questions:
 
 编译会校验所有应答、施加类型相关的校验、替换所有模板变量、规范化容器镜像 URL，并产出一个已解析的 `Package` 结构体。对于 VM 包，内存字符串会被解析为字节数，并应用 CPU 默认值。更新后命令会被去除首尾空白。校验错误会被收集起来一并返回。
 
+**任何会进入 systemd unit 的值都不得携带控制字符。** unit 文件是按行组织的，而它的引号不跨行：无论被什么引号包裹，一条指令都在第一个裸换行处结束。因此携带换行的值并不是弄坏它自己那一行——换行之后的一切都会被当作同一个 `[Service]` 小节里的一条**新指令**解析，于是一个形如 `somevalue\nExecStartPre=/bin/sh -c '…'` 的环境变量值就往生成的 unit 里加进了一条 `ExecStartPre`。这跨越的是一条权限边界，而不只是产出了糟糕的输出：包作者本来就掌控镜像与命令，那是对*容器内部*运行什么的权力；而一条 systemd 指令是在 podman 被调用之前，以 **root 身份在宿主机上**运行的。
+
+`packages.ValidateNoControlChars` 拒绝每一个 C0 控制字符与 DEL。**制表符是唯一的例外**——它是合法的空白，而 systemd 的分词器把它当作一个引号确实能够包住的分隔符。
+
+这项检查运行**两次，且两趟都是承重的**：
+
+- `InputPackage.Validate()` 覆盖作者写在 `environment`、`command` 与 `entrypoint` 中的字面量。它在 `Compile` 的*开头*运行，因此它看到的永远是替换之前的文本。
+- 在 `Compile` 末尾对**已编译**的包做一趟扫描，覆盖替换之后的一切：环境变量值、command、entrypoint、卷挂载点与 `post_update`。这才是要紧的那一趟。YAML 里写作裸 `@marker@` 的值自身不含控制字符，因而通过 `Validate()`；换行是随*应答*到来的。而一个未声明 `type:` 的问题，根本没有别的东西会校验它——这就使应答这条路径成为真正带着调用方选定的字节抵达 unit 文件的那一条。
+
+`systemd.quoteCommandArg` 作为兜底剥除同样的字符，因为 unit 生成没有错误返回值，而它是字节被写入 `/etc/systemd/system` 之前的最后一个点。它选择**丢弃**而非转义：systemd 确实会在引号内解析 C 风格转义，但当根本没有正当理由去投递这个字节时，把一条安全边界押在解析器的某个细节上不会带来任何收益。
+
+先前能工作的东西没有一样被拒绝。多行的值本来就已经产出坏掉的 unit；改变之处在于它现在会在编译期大声失败，而不是悄无声息地生成一个无人检查的 unit。
+
 ### 更新后命令（Post-Update Commands）
 
 `post_update` 字段是一组 shell 命令字符串，在 system controller 于 reconcile 期间检测到镜像 SHA 变化之后，于运行中的容器内执行。这使自动化迁移任务成为可能（例如 PostgreSQL 容器更新后执行 `pg_upgrade`）。
@@ -955,6 +968,14 @@ gfeh:      GET  /gfeh             GET  /gfeh/principals      POST /gfeh/principa
 
 **被禁用账户的令牌一到就是死的。** `Validate` 检查 `Disabled` 并拒绝，因为登录之后的每一个请求都仅由该函数授权：没有这项检查，禁用一个账户只是阻止它*再次*登录，而它已经持有的令牌在整个会话生命周期内仍然有效，并且会因被使用而自我续期。
 
+**没有会话管理器意味着不提供服务，而不是敞开服务。** 这台机器上的每一个授权判定，过去都由同一个 nil 推导而来：`requireAuth`、`requireAdmin`、`requireGrant`、`revokeSession`、`requireNetworkScope` 与 `callerIsAdmin` 都把 `GetSessionManager() == nil` 读作"认证根本没有配置，那就放行吧"。这就让*没有人可供认证*与*所有人都被授权*成了同一个状态——整个授权面距离把 `POST /account/create` 与 `POST /packages/install` 端给一个匿名调用者，只差一个未设置的字段；而这台控制器是以 root 身份驱动宿主机 podman socket 的，类型系统里没有任何东西点出这一点，真发生了也不会有任何错误。
+
+现在这个条件是 **`ServerConfig.AuthDisabled`：明说，而非推断**。在认证启用的情况下缺少会话管理器属于配置错误，`NewHandler` 会返回 `ErrAuthNotConfigured` 而不是一个 handler ——在构造期拒绝，而不是每个请求各拒绝一次，因为一台启动之后对每条需鉴权路由都回 500 的机器是一场令人困惑的故障，而一台拒绝启动的机器会在日志里把问题说明白一次，趁它还能被修好。中间件同样拒绝这一状态，因此由任何其他路径拼装出来的 handler 集合也是关闭的。
+
+`InitTestServer` 会在——且仅在——配置未安装会话管理器时设置 `AuthDisabled`。这正是让那约 230 处从不构造会话管理器的测试调用点原封不动继续工作的原因；而*确实*构造了会话管理器的测试，其鉴权仍旧被强制执行——在那里关掉它会把整个测试套件里的每一条授权断言变成同义反复。
+
+`callerIsAdmin` 是答案本身发生改变（而非仅仅换了位置）的那一处：对无法识别身份的调用者，它现在返回 **false**，而过去返回 true。抵达它的每一条路由都位于 `requireAuth` 或 `requireAdmin` 之后，而这两者现在都会直接拒绝该状态，因此实践中它不可达——但一个做脱敏的辅助函数，不是可以凭这一点去慷慨的地方。
+
 `SessionManager` 接口提供：`Create`、`Validate`、`Revoke`、`RevokeAllForUser`、`Cleanup`、`List`、`GetUsername`、`HasActiveAdminSessions` 与 `StartCleanup`。
 
 会话 API 端点：
@@ -983,6 +1004,20 @@ gfeh:      GET  /gfeh             GET  /gfeh/principals      POST /gfeh/principa
 - `GET /settings` —— 获取所有设置（需要管理员）。
 - `POST /settings/get` —— 按键获取特定设置（需要管理员）。
 - `POST /settings/set` —— 设置某项设置的值（需要管理员，计入审计）。字节值类设置（`default_quota`、`max_archive_size`）接受人类可读的字符串（例如 "500GB"、"10MB"），它们会被解析并以数值字节数存储。
+
+**每一个账户管理器的每个方法都接收 context，而 `dbTimeout` 是一个上限，而非全部。** 它们过去每次查询都自开一个根 context（`account.dbCtx`，现已移除），这意味着调用方的取消停在管理器边界上：一个被放弃的 HTTP 请求仍在继续干活，优雅关闭也打断不了一次查询。这在此处比在别处更要紧，因为 `OpenDB` 设置了 `SetMaxOpenConns(1)` —— SQLite 只允许一个写者，于是每一次查询都被串行化在同一条连接之后，一次慢查询会把其他每一个调用方都卡在一段无法打断的 30 秒等待之后。
+
+`account.queryCtx` 改为从调用方派生：带有更短 deadline 的调用方保留自己的 deadline，没有 deadline 的调用方仍旧不会永远挂住，而被取消的调用方会终止查询，而不是任由它跑完自己的钟。nil context 被读作 `context.Background()` 而不是 panic ——管理器不是因为调用方漏传一个参数就把整台机器带下去的那一层，而直接构造 handler 的测试会让服务端 context 保持为 nil。
+
+Handler 传 `c.Request().Context()`；后台 goroutine 传服务端作用域的 context，绝不传请求的 —— 因为该操作必须比触发它的那个请求活得更久。
+
+**`getLocale()` 是唯一一处刻意的例外**，它使用服务端 context 而不是接收一个。它被约 55 处调用，几乎全都在构造错误消息；而请求 context 本来也是错误的界限：它唯一已被取消的情形是客户端挂断了，那时这条消息无论如何都不会被送达。
+
+六个全部完成 —— `SettingsManager`、`AuditManager`、`PagesManager`、`NetworkManager`、`SessionManager` 与 `Manager` —— 连同 `OpenDB`，`dbCtx` 已经消失。
+
+有两个方法取**服务端** context 而非调用方的，且两者都是刻意为之。`AuditManager.LogEntry` 由 `auditMiddleware` 在 handler 返回*之后*调用，用以记录它做了什么：传请求 context 会让一个中途挂断的客户端取消掉那条记录该请求的写入，于是最少被记录下来的动作，恰好就是有人中途断开的那些。`NetworkManager.ReapExpiredPeers` 是后台的 peer 清扫，它只完成一半会留下活的 WireGuard 设备仍在携带的 peer。
+
+`Manager.Authenticate` 接收的 context 约束它前后的两次查询，但**不**约束夹在中间的 argon2id 哈希 —— argon2 没有取消机制，而限制并发哈希（每次 64 MiB）的是 `loginGate`。
 
 ### 设置 UI
 
@@ -1448,6 +1483,32 @@ rolodex 客户端，因此即便是冷启动，home 作用域（以及每个网�
 
 1. 它的 **A 记录**，2. 它的**叶子证书 SAN**，3. 它的 **DANE TLSA 属主**，
 以及 4. 它在共享 `:443` 上的 **ingress vhost**。
+
+**三个发布方现在都经由同一个校验器来组装这个名称。** 一个包、一个 page、一个对象存储
+分区，各自都会在某个网络的 TLD 之下拿到一个名称，而过去它们各自组装各自的——彼此对
+"什么才算合法名称"并不一致。`gfehFQDN` 会规范化标签、按严格的 LDH 规则校验每一个以点
+分隔的分量，并拒绝限定之后超过 253 字符的名称；`packageFQDN` 是裸拼接，两项检查都没有；
+`pageFQDN` 除了去除首尾空白之外什么也不检查。`qualifyPublishedName`
+（`src/svc/systemcontroller/published_name.go`）现在是唯一的组装者，把 gfeh 的规则施加
+于三者；而 `validatePublishedName` 是它不做限定的那一半，供那些必须被检查、却不该被组装
+的名称使用。未通过的名称会被**丢弃** —— 每个收集器本来就会跳过空的 FQDN，因此它贡献的
+是"没有记录、没有路由、没有证书、没有目录"，而不是给这四样东西各一个坏掉的 —— 并且这条
+拒绝记录在 **Error** 级别，因为 `LOG_LEVEL` 默认就是 `error`，而一个悄无声息地不再解析的
+服务，绝不能只有把日志级别调高才能被发现。
+
+**page 的 domain 在 API 处就被校验，而不只是在组装时。** 对 page 而言这个名称还是第
+*五*样东西：它在磁盘上的子卷与 webroot 符号链接，因为 pages 的 Caddy 以 `/srv/<host>`
+为根。`ValidatePageDomain` 在 `POST /pages/create` 与 `POST /pages/update` 两处都会运行，
+返回 400。要紧的是 update 这条路由：create 是被顺带覆盖到的——`CreateFilesystem` 会运行
+`storage.ValidateFilesystemName`，handler 在抵达符号链接那段代码之前就已回滚；而
+`migratePageDir` 只是把 `RenameFilesystem` 的失败记进日志，然后照样继续执行
+`RemovePageSymlink` / `EnsurePageSymlink`。
+
+微妙之处在于：**公共 FQDN 豁免于限定，但不豁免于校验**。`isPublicFQDN` 会把任何含点且不
+以该 TLD 结尾的名称读作运营者自己的域名，按原样经 ACME 提供服务——这对 `blog.example.com`
+是正确的，同时也正是 `../escape.example.com`、`site.example.com/../../etc` 与
+`site.example.com other.example.com` 未经检查就抵达 `filepath.Join` 和 Caddyfile 的途径。
+"那是运营者的域名"是不该把它组装到本机 TLD 之下的理由；它从来都不是不去检查它的理由。
 
 为防止它们漂移，FQDN 只被计算**一次**——在 `applyPackageTLS` 中，与签发叶子证书同一行——
 并作为 `PackageNetworkState.FQDN` 持久化（按包的网络状态 JSON 中的 `fqdn`）。ingress 路由

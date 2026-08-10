@@ -221,6 +221,7 @@ TOWN_OS_REPO_PASSWORD=<password>
 | 目标                          | 说明                                                                                                                                          |
 | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
 | `make test`                     | 运行代码检查、Go 单元测试与 JS 单元测试。                                                                                          |
+| `make test-race`                | 运行代码检查，并在竞态检测器下跑 Go 单元测试。比 `test` 慢，且仅限 Go（bun 没有对应物）；它报告的是待分诊的发现，而非充当门禁。 |
 | `make test-integration`         | 构建测试镜像，并在带 systemd 与 btrfs 的特权 podman 容器内运行 Go 集成测试。退出时清理 btrfs 环回。     |
 | `make test-integration-build`   | 构建测试镜像并启动集成测试容器（已加载全部镜像），但不运行任何测试。适合为 `test-integration-rerun` 做准备。 |
 | `make test-integration-rerun`   | 在已经运行的容器中重跑集成测试（来自先前的 `test-integration-build`）。跳过镜像构建。                              |

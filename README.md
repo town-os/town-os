@@ -232,6 +232,7 @@ All targets use a unique `INSTANCE_ID` derived from the working directory path, 
 | Target                          | Description                                                                                                                                          |
 | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `make test`                     | Run lint, Go unit tests, and JS unit tests.                                                                                                          |
+| `make test-race`                | Run lint and the Go unit tests under the race detector. Slower than `test` and Go-only (bun has no equivalent); reports findings to triage rather than acting as a gate. |
 | `make test-integration`         | Build the test image and run Go integration tests inside a privileged podman container with systemd and btrfs. Cleans up btrfs loopback on exit.     |
 | `make test-integration-build`   | Build the test image and start the integration test container with all images loaded, but do not run any tests. Useful for preparing a `test-integration-rerun`. |
 | `make test-integration-rerun`   | Re-run integration tests in an already-running container (from a prior `test-integration-build`). Skips image building.                              |
