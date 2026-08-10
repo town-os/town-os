@@ -83,7 +83,7 @@ func initPeerInjectionTest(t *testing.T) *peerInjectionEnv {
 	if err != nil {
 		t.Fatalf("InitSessionManager: %v", err)
 	}
-	nm, err := account.InitNetworkManager(db)
+	nm, err := account.InitNetworkManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitNetworkManager: %v", err)
 	}
@@ -108,7 +108,7 @@ func initPeerInjectionTest(t *testing.T) *peerInjectionEnv {
 	// even in principle. No real interface is created (mock systemd), but the
 	// config file is written for real.
 	const network = "depot"
-	if _, err := nm.Create(&account.Network{
+	if _, err := nm.Create(t.Context(), &account.Network{
 		Name: network, TLD: network, Subnet: "10.90.51.0/24", Address: "10.90.51.1/24",
 		PublicKey: "PUB", PrivateKey: "PRIV", ListenPort: 51821, Enabled: true,
 	}); err != nil {

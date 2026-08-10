@@ -140,7 +140,7 @@ func ReconcileGfeh(ctx context.Context, reg *gfehRegistry) {
 		return
 	}
 
-	nets, err := cfg.NetworkMgr.List()
+	nets, err := cfg.NetworkMgr.List(ctx)
 	if err != nil {
 		logNonFatal("list networks for gfeh reconcile", err)
 		return

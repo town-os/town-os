@@ -21,7 +21,7 @@ func initNetworkTestDB(t *testing.T) *SQLiteNetworkManager {
 		}
 	})
 
-	mgr, err := InitNetworkManager(db)
+	mgr, err := InitNetworkManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitNetworkManager: %v", err)
 	}
@@ -44,7 +44,7 @@ func sampleNetwork(name string) *Network {
 func TestNetworkCreateGetList(t *testing.T) {
 	mgr := initNetworkTestDB(t)
 
-	created, err := mgr.Create(sampleNetwork("lab"))
+	created, err := mgr.Create(t.Context(), sampleNetwork("lab"))
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -52,7 +52,7 @@ func TestNetworkCreateGetList(t *testing.T) {
 		t.Error("created_at not set")
 	}
 
-	got, err := mgr.Get("lab")
+	got, err := mgr.Get(t.Context(), "lab")
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -60,10 +60,10 @@ func TestNetworkCreateGetList(t *testing.T) {
 		t.Errorf("unexpected network: %+v", got)
 	}
 
-	if _, err := mgr.Create(sampleNetwork("office")); err != nil {
+	if _, err := mgr.Create(t.Context(), sampleNetwork("office")); err != nil {
 		t.Fatalf("Create office: %v", err)
 	}
-	list, err := mgr.List()
+	list, err := mgr.List(t.Context())
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -81,7 +81,7 @@ func TestNetworkCreateGetList(t *testing.T) {
 func TestNetworkManagerSeedsTheDefaultNetwork(t *testing.T) {
 	mgr := initNetworkTestDB(t)
 
-	home, err := mgr.Get(DefaultNetworkName)
+	home, err := mgr.Get(t.Context(), DefaultNetworkName)
 	if err != nil {
 		t.Fatalf("the home network was not seeded: %v", err)
 	}
@@ -111,19 +111,19 @@ func TestNetworkManagerSeedIsIdempotent(t *testing.T) {
 		}
 	})
 
-	first, err := InitNetworkManager(db)
+	first, err := InitNetworkManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitNetworkManager: %v", err)
 	}
-	if err := first.SetTLD(DefaultNetworkName, "lan"); err != nil {
+	if err := first.SetTLD(t.Context(), DefaultNetworkName, "lan"); err != nil {
 		t.Fatalf("SetTLD: %v", err)
 	}
 
-	second, err := InitNetworkManager(db)
+	second, err := InitNetworkManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitNetworkManager again: %v", err)
 	}
-	home, err := second.Get(DefaultNetworkName)
+	home, err := second.Get(t.Context(), DefaultNetworkName)
 	if err != nil {
 		t.Fatalf("Get home after reopen: %v", err)
 	}
@@ -131,7 +131,7 @@ func TestNetworkManagerSeedIsIdempotent(t *testing.T) {
 	if home.TLD != "lan" {
 		t.Errorf("TLD = %q after reopen, want lan", home.TLD)
 	}
-	if n, err := second.Count(); err != nil {
+	if n, err := second.Count(t.Context()); err != nil {
 		t.Fatalf("Count: %v", err)
 	} else if n != 1 {
 		t.Errorf("count = %d after reopening, want 1", n)
@@ -142,31 +142,31 @@ func TestNetworkManagerSeedIsIdempotent(t *testing.T) {
 func TestNetworkSetTLD(t *testing.T) {
 	mgr := initNetworkTestDB(t)
 
-	if err := mgr.SetTLD(DefaultNetworkName, "lan"); err != nil {
+	if err := mgr.SetTLD(t.Context(), DefaultNetworkName, "lan"); err != nil {
 		t.Fatalf("SetTLD: %v", err)
 	}
-	got, err := mgr.Get(DefaultNetworkName)
+	got, err := mgr.Get(t.Context(), DefaultNetworkName)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
 	if got.TLD != "lan" {
 		t.Errorf("TLD = %q, want lan", got.TLD)
 	}
-	if err := mgr.SetTLD("nope", "lan"); !errors.Is(err, ErrNetworkNotFound) {
+	if err := mgr.SetTLD(t.Context(), "nope", "lan"); !errors.Is(err, ErrNetworkNotFound) {
 		t.Fatalf("SetTLD on a missing network = %v, want ErrNetworkNotFound", err)
 	}
 }
 
 func TestNetworkDuplicateRejected(t *testing.T) {
 	mgr := initNetworkTestDB(t)
-	if _, err := mgr.Create(sampleNetwork("office")); err != nil {
+	if _, err := mgr.Create(t.Context(), sampleNetwork("office")); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if _, err := mgr.Create(sampleNetwork("office")); !errors.Is(err, ErrDuplicateNetwork) {
+	if _, err := mgr.Create(t.Context(), sampleNetwork("office")); !errors.Is(err, ErrDuplicateNetwork) {
 		t.Fatalf("expected ErrDuplicateNetwork, got %v", err)
 	}
 	// Including the seeded one, which nothing may create a second time.
-	if _, err := mgr.Create(sampleNetwork(DefaultNetworkName)); !errors.Is(err, ErrDuplicateNetwork) {
+	if _, err := mgr.Create(t.Context(), sampleNetwork(DefaultNetworkName)); !errors.Is(err, ErrDuplicateNetwork) {
 		t.Fatalf("creating the home network = %v, want ErrDuplicateNetwork", err)
 	}
 }
@@ -174,7 +174,7 @@ func TestNetworkDuplicateRejected(t *testing.T) {
 func TestNetworkInvalidName(t *testing.T) {
 	mgr := initNetworkTestDB(t)
 	for _, bad := range []string{"", "Home", "has space", "-lead", "trail-", "under_score", "dot.dot"} {
-		if _, err := mgr.Create(sampleNetwork(bad)); err == nil {
+		if _, err := mgr.Create(t.Context(), sampleNetwork(bad)); err == nil {
 			t.Errorf("expected error for name %q", bad)
 		}
 	}
@@ -182,57 +182,57 @@ func TestNetworkInvalidName(t *testing.T) {
 
 func TestNetworkGetMissing(t *testing.T) {
 	mgr := initNetworkTestDB(t)
-	if _, err := mgr.Get("nope"); !errors.Is(err, ErrNetworkNotFound) {
+	if _, err := mgr.Get(t.Context(), "nope"); !errors.Is(err, ErrNetworkNotFound) {
 		t.Fatalf("expected ErrNetworkNotFound, got %v", err)
 	}
 }
 
 func TestNetworkRemove(t *testing.T) {
 	mgr := initNetworkTestDB(t)
-	if _, err := mgr.Create(sampleNetwork("office")); err != nil {
+	if _, err := mgr.Create(t.Context(), sampleNetwork("office")); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if err := mgr.Remove("office"); err != nil {
+	if err := mgr.Remove(t.Context(), "office"); err != nil {
 		t.Fatalf("Remove: %v", err)
 	}
-	if _, err := mgr.Get("office"); !errors.Is(err, ErrNetworkNotFound) {
+	if _, err := mgr.Get(t.Context(), "office"); !errors.Is(err, ErrNetworkNotFound) {
 		t.Fatalf("expected not found after remove, got %v", err)
 	}
-	if err := mgr.Remove("office"); !errors.Is(err, ErrNetworkNotFound) {
+	if err := mgr.Remove(t.Context(), "office"); !errors.Is(err, ErrNetworkNotFound) {
 		t.Fatalf("expected ErrNetworkNotFound, got %v", err)
 	}
 }
 
 func TestNetworkDefaultProtected(t *testing.T) {
 	mgr := initNetworkTestDB(t)
-	if err := mgr.Remove("home"); !errors.Is(err, ErrNetworkProtected) {
+	if err := mgr.Remove(t.Context(), "home"); !errors.Is(err, ErrNetworkProtected) {
 		t.Fatalf("expected ErrNetworkProtected, got %v", err)
 	}
 }
 
 func TestNetworkSetEnabled(t *testing.T) {
 	mgr := initNetworkTestDB(t)
-	if _, err := mgr.Create(sampleNetwork("office")); err != nil {
+	if _, err := mgr.Create(t.Context(), sampleNetwork("office")); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if err := mgr.SetEnabled("office", false); err != nil {
+	if err := mgr.SetEnabled(t.Context(), "office", false); err != nil {
 		t.Fatalf("SetEnabled: %v", err)
 	}
-	got, err := mgr.Get("office")
+	got, err := mgr.Get(t.Context(), "office")
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
 	if got.Enabled {
 		t.Error("expected disabled")
 	}
-	if err := mgr.SetEnabled("missing", true); !errors.Is(err, ErrNetworkNotFound) {
+	if err := mgr.SetEnabled(t.Context(), "missing", true); !errors.Is(err, ErrNetworkNotFound) {
 		t.Fatalf("expected ErrNetworkNotFound, got %v", err)
 	}
 }
 
 func TestNetworkCount(t *testing.T) {
 	mgr := initNetworkTestDB(t)
-	n, err := mgr.Count()
+	n, err := mgr.Count(t.Context())
 	if err != nil {
 		t.Fatalf("Count: %v", err)
 	}
@@ -241,11 +241,11 @@ func TestNetworkCount(t *testing.T) {
 		t.Fatalf("count = %d, want 1", n)
 	}
 	for _, name := range []string{"office", "lab"} {
-		if _, err := mgr.Create(sampleNetwork(name)); err != nil {
+		if _, err := mgr.Create(t.Context(), sampleNetwork(name)); err != nil {
 			t.Fatalf("Create %s: %v", name, err)
 		}
 	}
-	n, err = mgr.Count()
+	n, err = mgr.Count(t.Context())
 	if err != nil {
 		t.Fatalf("Count: %v", err)
 	}
@@ -256,27 +256,27 @@ func TestNetworkCount(t *testing.T) {
 
 func TestNetworkPeers(t *testing.T) {
 	mgr := initNetworkTestDB(t)
-	if _, err := mgr.Create(sampleNetwork("office")); err != nil {
+	if _, err := mgr.Create(t.Context(), sampleNetwork("office")); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
-	if _, err := mgr.AddPeer(&NetworkPeer{Network: "office", PublicKey: "KEY2", Name: "laptop", AllowedIP: "10.90.12.3/32"}); err != nil {
+	if _, err := mgr.AddPeer(t.Context(), &NetworkPeer{Network: "office", PublicKey: "KEY2", Name: "laptop", AllowedIP: "10.90.12.3/32"}); err != nil {
 		t.Fatalf("AddPeer: %v", err)
 	}
-	if _, err := mgr.AddPeer(&NetworkPeer{Network: "office", PublicKey: "KEY1", Name: "phone", AllowedIP: "10.90.12.2/32"}); err != nil {
+	if _, err := mgr.AddPeer(t.Context(), &NetworkPeer{Network: "office", PublicKey: "KEY1", Name: "phone", AllowedIP: "10.90.12.2/32"}); err != nil {
 		t.Fatalf("AddPeer: %v", err)
 	}
 
 	// Duplicate key on same network rejected.
-	if _, err := mgr.AddPeer(&NetworkPeer{Network: "office", PublicKey: "KEY1", AllowedIP: "10.90.12.9/32"}); !errors.Is(err, ErrDuplicateNetworkPeer) {
+	if _, err := mgr.AddPeer(t.Context(), &NetworkPeer{Network: "office", PublicKey: "KEY1", AllowedIP: "10.90.12.9/32"}); !errors.Is(err, ErrDuplicateNetworkPeer) {
 		t.Fatalf("expected ErrDuplicateNetworkPeer, got %v", err)
 	}
 	// Peer on unknown network rejected.
-	if _, err := mgr.AddPeer(&NetworkPeer{Network: "ghost", PublicKey: "KEY9"}); !errors.Is(err, ErrNetworkNotFound) {
+	if _, err := mgr.AddPeer(t.Context(), &NetworkPeer{Network: "ghost", PublicKey: "KEY9"}); !errors.Is(err, ErrNetworkNotFound) {
 		t.Fatalf("expected ErrNetworkNotFound, got %v", err)
 	}
 
-	peers, err := mgr.ListPeers("office")
+	peers, err := mgr.ListPeers(t.Context(), "office")
 	if err != nil {
 		t.Fatalf("ListPeers: %v", err)
 	}
@@ -284,34 +284,34 @@ func TestNetworkPeers(t *testing.T) {
 		t.Fatalf("unexpected peers order: %+v", peers)
 	}
 
-	if err := mgr.RemovePeer("office", "KEY1"); err != nil {
+	if err := mgr.RemovePeer(t.Context(), "office", "KEY1"); err != nil {
 		t.Fatalf("RemovePeer: %v", err)
 	}
-	peers, err = mgr.ListPeers("office")
+	peers, err = mgr.ListPeers(t.Context(), "office")
 	if err != nil {
 		t.Fatalf("ListPeers: %v", err)
 	}
 	if len(peers) != 1 || peers[0].PublicKey != "KEY2" {
 		t.Fatalf("unexpected peers after remove: %+v", peers)
 	}
-	if err := mgr.RemovePeer("office", "KEY1"); !errors.Is(err, ErrNetworkPeerNotFound) {
+	if err := mgr.RemovePeer(t.Context(), "office", "KEY1"); !errors.Is(err, ErrNetworkPeerNotFound) {
 		t.Fatalf("expected ErrNetworkPeerNotFound, got %v", err)
 	}
 }
 
 func TestNetworkPeerRolodexFlag(t *testing.T) {
 	mgr := initNetworkTestDB(t)
-	if _, err := mgr.Create(sampleNetwork("office")); err != nil {
+	if _, err := mgr.Create(t.Context(), sampleNetwork("office")); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if _, err := mgr.AddPeer(&NetworkPeer{Network: "office", PublicKey: "ROL", AllowedIP: "10.90.12.2/32", Rolodex: true}); err != nil {
+	if _, err := mgr.AddPeer(t.Context(), &NetworkPeer{Network: "office", PublicKey: "ROL", AllowedIP: "10.90.12.2/32", Rolodex: true}); err != nil {
 		t.Fatalf("AddPeer rolodex: %v", err)
 	}
-	if _, err := mgr.AddPeer(&NetworkPeer{Network: "office", PublicKey: "PLAIN", AllowedIP: "10.90.12.3/32"}); err != nil {
+	if _, err := mgr.AddPeer(t.Context(), &NetworkPeer{Network: "office", PublicKey: "PLAIN", AllowedIP: "10.90.12.3/32"}); err != nil {
 		t.Fatalf("AddPeer plain: %v", err)
 	}
 
-	peers, err := mgr.ListPeers("office")
+	peers, err := mgr.ListPeers(t.Context(), "office")
 	if err != nil {
 		t.Fatalf("ListPeers: %v", err)
 	}
@@ -329,20 +329,20 @@ func TestNetworkPeerRolodexFlag(t *testing.T) {
 
 func TestNetworkRemoveCascadesPeers(t *testing.T) {
 	mgr := initNetworkTestDB(t)
-	if _, err := mgr.Create(sampleNetwork("office")); err != nil {
+	if _, err := mgr.Create(t.Context(), sampleNetwork("office")); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if _, err := mgr.AddPeer(&NetworkPeer{Network: "office", PublicKey: "KEY1", AllowedIP: "10.90.12.2/32"}); err != nil {
+	if _, err := mgr.AddPeer(t.Context(), &NetworkPeer{Network: "office", PublicKey: "KEY1", AllowedIP: "10.90.12.2/32"}); err != nil {
 		t.Fatalf("AddPeer: %v", err)
 	}
-	if err := mgr.Remove("office"); err != nil {
+	if err := mgr.Remove(t.Context(), "office"); err != nil {
 		t.Fatalf("Remove: %v", err)
 	}
 	// Re-create and confirm no orphaned peers survived the cascade.
-	if _, err := mgr.Create(sampleNetwork("office")); err != nil {
+	if _, err := mgr.Create(t.Context(), sampleNetwork("office")); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	peers, err := mgr.ListPeers("office")
+	peers, err := mgr.ListPeers(t.Context(), "office")
 	if err != nil {
 		t.Fatalf("ListPeers: %v", err)
 	}

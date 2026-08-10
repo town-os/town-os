@@ -13,8 +13,8 @@ type SQLiteNetworkManager struct {
 	db *sql.DB
 }
 
-func InitNetworkManager(db *sql.DB) (*SQLiteNetworkManager, error) {
-	ctx, cancel := dbCtx()
+func InitNetworkManager(ctx context.Context, db *sql.DB) (*SQLiteNetworkManager, error) {
+	ctx, cancel := queryCtx(ctx)
 	defer cancel()
 
 	_, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS networks (
@@ -67,13 +67,13 @@ func InitNetworkManager(db *sql.DB) (*SQLiteNetworkManager, error) {
 	}
 
 	m := &SQLiteNetworkManager{db: db}
-	if _, err := m.Create(DefaultNetwork()); err != nil && !errors.Is(err, ErrDuplicateNetwork) {
+	if _, err := m.Create(ctx, DefaultNetwork()); err != nil && !errors.Is(err, ErrDuplicateNetwork) {
 		return nil, fmt.Errorf("seed default network: %w", err)
 	}
 	return m, nil
 }
 
-func (m *SQLiteNetworkManager) Create(n *Network) (*Network, error) {
+func (m *SQLiteNetworkManager) Create(ctx context.Context, n *Network) (*Network, error) {
 	if n == nil {
 		return nil, ErrNetworkNameRequired
 	}
@@ -87,7 +87,7 @@ func (m *SQLiteNetworkManager) Create(n *Network) (*Network, error) {
 	now := time.Now().UTC()
 	nowStr := now.Format(time.RFC3339)
 
-	ctx, cancel := dbCtx()
+	ctx, cancel := queryCtx(ctx)
 	defer cancel()
 
 	_, err := m.db.ExecContext(ctx,
@@ -108,8 +108,8 @@ func (m *SQLiteNetworkManager) Create(n *Network) (*Network, error) {
 	return &out, nil
 }
 
-func (m *SQLiteNetworkManager) Get(name string) (*Network, error) {
-	ctx, cancel := dbCtx()
+func (m *SQLiteNetworkManager) Get(ctx context.Context, name string) (*Network, error) {
+	ctx, cancel := queryCtx(ctx)
 	defer cancel()
 
 	row := m.db.QueryRowContext(ctx,
@@ -142,8 +142,8 @@ func scanNetwork(row *sql.Row) (*Network, error) {
 	return &n, nil
 }
 
-func (m *SQLiteNetworkManager) List() (_ []Network, err error) {
-	ctx, cancel := dbCtx()
+func (m *SQLiteNetworkManager) List(ctx context.Context) (_ []Network, err error) {
+	ctx, cancel := queryCtx(ctx)
 	defer cancel()
 
 	rows, err := m.db.QueryContext(ctx,
@@ -180,12 +180,12 @@ func (m *SQLiteNetworkManager) List() (_ []Network, err error) {
 	return out, nil
 }
 
-func (m *SQLiteNetworkManager) Remove(name string) error {
+func (m *SQLiteNetworkManager) Remove(ctx context.Context, name string) error {
 	if name == DefaultNetworkName {
 		return ErrNetworkProtected
 	}
 
-	ctx, cancel := dbCtx()
+	ctx, cancel := queryCtx(ctx)
 	defer cancel()
 
 	res, err := m.db.ExecContext(ctx, "DELETE FROM networks WHERE name = ?", name)
@@ -202,8 +202,8 @@ func (m *SQLiteNetworkManager) Remove(name string) error {
 	return nil
 }
 
-func (m *SQLiteNetworkManager) SetEnabled(name string, enabled bool) error {
-	ctx, cancel := dbCtx()
+func (m *SQLiteNetworkManager) SetEnabled(ctx context.Context, name string, enabled bool) error {
+	ctx, cancel := queryCtx(ctx)
 	defer cancel()
 
 	nowStr := time.Now().UTC().Format(time.RFC3339)
@@ -222,8 +222,8 @@ func (m *SQLiteNetworkManager) SetEnabled(name string, enabled bool) error {
 	return nil
 }
 
-func (m *SQLiteNetworkManager) SetTLD(name, tld string) error {
-	ctx, cancel := dbCtx()
+func (m *SQLiteNetworkManager) SetTLD(ctx context.Context, name, tld string) error {
+	ctx, cancel := queryCtx(ctx)
 	defer cancel()
 
 	nowStr := time.Now().UTC().Format(time.RFC3339)
@@ -242,8 +242,8 @@ func (m *SQLiteNetworkManager) SetTLD(name, tld string) error {
 	return nil
 }
 
-func (m *SQLiteNetworkManager) Count() (int, error) {
-	ctx, cancel := dbCtx()
+func (m *SQLiteNetworkManager) Count(ctx context.Context) (int, error) {
+	ctx, cancel := queryCtx(ctx)
 	defer cancel()
 
 	var count int
@@ -253,21 +253,21 @@ func (m *SQLiteNetworkManager) Count() (int, error) {
 	return count, nil
 }
 
-func (m *SQLiteNetworkManager) AddPeer(p *NetworkPeer) (*NetworkPeer, error) {
+func (m *SQLiteNetworkManager) AddPeer(ctx context.Context, p *NetworkPeer) (*NetworkPeer, error) {
 	if p == nil || strings.TrimSpace(p.PublicKey) == "" {
 		return nil, ErrNetworkPeerKeyReq
 	}
 
 	// Ensure the network exists so we return a clean error instead of a
 	// foreign-key violation string.
-	if _, err := m.Get(p.Network); err != nil {
+	if _, err := m.Get(ctx, p.Network); err != nil {
 		return nil, err
 	}
 
 	now := time.Now().UTC()
 	nowStr := now.Format(time.RFC3339)
 
-	ctx, cancel := dbCtx()
+	ctx, cancel := queryCtx(ctx)
 	defer cancel()
 
 	rolodex := 0
@@ -298,8 +298,8 @@ func (m *SQLiteNetworkManager) AddPeer(p *NetworkPeer) (*NetworkPeer, error) {
 	return &out, nil
 }
 
-func (m *SQLiteNetworkManager) RemovePeer(network, publicKey string) error {
-	ctx, cancel := dbCtx()
+func (m *SQLiteNetworkManager) RemovePeer(ctx context.Context, network, publicKey string) error {
+	ctx, cancel := queryCtx(ctx)
 	defer cancel()
 
 	res, err := m.db.ExecContext(ctx,
@@ -350,8 +350,8 @@ func scanNetworkPeerRow(s rowScanner) (*NetworkPeer, error) {
 	return &p, nil
 }
 
-func (m *SQLiteNetworkManager) ListPeers(network string) (_ []NetworkPeer, err error) {
-	ctx, cancel := dbCtx()
+func (m *SQLiteNetworkManager) ListPeers(ctx context.Context, network string) (_ []NetworkPeer, err error) {
+	ctx, cancel := queryCtx(ctx)
 	defer cancel()
 
 	rows, err := m.db.QueryContext(ctx,
@@ -381,8 +381,8 @@ func (m *SQLiteNetworkManager) ListPeers(network string) (_ []NetworkPeer, err e
 // RefreshPeer extends a peer's expiry. It sets expires_at unconditionally to the
 // supplied time, so a heartbeat both slides a TTL'd peer forward and (were it
 // ever called on a permanent peer) would give it one — callers pass now+peer_ttl.
-func (m *SQLiteNetworkManager) RefreshPeer(network, publicKey string, expiresAt time.Time) error {
-	ctx, cancel := dbCtx()
+func (m *SQLiteNetworkManager) RefreshPeer(ctx context.Context, network, publicKey string, expiresAt time.Time) error {
+	ctx, cancel := queryCtx(ctx)
 	defer cancel()
 
 	res, err := m.db.ExecContext(ctx,
@@ -407,10 +407,10 @@ func (m *SQLiteNetworkManager) RefreshPeer(network, publicKey string, expiresAt 
 // RefreshPeer cannot slip a peer's expiry forward between the two statements and
 // have it both survive and be reported reaped (the single-connection pool would
 // otherwise release the connection between statements).
-func (m *SQLiteNetworkManager) ReapExpiredPeers(now time.Time) (_ []NetworkPeer, err error) {
+func (m *SQLiteNetworkManager) ReapExpiredPeers(ctx context.Context, now time.Time) (_ []NetworkPeer, err error) {
 	nowStr := now.UTC().Format(time.RFC3339)
 
-	ctx, cancel := dbCtx()
+	ctx, cancel := queryCtx(ctx)
 	defer cancel()
 
 	tx, err := m.db.BeginTx(ctx, nil)

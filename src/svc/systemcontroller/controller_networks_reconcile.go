@@ -25,7 +25,7 @@ import (
 
 // resolveInstallNetwork normalizes and validates a requested install network,
 // defaulting to "home". Returns an echo HTTP error when the network is unknown.
-func (s *SystemControllerHandlers) resolveInstallNetwork(requested string) (string, error) {
+func (s *SystemControllerHandlers) resolveInstallNetwork(ctx context.Context, requested string) (string, error) {
 	network := strings.TrimSpace(requested)
 	if network == "" {
 		network = account.DefaultNetworkName
@@ -34,7 +34,7 @@ func (s *SystemControllerHandlers) resolveInstallNetwork(requested string) (stri
 	if nm == nil {
 		return network, nil
 	}
-	if _, err := nm.Get(network); err != nil {
+	if _, err := nm.Get(ctx, network); err != nil {
 		if errors.Is(err, account.ErrNetworkNotFound) {
 			return "", echo.NewHTTPError(400, fmt.Sprintf("network %q does not exist", network))
 		}
@@ -61,7 +61,7 @@ func networkTLDValue(ctx context.Context, nm account.NetworkManager, settingsMgr
 	if network == "" || network == account.DefaultNetworkName || nm == nil {
 		return reconcileDNSTLD(ctx, settingsMgr)
 	}
-	n, err := nm.Get(network)
+	n, err := nm.Get(ctx, network)
 	if err != nil || n.TLD == "" {
 		return reconcileDNSTLD(ctx, settingsMgr)
 	}
@@ -75,17 +75,17 @@ func networkTLDValue(ctx context.Context, nm account.NetworkManager, settingsMgr
 // applyNetworkTransport), so it — and any unknown network — yields "", which
 // collectTLSSans treats as "skip that SAN". Keeping it empty there is what
 // stops default-network leaves from churning on every reconcile.
-func (s *SystemControllerHandlers) networkOverlayIP(network string) string {
-	return networkOverlayIPValue(s.Controller.GetNetworkManager(), network)
+func (s *SystemControllerHandlers) networkOverlayIP(ctx context.Context, network string) string {
+	return networkOverlayIPValue(ctx, s.Controller.GetNetworkManager(), network)
 }
 
 // networkOverlayIPValue is the free-function core of networkOverlayIP, so the
 // reconcile path (which has no handler) can resolve the same address.
-func networkOverlayIPValue(nm account.NetworkManager, network string) string {
+func networkOverlayIPValue(ctx context.Context, nm account.NetworkManager, network string) string {
 	if network == "" || network == account.DefaultNetworkName || nm == nil {
 		return ""
 	}
-	n, err := nm.Get(network)
+	n, err := nm.Get(ctx, network)
 	if err != nil {
 		return ""
 	}
@@ -133,7 +133,7 @@ func (s *SystemControllerHandlers) registerScopedPackageDNS(ctx context.Context,
 	if rc == nil || nm == nil {
 		return
 	}
-	n, err := nm.Get(network)
+	n, err := nm.Get(ctx, network)
 	if err != nil {
 		return
 	}
@@ -191,7 +191,7 @@ func (s *SystemControllerHandlers) unregisterScopedPackageDNS(ctx context.Contex
 	if rc == nil || nm == nil {
 		return
 	}
-	n, err := nm.Get(network)
+	n, err := nm.Get(ctx, network)
 	if err != nil {
 		return
 	}
@@ -231,7 +231,7 @@ func (s *SystemControllerHandlers) reapExpiredPeers(ctx context.Context) {
 	if nm == nil {
 		return
 	}
-	reaped, err := nm.ReapExpiredPeers(time.Now())
+	reaped, err := nm.ReapExpiredPeers(ctx, time.Now())
 	if err != nil {
 		logNonFatal("reap expired peers", err)
 		return
@@ -247,7 +247,7 @@ func (s *SystemControllerHandlers) reapExpiredPeers(ctx context.Context) {
 			continue
 		}
 		rerendered[p.Network] = true
-		n, err := nm.Get(p.Network)
+		n, err := nm.Get(ctx, p.Network)
 		if err != nil {
 			// The network may itself have been removed (its peers cascade-deleted);
 			// nothing to re-render in that case.
@@ -264,7 +264,7 @@ func (s *SystemControllerHandlers) reapExpiredPeers(ctx context.Context) {
 // buildNetwork assembles a new Network record: it derives the overlay subnet
 // from the IPAM seed (systemd machine-id), generates a WireGuard keypair, and
 // assigns a listen port from the current network count.
-func (s *SystemControllerHandlers) buildNetwork(name, tld string, enabled bool) (*account.Network, error) {
+func (s *SystemControllerHandlers) buildNetwork(ctx context.Context, name, tld string, enabled bool) (*account.Network, error) {
 	subnet, err := wireguard.SubnetForNetwork(networkIPAMSeed(), name)
 	if err != nil {
 		return nil, fmt.Errorf("derive subnet: %w", err)
@@ -279,7 +279,7 @@ func (s *SystemControllerHandlers) buildNetwork(name, tld string, enabled bool) 
 	// reuse a live port.
 	port := wireguard.ListenPortForName(wireGuardSalt, name)
 	if nm := s.Controller.GetNetworkManager(); nm != nil {
-		if nets, lerr := nm.List(); lerr == nil {
+		if nets, lerr := nm.List(ctx); lerr == nil {
 			used := make(map[int]bool, len(nets))
 			for _, e := range nets {
 				used[e.ListenPort] = true
@@ -364,7 +364,7 @@ func (s *SystemControllerHandlers) applyNetworkTransport(ctx context.Context, n 
 	transportStarted := false
 	if statePath != "" && sd != nil {
 		configPath := networkConfigPath(statePath, n.Name)
-		peers, err := s.networkPeerConfigs(n.Name)
+		peers, err := s.networkPeerConfigs(ctx, n.Name)
 		if err != nil {
 			return err
 		}
@@ -602,12 +602,12 @@ func (s *SystemControllerHandlers) teardownNetworkTransport(ctx context.Context,
 }
 
 // networkPeerConfigs loads a network's peers as WireGuard peer configs.
-func (s *SystemControllerHandlers) networkPeerConfigs(name string) ([]wireguard.PeerConfig, error) {
+func (s *SystemControllerHandlers) networkPeerConfigs(ctx context.Context, name string) ([]wireguard.PeerConfig, error) {
 	nm := s.Controller.GetNetworkManager()
 	if nm == nil {
 		return nil, nil
 	}
-	peers, err := nm.ListPeers(name)
+	peers, err := nm.ListPeers(ctx, name)
 	if err != nil {
 		return nil, fmt.Errorf("list peers: %w", err)
 	}
@@ -726,7 +726,7 @@ func (s *SystemControllerHandlers) reconcilePeerForwarders(ctx context.Context, 
 	if nm == nil {
 		return
 	}
-	peers, err := nm.ListPeers(n.Name)
+	peers, err := nm.ListPeers(ctx, n.Name)
 	if err != nil {
 		logNonFatal("list network peers", err)
 		return
@@ -771,11 +771,11 @@ func (s *SystemControllerHandlers) ensureDefaultNetwork(ctx context.Context) err
 		return nil
 	}
 	tld := s.getDNSTLDValue(ctx)
-	if existing, err := nm.Get(account.DefaultNetworkName); err == nil {
+	if existing, err := nm.Get(ctx, account.DefaultNetworkName); err == nil {
 		if existing.TLD == tld {
 			return nil
 		}
-		if err := nm.SetTLD(account.DefaultNetworkName, tld); err != nil {
+		if err := nm.SetTLD(ctx, account.DefaultNetworkName, tld); err != nil {
 			return fmt.Errorf("reconcile default network TLD: %w", err)
 		}
 		return nil
@@ -783,11 +783,11 @@ func (s *SystemControllerHandlers) ensureDefaultNetwork(ctx context.Context) err
 		return fmt.Errorf("get default network: %w", err)
 	}
 
-	n, err := s.buildNetwork(account.DefaultNetworkName, s.getDNSTLDValue(ctx), true)
+	n, err := s.buildNetwork(ctx, account.DefaultNetworkName, s.getDNSTLDValue(ctx), true)
 	if err != nil {
 		return err
 	}
-	if _, err := nm.Create(n); err != nil && !errors.Is(err, account.ErrDuplicateNetwork) {
+	if _, err := nm.Create(ctx, n); err != nil && !errors.Is(err, account.ErrDuplicateNetwork) {
 		return fmt.Errorf("create default network: %w", err)
 	}
 	return nil
@@ -804,7 +804,7 @@ func (s *SystemControllerHandlers) reconcileNetworks(ctx context.Context) {
 	if err := s.ensureDefaultNetwork(ctx); err != nil {
 		logNonFatal("ensure default network", err)
 	}
-	nets, err := nm.List()
+	nets, err := nm.List(ctx)
 	if err != nil {
 		logNonFatal("list networks for reconcile", err)
 		return

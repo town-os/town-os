@@ -111,7 +111,7 @@ func (s *SystemControllerHandlers) listConnectedPeers(c *echo.Context) error {
 	if nm == nil {
 		return c.JSON(200, []ConnectedPeerView{})
 	}
-	nets, err := nm.List()
+	nets, err := nm.List(c.Request().Context())
 	if err != nil {
 		return echo.NewHTTPError(500, fmt.Sprintf("list networks: %v", err))
 	}
@@ -123,7 +123,7 @@ func (s *SystemControllerHandlers) listConnectedPeers(c *echo.Context) error {
 		if n.Name == account.DefaultNetworkName {
 			continue
 		}
-		peers, perr := nm.ListPeers(n.Name)
+		peers, perr := nm.ListPeers(c.Request().Context(), n.Name)
 		if perr != nil {
 			return echo.NewHTTPError(500, fmt.Sprintf("list peers: %v", perr))
 		}

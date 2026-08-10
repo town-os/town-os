@@ -66,7 +66,7 @@ func initPeerScopeTest(t *testing.T) *peerScopeEnv {
 	if err != nil {
 		t.Fatalf("InitSessionManager: %v", err)
 	}
-	nm, err := account.InitNetworkManager(db)
+	nm, err := account.InitNetworkManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitNetworkManager: %v", err)
 	}
@@ -91,7 +91,7 @@ func initPeerScopeTest(t *testing.T) *peerScopeEnv {
 		{"office", "10.90.42.0/24", "10.90.42.1/24"},
 		{"lab", "10.90.43.0/24", "10.90.43.1/24"},
 	} {
-		if _, err := nm.Create(&account.Network{
+		if _, err := nm.Create(t.Context(), &account.Network{
 			Name: seed.name, TLD: seed.name, Subnet: seed.subnet, Address: seed.addr,
 			PublicKey: "PUB", PrivateKey: "PRIV", ListenPort: 51820, Enabled: true,
 		}); err != nil {

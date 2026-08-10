@@ -27,14 +27,14 @@ func newNetworksHandlerWithRolodex(mock *account.MockNetworkManager, rc rolodex.
 func TestReconcilePeerForwarders(t *testing.T) {
 	mock := account.InitMockNetworkManager()
 	n := &account.Network{Name: "office", TLD: "office", Subnet: "10.90.12.0/24", Address: "10.90.12.1/24", PublicKey: "PUB", ListenPort: 51820, Enabled: true}
-	if _, err := mock.Create(n); err != nil {
+	if _, err := mock.Create(t.Context(), n); err != nil {
 		t.Fatalf("seed network: %v", err)
 	}
 	// One peer runs rolodex, one does not.
-	if _, err := mock.AddPeer(&account.NetworkPeer{Network: "office", PublicKey: "k-rol", AllowedIP: "10.90.12.2/32", Rolodex: true}); err != nil {
+	if _, err := mock.AddPeer(t.Context(), &account.NetworkPeer{Network: "office", PublicKey: "k-rol", AllowedIP: "10.90.12.2/32", Rolodex: true}); err != nil {
 		t.Fatalf("add rolodex peer: %v", err)
 	}
-	if _, err := mock.AddPeer(&account.NetworkPeer{Network: "office", PublicKey: "k-plain", AllowedIP: "10.90.12.3/32", Rolodex: false}); err != nil {
+	if _, err := mock.AddPeer(t.Context(), &account.NetworkPeer{Network: "office", PublicKey: "k-plain", AllowedIP: "10.90.12.3/32", Rolodex: false}); err != nil {
 		t.Fatalf("add plain peer: %v", err)
 	}
 
@@ -64,7 +64,7 @@ func TestReconcilePeerForwarders(t *testing.T) {
 func TestReconcilePeerForwardersNonePresent(t *testing.T) {
 	mock := account.InitMockNetworkManager()
 	n := &account.Network{Name: "solo", TLD: "solo", Subnet: "10.90.13.0/24", Address: "10.90.13.1/24", PublicKey: "PUB", ListenPort: 51821, Enabled: true}
-	if _, err := mock.Create(n); err != nil {
+	if _, err := mock.Create(t.Context(), n); err != nil {
 		t.Fatalf("seed network: %v", err)
 	}
 	mc := &rolodex.MockClient{}
@@ -167,7 +167,7 @@ func TestCreateNetworkDuplicateTLD(t *testing.T) {
 
 func TestEnableDisableNetworkHandler(t *testing.T) {
 	mock := account.InitMockNetworkManager()
-	if _, err := mock.Create(&account.Network{Name: "office", TLD: "office", Subnet: "10.90.12.0/24", Address: "10.90.12.1/24", Enabled: true}); err != nil {
+	if _, err := mock.Create(t.Context(), &account.Network{Name: "office", TLD: "office", Subnet: "10.90.12.0/24", Address: "10.90.12.1/24", Enabled: true}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	s := newNetworksHandler(mock)
@@ -180,7 +180,7 @@ func TestEnableDisableNetworkHandler(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("disable status = %d", rec.Code)
 	}
-	n, err := mock.Get("office")
+	n, err := mock.Get(t.Context(), "office")
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
@@ -204,7 +204,7 @@ func TestRemoveDefaultNetworkRejected(t *testing.T) {
 
 func TestAddNetworkPeerHandler(t *testing.T) {
 	mock := account.InitMockNetworkManager()
-	if _, err := mock.Create(&account.Network{Name: "office", TLD: "office", Subnet: "10.90.12.0/24", Address: "10.90.12.1/24", PublicKey: "NETPUB", ListenPort: 51820, Enabled: true}); err != nil {
+	if _, err := mock.Create(t.Context(), &account.Network{Name: "office", TLD: "office", Subnet: "10.90.12.0/24", Address: "10.90.12.1/24", PublicKey: "NETPUB", ListenPort: 51820, Enabled: true}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	s := newNetworksHandler(mock)
@@ -234,7 +234,7 @@ func TestAddNetworkPeerHandler(t *testing.T) {
 		t.Fatalf("peer allowed ip malformed: %q", result.Peer.AllowedIP)
 	}
 
-	peers, err := mock.ListPeers("office")
+	peers, err := mock.ListPeers(t.Context(), "office")
 	if err != nil {
 		t.Fatalf("list peers: %v", err)
 	}
@@ -245,13 +245,13 @@ func TestAddNetworkPeerHandler(t *testing.T) {
 
 func TestResolveInstallNetwork(t *testing.T) {
 	mock := account.InitMockNetworkManager()
-	if _, err := mock.Create(&account.Network{Name: "office", TLD: "office", Enabled: true}); err != nil {
+	if _, err := mock.Create(t.Context(), &account.Network{Name: "office", TLD: "office", Enabled: true}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	s := newNetworksHandler(mock)
 
 	// Empty defaults to "home" even if home is not present in the store.
-	got, err := s.resolveInstallNetwork("")
+	got, err := s.resolveInstallNetwork(t.Context(), "")
 	if err != nil {
 		// home is absent → validation fails; that is acceptable, but the
 		// default resolution itself must have produced "home".
@@ -264,7 +264,7 @@ func TestResolveInstallNetwork(t *testing.T) {
 	}
 
 	// Existing network resolves.
-	got, err = s.resolveInstallNetwork("office")
+	got, err = s.resolveInstallNetwork(t.Context(), "office")
 	if err != nil {
 		t.Fatalf("resolveInstallNetwork(office): %v", err)
 	}
@@ -273,7 +273,7 @@ func TestResolveInstallNetwork(t *testing.T) {
 	}
 
 	// Unknown network is a 400.
-	_, err = s.resolveInstallNetwork("ghost")
+	_, err = s.resolveInstallNetwork(t.Context(), "ghost")
 	var httpErr *echo.HTTPError
 	if !errors.As(err, &httpErr) || httpErr.Code != http.StatusBadRequest {
 		t.Fatalf("want 400 for unknown network, got %v", err)

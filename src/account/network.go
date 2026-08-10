@@ -1,6 +1,7 @@
 package account
 
 import (
+	"context"
 	"errors"
 	"regexp"
 	"time"
@@ -91,31 +92,37 @@ type NetworkPeer struct {
 // NetworkManager persists networks and their peers. Key generation, subnet
 // derivation (from the systemd machine-id) and listen-port assignment happen in
 // the caller; the manager is a pure store.
+// NetworkManager owns the WireGuard networks and their peers.
+//
+// Context-taking for the reasons on SettingsManager. ReapExpiredPeers is the
+// one called from a background goroutine rather than a handler, so it gets the
+// server-scoped context: the reaper must outlive any request, and a sweep
+// interrupted halfway leaves peers the live WireGuard device still carries.
 type NetworkManager interface {
-	Create(n *Network) (*Network, error)
-	Get(name string) (*Network, error)
-	List() ([]Network, error)
-	Remove(name string) error
-	SetEnabled(name string, enabled bool) error
+	Create(ctx context.Context, n *Network) (*Network, error)
+	Get(ctx context.Context, name string) (*Network, error)
+	List(ctx context.Context) ([]Network, error)
+	Remove(ctx context.Context, name string) error
+	SetEnabled(ctx context.Context, name string, enabled bool) error
 	// SetTLD repoints a network at a different DNS TLD. It exists for the home
 	// network, whose TLD is the dns_tld setting: the row is seeded before that
 	// setting can be read, and `POST /dns/tld` can change it afterwards, so the
 	// controller reconciles the two at boot. Returns [ErrNetworkNotFound] if the
 	// network does not exist.
-	SetTLD(name, tld string) error
-	Count() (int, error)
+	SetTLD(ctx context.Context, name, tld string) error
+	Count(ctx context.Context) (int, error)
 
-	AddPeer(p *NetworkPeer) (*NetworkPeer, error)
-	RemovePeer(network, publicKey string) error
-	ListPeers(network string) ([]NetworkPeer, error)
+	AddPeer(ctx context.Context, p *NetworkPeer) (*NetworkPeer, error)
+	RemovePeer(ctx context.Context, network, publicKey string) error
+	ListPeers(ctx context.Context, network string) ([]NetworkPeer, error)
 
 	// RefreshPeer extends a peer's expiry to expiresAt. This is the heartbeat
 	// that keeps a long-lived enrollment (the portal) alive across the TTL
 	// window. Returns [ErrNetworkPeerNotFound] if the peer does not exist.
-	RefreshPeer(network, publicKey string, expiresAt time.Time) error
+	RefreshPeer(ctx context.Context, network, publicKey string, expiresAt time.Time) error
 	// ReapExpiredPeers deletes every peer whose expiry is non-nil and at or
 	// before now, returning the removed peers so the caller can tear down their
 	// runtime state (the live WireGuard device, rolodex DNS forwarders). Peers
 	// with no expiry are never reaped.
-	ReapExpiredPeers(now time.Time) ([]NetworkPeer, error)
+	ReapExpiredPeers(ctx context.Context, now time.Time) ([]NetworkPeer, error)
 }

@@ -69,19 +69,19 @@ func callConnectedPeers(t *testing.T, s *SystemControllerHandlers) []ConnectedPe
 func seedOfficeNetwork(t *testing.T) *account.MockNetworkManager {
 	t.Helper()
 	mock := account.InitMockNetworkManager()
-	if _, err := mock.Create(&account.Network{
+	if _, err := mock.Create(t.Context(), &account.Network{
 		Name: "office", TLD: "office", Subnet: "10.90.12.0/24",
 		Address: "10.90.12.1/24", PublicKey: "PUB", ListenPort: 51820, Enabled: true,
 	}); err != nil {
 		t.Fatalf("seed network: %v", err)
 	}
-	if _, err := mock.AddPeer(&account.NetworkPeer{
+	if _, err := mock.AddPeer(t.Context(), &account.NetworkPeer{
 		Network: "office", PublicKey: "k-laptop", Name: "laptop",
 		AllowedIP: "10.90.12.2/32", CreatedBy: "alice",
 	}); err != nil {
 		t.Fatalf("add laptop peer: %v", err)
 	}
-	if _, err := mock.AddPeer(&account.NetworkPeer{
+	if _, err := mock.AddPeer(t.Context(), &account.NetworkPeer{
 		Network: "office", PublicKey: "k-phone", Name: "phone",
 		AllowedIP: "10.90.12.3/32", CreatedBy: "bob",
 	}); err != nil {
@@ -183,7 +183,7 @@ func TestListConnectedPeersExcludesDefaultNetwork(t *testing.T) {
 		Address: "10.90.1.1/24", PublicKey: "HOMEPUB", ListenPort: 51999, Enabled: true,
 	})
 	// A legacy row on home, which must still not surface.
-	if _, err := mock.AddPeer(&account.NetworkPeer{
+	if _, err := mock.AddPeer(t.Context(), &account.NetworkPeer{
 		Network: account.DefaultNetworkName, PublicKey: "k-legacy",
 		Name: "legacy", AllowedIP: "10.90.1.2/32",
 	}); err != nil {
@@ -205,13 +205,13 @@ func TestListConnectedPeersExcludesDefaultNetwork(t *testing.T) {
 // only fail and log noise on every poll.
 func TestListConnectedPeersDisabledNetworkSkipsDumpButListsPeers(t *testing.T) {
 	mock := account.InitMockNetworkManager()
-	if _, err := mock.Create(&account.Network{
+	if _, err := mock.Create(t.Context(), &account.Network{
 		Name: "off", TLD: "off", Subnet: "10.90.20.0/24",
 		Address: "10.90.20.1/24", PublicKey: "PUB", ListenPort: 51830, Enabled: false,
 	}); err != nil {
 		t.Fatalf("seed network: %v", err)
 	}
-	if _, err := mock.AddPeer(&account.NetworkPeer{
+	if _, err := mock.AddPeer(t.Context(), &account.NetworkPeer{
 		Network: "off", PublicKey: "k-1", Name: "laptop",
 		AllowedIP: "10.90.20.2/32", CreatedBy: "alice",
 	}); err != nil {
@@ -262,13 +262,13 @@ func TestListConnectedPeersSurvivesDumpFailure(t *testing.T) {
 // With no observed endpoint, the configured one is the best available answer.
 func TestListConnectedPeersFallsBackToConfiguredEndpoint(t *testing.T) {
 	mock := account.InitMockNetworkManager()
-	if _, err := mock.Create(&account.Network{
+	if _, err := mock.Create(t.Context(), &account.Network{
 		Name: "office", TLD: "office", Subnet: "10.90.12.0/24",
 		Address: "10.90.12.1/24", PublicKey: "PUB", ListenPort: 51820, Enabled: true,
 	}); err != nil {
 		t.Fatalf("seed network: %v", err)
 	}
-	if _, err := mock.AddPeer(&account.NetworkPeer{
+	if _, err := mock.AddPeer(t.Context(), &account.NetworkPeer{
 		Network: "office", PublicKey: "k-1", Name: "site",
 		AllowedIP: "10.90.12.2/32", Endpoint: "branch.example.com:51820",
 	}); err != nil {
@@ -291,13 +291,13 @@ func TestListConnectedPeersFallsBackToConfiguredEndpoint(t *testing.T) {
 // only where we would dial it. Observed must win.
 func TestListConnectedPeersObservedEndpointBeatsConfigured(t *testing.T) {
 	mock := account.InitMockNetworkManager()
-	if _, err := mock.Create(&account.Network{
+	if _, err := mock.Create(t.Context(), &account.Network{
 		Name: "office", TLD: "office", Subnet: "10.90.12.0/24",
 		Address: "10.90.12.1/24", PublicKey: "PUB", ListenPort: 51820, Enabled: true,
 	}); err != nil {
 		t.Fatalf("seed network: %v", err)
 	}
-	if _, err := mock.AddPeer(&account.NetworkPeer{
+	if _, err := mock.AddPeer(t.Context(), &account.NetworkPeer{
 		Network: "office", PublicKey: "k-1", Name: "site",
 		AllowedIP: "10.90.12.2/32", Endpoint: "stale.example.com:51820",
 	}); err != nil {
@@ -318,14 +318,14 @@ func TestListConnectedPeersObservedEndpointBeatsConfigured(t *testing.T) {
 func TestListConnectedPeersOrderIsDeterministic(t *testing.T) {
 	mock := account.InitMockNetworkManager()
 	for _, n := range []string{"zulu", "alpha"} {
-		if _, err := mock.Create(&account.Network{
+		if _, err := mock.Create(t.Context(), &account.Network{
 			Name: n, TLD: n, Subnet: "10.90.30.0/24", Address: "10.90.30.1/24",
 			PublicKey: "PUB", ListenPort: 51840, Enabled: false,
 		}); err != nil {
 			t.Fatalf("seed %s: %v", n, err)
 		}
 		for _, p := range []string{"yankee", "bravo"} {
-			if _, err := mock.AddPeer(&account.NetworkPeer{
+			if _, err := mock.AddPeer(t.Context(), &account.NetworkPeer{
 				Network: n, PublicKey: "k-" + n + "-" + p, Name: p, AllowedIP: "10.90.30.2/32",
 			}); err != nil {
 				t.Fatalf("add peer %s/%s: %v", n, p, err)
@@ -380,20 +380,20 @@ func TestListConnectedPeersEmptyWhenNoNetworkManager(t *testing.T) {
 // enrollment lapses, an admin's does not.
 func TestListConnectedPeersReportsExpiry(t *testing.T) {
 	mock := account.InitMockNetworkManager()
-	if _, err := mock.Create(&account.Network{
+	if _, err := mock.Create(t.Context(), &account.Network{
 		Name: "office", TLD: "office", Subnet: "10.90.12.0/24",
 		Address: "10.90.12.1/24", PublicKey: "PUB", ListenPort: 51820, Enabled: false,
 	}); err != nil {
 		t.Fatalf("seed network: %v", err)
 	}
 	exp := time.Now().Add(time.Hour).UTC().Truncate(time.Second)
-	if _, err := mock.AddPeer(&account.NetworkPeer{
+	if _, err := mock.AddPeer(t.Context(), &account.NetworkPeer{
 		Network: "office", PublicKey: "k-scoped", Name: "aaa-scoped",
 		AllowedIP: "10.90.12.2/32", CreatedBy: "portal", ExpiresAt: &exp,
 	}); err != nil {
 		t.Fatalf("add scoped peer: %v", err)
 	}
-	if _, err := mock.AddPeer(&account.NetworkPeer{
+	if _, err := mock.AddPeer(t.Context(), &account.NetworkPeer{
 		Network: "office", PublicKey: "k-perm", Name: "bbb-permanent",
 		AllowedIP: "10.90.12.3/32", CreatedBy: "admin",
 	}); err != nil {

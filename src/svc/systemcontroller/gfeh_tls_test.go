@@ -72,7 +72,7 @@ func TestCollectGfehSitesComposesTheZone(t *testing.T) {
 // s3.gfeh.office, never s3.gfeh.home.
 func TestCollectGfehSitesUsesTheNetworkTLD(t *testing.T) {
 	nm := account.InitMockNetworkManager()
-	if _, err := nm.Create(&account.Network{Name: "office", TLD: "office", Enabled: true}); err != nil {
+	if _, err := nm.Create(t.Context(), &account.Network{Name: "office", TLD: "office", Enabled: true}); err != nil {
 		t.Fatalf("create network: %v", err)
 	}
 	reg := stubGfehRegistry{clients: map[string]gfeh.Client{
@@ -95,7 +95,7 @@ func TestCollectGfehSitesUsesTheNetworkTLD(t *testing.T) {
 // only, because the two callers publish into different zones.
 func TestCollectGfehSitesSelectsByNetwork(t *testing.T) {
 	nm := account.InitMockNetworkManager()
-	if _, err := nm.Create(&account.Network{Name: "office", TLD: "office", Enabled: true}); err != nil {
+	if _, err := nm.Create(t.Context(), &account.Network{Name: "office", TLD: "office", Enabled: true}); err != nil {
 		t.Fatalf("create network: %v", err)
 	}
 	reg := stubGfehRegistry{clients: map[string]gfeh.Client{
@@ -234,7 +234,7 @@ func TestCollectGfehSitesSkipsAPartitionThatDoesNotAnswer(t *testing.T) {
 	}
 	// And it does not take the healthy one down with it.
 	nm := account.InitMockNetworkManager()
-	if _, err := nm.Create(&account.Network{Name: "office", TLD: "office", Enabled: true}); err != nil {
+	if _, err := nm.Create(t.Context(), &account.Network{Name: "office", TLD: "office", Enabled: true}); err != nil {
 		t.Fatalf("create network: %v", err)
 	}
 	if sites := collectGfehSites(gfehTLSCtx(t), reg, nm, "home", "office"); len(sites) == 0 {

@@ -100,8 +100,8 @@ func gfehFQDN(label, tld string) string {
 
 // gfehNetworkTLD resolves a partition's TLD. The page-side twin, reused rather
 // than reimplemented.
-func gfehNetworkTLD(nm account.NetworkManager, network, globalTLD string) string {
-	return pageNetworkTLD(nm, network, globalTLD)
+func gfehNetworkTLD(ctx context.Context, nm account.NetworkManager, network, globalTLD string) string {
+	return pageNetworkTLD(ctx, nm, network, globalTLD)
 }
 
 // gfehContainerName is the podman container a partition's views are served
@@ -142,7 +142,7 @@ func collectGfehSites(ctx context.Context, reg GfehRegistry, nm account.NetworkM
 			continue
 		}
 
-		tld := gfehNetworkTLD(nm, network, globalTLD)
+		tld := gfehNetworkTLD(ctx, nm, network, globalTLD)
 		container := gfehContainerName(gfeh.ServiceKey(network))
 
 		browsable := false

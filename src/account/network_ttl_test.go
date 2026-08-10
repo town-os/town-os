@@ -28,12 +28,12 @@ func findPeer(t *testing.T, peers []NetworkPeer, publicKey string) NetworkPeer {
 
 func TestAddPeerStoresExpiryAndCreatedBy(t *testing.T) {
 	mgr := initNetworkTestDB(t)
-	if _, err := mgr.Create(sampleNetwork("office")); err != nil {
+	if _, err := mgr.Create(t.Context(), sampleNetwork("office")); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
 	expires := time.Now().Add(2 * time.Hour).UTC().Truncate(time.Second)
-	if _, err := mgr.AddPeer(&NetworkPeer{
+	if _, err := mgr.AddPeer(t.Context(), &NetworkPeer{
 		Network: "office", PublicKey: "TTL", AllowedIP: "10.90.12.2/32",
 		CreatedBy: "portal", ExpiresAt: &expires,
 	}); err != nil {
@@ -56,10 +56,10 @@ func TestAddPeerStoresExpiryAndCreatedBy(t *testing.T) {
 // never touches it.
 func TestAddPeerWithoutExpiryIsPermanent(t *testing.T) {
 	mgr := initNetworkTestDB(t)
-	if _, err := mgr.Create(sampleNetwork("office")); err != nil {
+	if _, err := mgr.Create(t.Context(), sampleNetwork("office")); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if _, err := mgr.AddPeer(&NetworkPeer{Network: "office", PublicKey: "PERM", AllowedIP: "10.90.12.2/32"}); err != nil {
+	if _, err := mgr.AddPeer(t.Context(), &NetworkPeer{Network: "office", PublicKey: "PERM", AllowedIP: "10.90.12.2/32"}); err != nil {
 		t.Fatalf("AddPeer: %v", err)
 	}
 
@@ -69,7 +69,7 @@ func TestAddPeerWithoutExpiryIsPermanent(t *testing.T) {
 	}
 
 	// Reaping far in the future must not remove a permanent peer.
-	reaped, err := mgr.ReapExpiredPeers(time.Now().Add(1000 * time.Hour))
+	reaped, err := mgr.ReapExpiredPeers(t.Context(), time.Now().Add(1000 * time.Hour))
 	if err != nil {
 		t.Fatalf("ReapExpiredPeers: %v", err)
 	}
@@ -85,18 +85,18 @@ func TestAddPeerWithoutExpiryIsPermanent(t *testing.T) {
 
 func TestRefreshPeerExtendsExpiry(t *testing.T) {
 	mgr := initNetworkTestDB(t)
-	if _, err := mgr.Create(sampleNetwork("office")); err != nil {
+	if _, err := mgr.Create(t.Context(), sampleNetwork("office")); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 	past := time.Now().Add(-time.Hour).UTC().Truncate(time.Second)
-	if _, err := mgr.AddPeer(&NetworkPeer{
+	if _, err := mgr.AddPeer(t.Context(), &NetworkPeer{
 		Network: "office", PublicKey: "HB", AllowedIP: "10.90.12.2/32", ExpiresAt: &past,
 	}); err != nil {
 		t.Fatalf("AddPeer: %v", err)
 	}
 
 	future := time.Now().Add(2 * time.Hour).UTC().Truncate(time.Second)
-	if err := mgr.RefreshPeer("office", "HB", future); err != nil {
+	if err := mgr.RefreshPeer(t.Context(), "office", "HB", future); err != nil {
 		t.Fatalf("RefreshPeer: %v", err)
 	}
 
@@ -107,7 +107,7 @@ func TestRefreshPeerExtendsExpiry(t *testing.T) {
 
 	// A now-refreshed peer survives a reap at the present instant even though its
 	// original TTL was in the past.
-	reaped, err := mgr.ReapExpiredPeers(time.Now())
+	reaped, err := mgr.ReapExpiredPeers(t.Context(), time.Now())
 	if err != nil {
 		t.Fatalf("ReapExpiredPeers: %v", err)
 	}
@@ -118,10 +118,10 @@ func TestRefreshPeerExtendsExpiry(t *testing.T) {
 
 func TestRefreshPeerMissing(t *testing.T) {
 	mgr := initNetworkTestDB(t)
-	if _, err := mgr.Create(sampleNetwork("office")); err != nil {
+	if _, err := mgr.Create(t.Context(), sampleNetwork("office")); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if err := mgr.RefreshPeer("office", "nope", time.Now()); !errors.Is(err, ErrNetworkPeerNotFound) {
+	if err := mgr.RefreshPeer(t.Context(), "office", "nope", time.Now()); !errors.Is(err, ErrNetworkPeerNotFound) {
 		t.Fatalf("RefreshPeer missing: got %v, want ErrNetworkPeerNotFound", err)
 	}
 }
@@ -130,7 +130,7 @@ func TestRefreshPeerMissing(t *testing.T) {
 
 func TestReapExpiredPeers(t *testing.T) {
 	mgr := initNetworkTestDB(t)
-	if _, err := mgr.Create(sampleNetwork("office")); err != nil {
+	if _, err := mgr.Create(t.Context(), sampleNetwork("office")); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 	now := time.Now().UTC().Truncate(time.Second)
@@ -138,17 +138,17 @@ func TestReapExpiredPeers(t *testing.T) {
 	live := now.Add(time.Hour)
 
 	// One lapsed, one still-valid, one permanent.
-	if _, err := mgr.AddPeer(&NetworkPeer{Network: "office", PublicKey: "DEAD", AllowedIP: "10.90.12.2/32", CreatedBy: "portal", ExpiresAt: &expired}); err != nil {
+	if _, err := mgr.AddPeer(t.Context(), &NetworkPeer{Network: "office", PublicKey: "DEAD", AllowedIP: "10.90.12.2/32", CreatedBy: "portal", ExpiresAt: &expired}); err != nil {
 		t.Fatalf("AddPeer dead: %v", err)
 	}
-	if _, err := mgr.AddPeer(&NetworkPeer{Network: "office", PublicKey: "LIVE", AllowedIP: "10.90.12.3/32", ExpiresAt: &live}); err != nil {
+	if _, err := mgr.AddPeer(t.Context(), &NetworkPeer{Network: "office", PublicKey: "LIVE", AllowedIP: "10.90.12.3/32", ExpiresAt: &live}); err != nil {
 		t.Fatalf("AddPeer live: %v", err)
 	}
-	if _, err := mgr.AddPeer(&NetworkPeer{Network: "office", PublicKey: "PERM", AllowedIP: "10.90.12.4/32"}); err != nil {
+	if _, err := mgr.AddPeer(t.Context(), &NetworkPeer{Network: "office", PublicKey: "PERM", AllowedIP: "10.90.12.4/32"}); err != nil {
 		t.Fatalf("AddPeer perm: %v", err)
 	}
 
-	reaped, err := mgr.ReapExpiredPeers(now)
+	reaped, err := mgr.ReapExpiredPeers(t.Context(), now)
 	if err != nil {
 		t.Fatalf("ReapExpiredPeers: %v", err)
 	}
@@ -173,14 +173,14 @@ func TestReapExpiredPeers(t *testing.T) {
 // A peer whose expiry is exactly now is reaped (boundary is inclusive).
 func TestReapExpiredPeersBoundaryInclusive(t *testing.T) {
 	mgr := initNetworkTestDB(t)
-	if _, err := mgr.Create(sampleNetwork("office")); err != nil {
+	if _, err := mgr.Create(t.Context(), sampleNetwork("office")); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 	now := time.Now().UTC().Truncate(time.Second)
-	if _, err := mgr.AddPeer(&NetworkPeer{Network: "office", PublicKey: "EDGE", AllowedIP: "10.90.12.2/32", ExpiresAt: &now}); err != nil {
+	if _, err := mgr.AddPeer(t.Context(), &NetworkPeer{Network: "office", PublicKey: "EDGE", AllowedIP: "10.90.12.2/32", ExpiresAt: &now}); err != nil {
 		t.Fatalf("AddPeer: %v", err)
 	}
-	reaped, err := mgr.ReapExpiredPeers(now)
+	reaped, err := mgr.ReapExpiredPeers(t.Context(), now)
 	if err != nil {
 		t.Fatalf("ReapExpiredPeers: %v", err)
 	}
@@ -192,10 +192,10 @@ func TestReapExpiredPeersBoundaryInclusive(t *testing.T) {
 // Reaping an empty / all-permanent table returns no rows and no error.
 func TestReapExpiredPeersNoneExpired(t *testing.T) {
 	mgr := initNetworkTestDB(t)
-	if _, err := mgr.Create(sampleNetwork("office")); err != nil {
+	if _, err := mgr.Create(t.Context(), sampleNetwork("office")); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	reaped, err := mgr.ReapExpiredPeers(time.Now())
+	reaped, err := mgr.ReapExpiredPeers(t.Context(), time.Now())
 	if err != nil {
 		t.Fatalf("ReapExpiredPeers empty: %v", err)
 	}
@@ -244,7 +244,7 @@ func TestPeerMigrationFromPreTTLDB(t *testing.T) {
 		t.Fatalf("insert legacy peer: %v", err)
 	}
 
-	mgr, err := InitNetworkManager(db)
+	mgr, err := InitNetworkManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitNetworkManager (migration): %v", err)
 	}
@@ -262,10 +262,10 @@ func TestPeerMigrationFromPreTTLDB(t *testing.T) {
 
 	// The migrated table accepts a TTL'd peer, and the reaper works on it.
 	past := time.Now().Add(-time.Hour)
-	if _, err := mgr.AddPeer(&NetworkPeer{Network: "office", PublicKey: "NEW", AllowedIP: "10.90.12.3/32", CreatedBy: "portal", ExpiresAt: &past}); err != nil {
+	if _, err := mgr.AddPeer(t.Context(), &NetworkPeer{Network: "office", PublicKey: "NEW", AllowedIP: "10.90.12.3/32", CreatedBy: "portal", ExpiresAt: &past}); err != nil {
 		t.Fatalf("AddPeer on migrated DB: %v", err)
 	}
-	reaped, err := mgr.ReapExpiredPeers(time.Now())
+	reaped, err := mgr.ReapExpiredPeers(t.Context(), time.Now())
 	if err != nil {
 		t.Fatalf("ReapExpiredPeers: %v", err)
 	}
@@ -278,29 +278,29 @@ func TestPeerMigrationFromPreTTLDB(t *testing.T) {
 
 func TestMockPeerTTLParity(t *testing.T) {
 	mgr := InitMockNetworkManager()
-	if _, err := mgr.Create(sampleNetwork("office")); err != nil {
+	if _, err := mgr.Create(t.Context(), sampleNetwork("office")); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 	now := time.Now()
 	expired := now.Add(-time.Minute)
 	future := now.Add(time.Hour)
 
-	if _, err := mgr.AddPeer(&NetworkPeer{Network: "office", PublicKey: "DEAD", ExpiresAt: &expired, CreatedBy: "portal"}); err != nil {
+	if _, err := mgr.AddPeer(t.Context(), &NetworkPeer{Network: "office", PublicKey: "DEAD", ExpiresAt: &expired, CreatedBy: "portal"}); err != nil {
 		t.Fatalf("AddPeer dead: %v", err)
 	}
-	if _, err := mgr.AddPeer(&NetworkPeer{Network: "office", PublicKey: "PERM"}); err != nil {
+	if _, err := mgr.AddPeer(t.Context(), &NetworkPeer{Network: "office", PublicKey: "PERM"}); err != nil {
 		t.Fatalf("AddPeer perm: %v", err)
 	}
 
 	// Refresh the dead peer into the future; it must then survive the reap.
-	if err := mgr.RefreshPeer("office", "DEAD", future); err != nil {
+	if err := mgr.RefreshPeer(t.Context(), "office", "DEAD", future); err != nil {
 		t.Fatalf("RefreshPeer: %v", err)
 	}
-	if err := mgr.RefreshPeer("office", "ghost", future); !errors.Is(err, ErrNetworkPeerNotFound) {
+	if err := mgr.RefreshPeer(t.Context(), "office", "ghost", future); !errors.Is(err, ErrNetworkPeerNotFound) {
 		t.Fatalf("RefreshPeer missing: got %v, want ErrNetworkPeerNotFound", err)
 	}
 
-	reaped, err := mgr.ReapExpiredPeers(now)
+	reaped, err := mgr.ReapExpiredPeers(t.Context(), now)
 	if err != nil {
 		t.Fatalf("ReapExpiredPeers: %v", err)
 	}
@@ -309,14 +309,14 @@ func TestMockPeerTTLParity(t *testing.T) {
 	}
 
 	// Now let it lapse and confirm it reaps, leaving the permanent peer.
-	reaped, err = mgr.ReapExpiredPeers(future.Add(time.Minute))
+	reaped, err = mgr.ReapExpiredPeers(t.Context(), future.Add(time.Minute))
 	if err != nil {
 		t.Fatalf("ReapExpiredPeers: %v", err)
 	}
 	if len(reaped) != 1 || reaped[0].PublicKey != "DEAD" {
 		t.Fatalf("reaped = %+v, want DEAD", reaped)
 	}
-	remaining, err := mgr.ListPeers("office")
+	remaining, err := mgr.ListPeers(t.Context(), "office")
 	if err != nil {
 		t.Fatalf("ListPeers: %v", err)
 	}
@@ -341,7 +341,7 @@ func TestPeerTTLDefaultSetting(t *testing.T) {
 
 func mustListPeers(t *testing.T, mgr NetworkManager, network string) []NetworkPeer {
 	t.Helper()
-	peers, err := mgr.ListPeers(network)
+	peers, err := mgr.ListPeers(t.Context(), network)
 	if err != nil {
 		t.Fatalf("ListPeers(%q): %v", network, err)
 	}
@@ -352,16 +352,16 @@ func mustListPeers(t *testing.T, mgr NetworkManager, network string) []NetworkPe
 // list and reap paths: both must surface identical columns.
 func TestListAndReapReturnSameShape(t *testing.T) {
 	mgr := initNetworkTestDB(t)
-	if _, err := mgr.Create(sampleNetwork("lab")); err != nil {
+	if _, err := mgr.Create(t.Context(), sampleNetwork("lab")); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 	past := time.Now().Add(-time.Hour).UTC().Truncate(time.Second)
 	in := &NetworkPeer{Network: "lab", PublicKey: "K", Name: "n", AllowedIP: "10.90.12.2/32", Endpoint: "e:1", Rolodex: true, CreatedBy: "portal", ExpiresAt: &past}
-	if _, err := mgr.AddPeer(in); err != nil {
+	if _, err := mgr.AddPeer(t.Context(), in); err != nil {
 		t.Fatalf("AddPeer: %v", err)
 	}
 	listed := findPeer(t, mustListPeers(t, mgr, "lab"), "K")
-	reaped, err := mgr.ReapExpiredPeers(time.Now())
+	reaped, err := mgr.ReapExpiredPeers(t.Context(), time.Now())
 	if err != nil {
 		t.Fatalf("ReapExpiredPeers: %v", err)
 	}

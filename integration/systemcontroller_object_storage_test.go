@@ -72,7 +72,7 @@ func (e *objectStorageEnv) start(t *testing.T, signingKey string) {
 	if err != nil {
 		t.Fatalf("InitSessionManager: %v", err)
 	}
-	nm, err := account.InitNetworkManager(db)
+	nm, err := account.InitNetworkManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitNetworkManager: %v", err)
 	}

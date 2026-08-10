@@ -91,7 +91,7 @@ func TestConnectedPeersHTTPListsEnrolledPeers(t *testing.T) {
 		{Network: "lab", PublicKey: "k-bench", Name: "bench", AllowedIP: "10.90.13.2/32", CreatedBy: "bob"},
 	}
 	for _, p := range seed {
-		if _, err := nm.AddPeer(p); err != nil {
+		if _, err := nm.AddPeer(t.Context(), p); err != nil {
 			t.Fatalf("seed peer %s: %v", p.Name, err)
 		}
 	}
@@ -165,13 +165,13 @@ func TestConnectedPeersHTTPExcludesHomeNetwork(t *testing.T) {
 	if _, err := c.CreateNetwork(ctx, "office", "office"); err != nil {
 		t.Fatalf("CreateNetwork office: %v", err)
 	}
-	if _, err := nm.AddPeer(&account.NetworkPeer{
+	if _, err := nm.AddPeer(t.Context(), &account.NetworkPeer{
 		Network: account.DefaultNetworkName, PublicKey: "k-legacy",
 		Name: "legacy", AllowedIP: "10.90.1.2/32", CreatedBy: "admin",
 	}); err != nil {
 		t.Fatalf("seed home peer: %v", err)
 	}
-	if _, err := nm.AddPeer(&account.NetworkPeer{
+	if _, err := nm.AddPeer(t.Context(), &account.NetworkPeer{
 		Network: "office", PublicKey: "k-laptop",
 		Name: "laptop", AllowedIP: "10.90.12.2/32", CreatedBy: "alice",
 	}); err != nil {

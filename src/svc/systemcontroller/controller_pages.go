@@ -90,7 +90,7 @@ func (s *SystemControllerHandlers) setPageDNS(ctx context.Context, domain, netwo
 	}
 	nm := s.Controller.GetNetworkManager()
 	globalTLD := reconcileDNSTLD(ctx, s.Controller.GetSettingsManager())
-	tld := pageNetworkTLD(nm, network, globalTLD)
+	tld := pageNetworkTLD(ctx, nm, network, globalTLD)
 	if pageIsPublic(domain, tld) {
 		return
 	}
@@ -107,13 +107,13 @@ func (s *SystemControllerHandlers) setPageDNS(ctx context.Context, domain, netwo
 	// not, and must not be gated on one. A network whose transport is down has
 	// no overlay IP right now but may well have published a scoped record when
 	// it was up, and that record would then outlive the page it names.
-	overlay := networkOverlayIPValue(nm, network)
+	overlay := networkOverlayIPValue(ctx, nm, network)
 	onNetwork := !pageOnDefaultNetworkName(network) && nm != nil
 	scoped := onNetwork && overlay != ""
 
 	if add {
 		if scoped {
-			if n, err := nm.Get(network); err == nil {
+			if n, err := nm.Get(ctx, network); err == nil {
 				if err := rolodex.EnsureNetworkScope(ctx, cl, n.Name, n.TLD+"."); err != nil {
 					logNonFatal("ensure scope for page dns", err)
 				} else if err := cl.AddScopedRecord(ctx, n.Name, &upstream.DnsRecord{
@@ -159,7 +159,7 @@ func (s *SystemControllerHandlers) setPageDNS(ctx context.Context, domain, netwo
 	tlsa := []rolodex.TLSAEntry{{Name: host, Port: PagesHTTPSPort}}
 
 	if onNetwork {
-		if n, err := nm.Get(network); err == nil {
+		if n, err := nm.Get(ctx, network); err == nil {
 			// nil options: every record type at this name, so the scoped AAAA
 			// goes with the scoped A.
 			if _, err := cl.RemoveScopedRecord(ctx, n.Name, host+".", nil); err != nil {
@@ -218,7 +218,7 @@ func (s *SystemControllerHandlers) createPage(c *echo.Context) error {
 
 	// Validate the requested network the same way a package install does: an
 	// unknown network is a 400, and "" normalizes to the default network.
-	network, nerr := s.resolveInstallNetwork(req.Network)
+	network, nerr := s.resolveInstallNetwork(c.Request().Context(), req.Network)
 	if nerr != nil {
 		return nerr
 	}
@@ -685,7 +685,7 @@ func (s *SystemControllerHandlers) pageDirName(ctx context.Context, domain, netw
 // pageTLDFor resolves the TLD a page on the given network is named under: the
 // network's own TLD, or the global dns_tld for the default network.
 func (s *SystemControllerHandlers) pageTLDFor(ctx context.Context, network string) string {
-	return pageNetworkTLD(s.Controller.GetNetworkManager(), network,
+	return pageNetworkTLD(ctx, s.Controller.GetNetworkManager(), network,
 		reconcileDNSTLD(ctx, s.Controller.GetSettingsManager()))
 }
 

@@ -157,14 +157,14 @@ func (s *SystemControllerHandlers) listNetworks(c *echo.Context) error {
 	if nm == nil {
 		return c.JSON(200, []NetworkView{})
 	}
-	nets, err := nm.List()
+	nets, err := nm.List(c.Request().Context())
 	if err != nil {
 		return echo.NewHTTPError(500, fmt.Sprintf("list networks: %v", err))
 	}
 
 	views := make([]NetworkView, 0, len(nets))
 	for _, n := range nets {
-		peers, perr := nm.ListPeers(n.Name)
+		peers, perr := nm.ListPeers(c.Request().Context(), n.Name)
 		if perr != nil {
 			return echo.NewHTTPError(500, fmt.Sprintf("list peers: %v", perr))
 		}
@@ -204,7 +204,7 @@ func (s *SystemControllerHandlers) createNetwork(c *echo.Context) error {
 	}
 
 	// Reject a TLD already claimed by another network.
-	existing, err := nm.List()
+	existing, err := nm.List(c.Request().Context())
 	if err != nil {
 		return echo.NewHTTPError(500, fmt.Sprintf("list networks: %v", err))
 	}
@@ -214,11 +214,11 @@ func (s *SystemControllerHandlers) createNetwork(c *echo.Context) error {
 		}
 	}
 
-	n, err := s.buildNetwork(req.Name, tld, true)
+	n, err := s.buildNetwork(c.Request().Context(), req.Name, tld, true)
 	if err != nil {
 		return echo.NewHTTPError(500, fmt.Sprintf("build network: %v", err))
 	}
-	created, err := nm.Create(n)
+	created, err := nm.Create(c.Request().Context(), n)
 	if err != nil {
 		if errors.Is(err, account.ErrDuplicateNetwork) {
 			return echo.NewHTTPError(409, "network already exists")
@@ -259,7 +259,7 @@ func (s *SystemControllerHandlers) removeNetwork(c *echo.Context) error {
 	// Tear the transport down before dropping the record.
 	s.teardownNetworkTransport(ctx, req.Name)
 
-	if err := nm.Remove(req.Name); err != nil {
+	if err := nm.Remove(c.Request().Context(), req.Name); err != nil {
 		switch {
 		case errors.Is(err, account.ErrNetworkNotFound):
 			return echo.NewHTTPError(404, "network not found")
@@ -305,14 +305,14 @@ func (s *SystemControllerHandlers) setNetworkEnabled(c *echo.Context, enabled bo
 	if nm == nil {
 		return echo.NewHTTPError(503, "network manager not available")
 	}
-	if err := nm.SetEnabled(req.Name, enabled); err != nil {
+	if err := nm.SetEnabled(c.Request().Context(), req.Name, enabled); err != nil {
 		if errors.Is(err, account.ErrNetworkNotFound) {
 			return echo.NewHTTPError(404, "network not found")
 		}
 		return echo.NewHTTPError(500, fmt.Sprintf("set network enabled: %v", err))
 	}
 
-	n, err := nm.Get(req.Name)
+	n, err := nm.Get(c.Request().Context(), req.Name)
 	if err != nil {
 		return echo.NewHTTPError(500, fmt.Sprintf("get network: %v", err))
 	}
@@ -341,7 +341,7 @@ func (s *SystemControllerHandlers) listNetworkPeers(c *echo.Context) error {
 	if nm == nil {
 		return c.JSON(200, []account.NetworkPeer{})
 	}
-	peers, err := nm.ListPeers(network)
+	peers, err := nm.ListPeers(c.Request().Context(), network)
 	if err != nil {
 		return echo.NewHTTPError(500, fmt.Sprintf("list peers: %v", err))
 	}
@@ -362,7 +362,7 @@ func (s *SystemControllerHandlers) addNetworkPeer(c *echo.Context) error {
 	if nm == nil {
 		return echo.NewHTTPError(503, "network manager not available")
 	}
-	n, err := nm.Get(req.Network)
+	n, err := nm.Get(c.Request().Context(), req.Network)
 	if err != nil {
 		if errors.Is(err, account.ErrNetworkNotFound) {
 			return echo.NewHTTPError(404, "network not found")
@@ -420,7 +420,7 @@ func (s *SystemControllerHandlers) addNetworkPeer(c *echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(500, fmt.Sprintf("parse subnet: %v", err))
 	}
-	peers, err := nm.ListPeers(n.Name)
+	peers, err := nm.ListPeers(c.Request().Context(), n.Name)
 	if err != nil {
 		return echo.NewHTTPError(500, fmt.Sprintf("list peers: %v", err))
 	}
@@ -455,7 +455,7 @@ func (s *SystemControllerHandlers) addNetworkPeer(c *echo.Context) error {
 		}
 	}
 
-	stored, err := nm.AddPeer(&account.NetworkPeer{
+	stored, err := nm.AddPeer(c.Request().Context(), &account.NetworkPeer{
 		Network:   n.Name,
 		PublicKey: publicKey,
 		Name:      name,
@@ -498,14 +498,14 @@ func (s *SystemControllerHandlers) removeNetworkPeer(c *echo.Context) error {
 	if nm == nil {
 		return echo.NewHTTPError(503, "network manager not available")
 	}
-	if err := nm.RemovePeer(req.Network, req.PublicKey); err != nil {
+	if err := nm.RemovePeer(c.Request().Context(), req.Network, req.PublicKey); err != nil {
 		if errors.Is(err, account.ErrNetworkPeerNotFound) {
 			return echo.NewHTTPError(404, "peer not found")
 		}
 		return echo.NewHTTPError(500, fmt.Sprintf("remove peer: %v", err))
 	}
 
-	if n, err := nm.Get(req.Network); err == nil {
+	if n, err := nm.Get(c.Request().Context(), req.Network); err == nil {
 		if aerr := s.applyNetworkTransport(c.Request().Context(), n); aerr != nil {
 			logNonFatal("apply network after peer removal", aerr)
 		}
@@ -536,7 +536,7 @@ func (s *SystemControllerHandlers) refreshNetworkPeer(c *echo.Context) error {
 		if !acct.MayAdministerNetwork(req.Network) {
 			return echo.NewHTTPError(403, i18n.T(s.getLocale(), i18n.MsgAuthNetworkOnlyNetworkDenied))
 		}
-		owned, err := s.peerOwnedBy(nm, req.Network, req.PublicKey, acct.Username)
+		owned, err := s.peerOwnedBy(c.Request().Context(), nm, req.Network, req.PublicKey, acct.Username)
 		if err != nil {
 			return echo.NewHTTPError(500, fmt.Sprintf("list peers: %v", err))
 		}
@@ -546,7 +546,7 @@ func (s *SystemControllerHandlers) refreshNetworkPeer(c *echo.Context) error {
 	}
 
 	expiresAt := time.Now().Add(s.peerTTL(c.Request().Context())).UTC()
-	if err := nm.RefreshPeer(req.Network, req.PublicKey, expiresAt); err != nil {
+	if err := nm.RefreshPeer(c.Request().Context(), req.Network, req.PublicKey, expiresAt); err != nil {
 		if errors.Is(err, account.ErrNetworkPeerNotFound) {
 			return echo.NewHTTPError(404, "peer not found")
 		}
@@ -560,8 +560,8 @@ func (s *SystemControllerHandlers) refreshNetworkPeer(c *echo.Context) error {
 // enrolled by username. A missing peer reports false (not owned), so the caller
 // returns the ownership 403 rather than leaking existence — refresh of an absent
 // peer and refresh of someone else's peer look identical to a scoped account.
-func (s *SystemControllerHandlers) peerOwnedBy(nm account.NetworkManager, network, publicKey, username string) (bool, error) {
-	peers, err := nm.ListPeers(network)
+func (s *SystemControllerHandlers) peerOwnedBy(ctx context.Context, nm account.NetworkManager, network, publicKey, username string) (bool, error) {
+	peers, err := nm.ListPeers(ctx, network)
 	if err != nil {
 		return false, err
 	}

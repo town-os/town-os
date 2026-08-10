@@ -274,7 +274,7 @@ func (s *SystemControllerHandlers) listGfeh(c *echo.Context) error {
 		}
 		view := GfehPartitionView{
 			Network: network,
-			TLD:     gfehNetworkTLD(nm, network, tld),
+			TLD:     gfehNetworkTLD(c.Request().Context(), nm, network, tld),
 			Quota:   quota,
 			Names:   []GfehNameView{},
 		}

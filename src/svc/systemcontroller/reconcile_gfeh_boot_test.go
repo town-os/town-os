@@ -91,11 +91,13 @@ func TestReconcileGfehStillPrunesAPartitionWhoseNetworkIsGone(t *testing.T) {
 		t.Fatal("precondition: office was never registered")
 	}
 
-	nm, ok := reg.cfg.NetworkMgr.(interface{ Remove(string) error })
+	nm, ok := reg.cfg.NetworkMgr.(interface {
+		Remove(context.Context, string) error
+	})
 	if !ok {
 		t.Fatal("the mock network manager cannot remove")
 	}
-	if err := nm.Remove("office"); err != nil {
+	if err := nm.Remove(t.Context(), "office"); err != nil {
 		t.Fatalf("remove network: %v", err)
 	}
 

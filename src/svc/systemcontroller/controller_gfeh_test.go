@@ -23,7 +23,7 @@ func gfehUITest(t *testing.T, clients map[string]gfeh.Client) (*SystemController
 
 	acctMgr := account.InitMockManager()
 	nm := account.InitMockNetworkManager()
-	if _, err := nm.Create(&account.Network{Name: "office", TLD: "office", Enabled: true}); err != nil {
+	if _, err := nm.Create(t.Context(), &account.Network{Name: "office", TLD: "office", Enabled: true}); err != nil {
 		t.Fatalf("create network: %v", err)
 	}
 

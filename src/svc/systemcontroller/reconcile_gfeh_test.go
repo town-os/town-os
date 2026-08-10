@@ -172,7 +172,7 @@ func TestReconcileGfehPrunesAPartitionWhoseNetworkIsGone(t *testing.T) {
 	if !ok {
 		t.Fatal("expected *account.MockNetworkManager")
 	}
-	if err := nm.Remove("office"); err != nil {
+	if err := nm.Remove(t.Context(), "office"); err != nil {
 		t.Fatalf("remove network: %v", err)
 	}
 

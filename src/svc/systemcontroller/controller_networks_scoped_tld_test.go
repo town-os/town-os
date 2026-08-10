@@ -28,7 +28,7 @@ func scopedApex(recs []*upstream.DnsRecord, name string, rt upstream.RecordType)
 func TestApplyNetworkTransportPublishesScopedTLDApex(t *testing.T) {
 	mock := account.InitMockNetworkManager()
 	n := &account.Network{Name: "office", TLD: "office", Subnet: "10.90.12.0/24", Address: "10.90.12.1/24", PublicKey: "PUB", ListenPort: 51820, Enabled: true}
-	if _, err := mock.Create(n); err != nil {
+	if _, err := mock.Create(t.Context(), n); err != nil {
 		t.Fatalf("seed network: %v", err)
 	}
 	mc := &rolodex.MockClient{}
@@ -62,7 +62,7 @@ func TestApplyNetworkTransportPublishesScopedTLDApex(t *testing.T) {
 func TestApplyNetworkTransportBindsOverlayDNSListener(t *testing.T) {
 	mock := account.InitMockNetworkManager()
 	n := &account.Network{Name: "office", TLD: "office", Subnet: "10.90.12.0/24", Address: "10.90.12.1/24", PublicKey: "PUB", ListenPort: 51820, Enabled: true}
-	if _, err := mock.Create(n); err != nil {
+	if _, err := mock.Create(t.Context(), n); err != nil {
 		t.Fatalf("seed network: %v", err)
 	}
 	mc := &rolodex.MockClient{}
@@ -166,26 +166,26 @@ func TestApplyNetworkTransportDefaultNetworkNoWireGuardTransport(t *testing.T) {
 // every reconcile.
 func TestNetworkOverlayIPValue(t *testing.T) {
 	nm := account.InitMockNetworkManager()
-	if _, err := nm.Create(&account.Network{
+	if _, err := nm.Create(t.Context(), &account.Network{
 		Name: "fart", TLD: "fart", Subnet: "10.65.0.0/24", Address: "10.65.0.1/24",
 		PublicKey: "PUB", ListenPort: 51820, Enabled: true,
 	}); err != nil {
 		t.Fatalf("create network: %v", err)
 	}
 
-	if got := networkOverlayIPValue(nm, "fart"); got != "10.65.0.1" {
+	if got := networkOverlayIPValue(t.Context(), nm, "fart"); got != "10.65.0.1" {
 		t.Errorf("networkOverlayIPValue(fart) = %q, want 10.65.0.1", got)
 	}
-	if got := networkOverlayIPValue(nm, account.DefaultNetworkName); got != "" {
+	if got := networkOverlayIPValue(t.Context(), nm, account.DefaultNetworkName); got != "" {
 		t.Errorf("default network has no WireGuard transport; want \"\", got %q", got)
 	}
-	if got := networkOverlayIPValue(nm, ""); got != "" {
+	if got := networkOverlayIPValue(t.Context(), nm, ""); got != "" {
 		t.Errorf("empty network: want \"\", got %q", got)
 	}
-	if got := networkOverlayIPValue(nm, "nonexistent"); got != "" {
+	if got := networkOverlayIPValue(t.Context(), nm, "nonexistent"); got != "" {
 		t.Errorf("unknown network: want \"\", got %q", got)
 	}
-	if got := networkOverlayIPValue(nil, "fart"); got != "" {
+	if got := networkOverlayIPValue(t.Context(), nil, "fart"); got != "" {
 		t.Errorf("nil manager: want \"\", got %q", got)
 	}
 }

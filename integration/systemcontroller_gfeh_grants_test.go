@@ -62,7 +62,7 @@ func startRealPartitionReconcilable(t *testing.T) (gfeh.Client, func(context.Con
 	network := "gfehgrants" + suffix
 
 	nm := account.InitMockNetworkManager()
-	if _, err := nm.Create(&account.Network{Name: network, TLD: network, Enabled: true}); err != nil {
+	if _, err := nm.Create(t.Context(), &account.Network{Name: network, TLD: network, Enabled: true}); err != nil {
 		t.Fatalf("create network: %v", err)
 	}
 

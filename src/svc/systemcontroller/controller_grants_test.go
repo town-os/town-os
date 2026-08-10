@@ -64,7 +64,7 @@ func initWireGuardTestEnvWith(t *testing.T, tweak func(*ServerConfig)) *wgTestEn
 	if err != nil {
 		t.Fatalf("InitSettingsManager: %v", err)
 	}
-	nm, err := account.InitNetworkManager(db)
+	nm, err := account.InitNetworkManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitNetworkManager: %v", err)
 	}
@@ -103,7 +103,7 @@ func initWireGuardTestEnvWith(t *testing.T, tweak func(*ServerConfig)) *wgTestEn
 		{"office", "10.90.12.0/24", "10.90.12.1/24"},
 		{"lab", "10.90.13.0/24", "10.90.13.1/24"},
 	} {
-		if _, err := nm.Create(&account.Network{
+		if _, err := nm.Create(t.Context(), &account.Network{
 			Name: seed.name, TLD: seed.name, Subnet: seed.subnet, Address: seed.addr,
 			PublicKey: "PUB", PrivateKey: "PRIV", ListenPort: 51820, Enabled: true,
 		}); err != nil {
@@ -254,7 +254,7 @@ func TestWireGuardPeerEnrollWithinScope(t *testing.T) {
 	}
 
 	// The stored peer is attributed to the account and carries a TTL.
-	peers, err := e.nm.ListPeers("office")
+	peers, err := e.nm.ListPeers(t.Context(), "office")
 	if err != nil {
 		t.Fatalf("ListPeers: %v", err)
 	}
@@ -282,7 +282,7 @@ func TestWireGuardPeerEnrollOutOfScopeDenied(t *testing.T) {
 	if code, _ := e.do(t, http.MethodPost, "networks/peers/add", token, `{"network":"lab","public_key":"T1VUT0ZTQ09QRS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0="}`); code != http.StatusForbidden {
 		t.Errorf("peers/add lab = %d, want 403", code)
 	}
-	if peers, err := e.nm.ListPeers("lab"); err != nil || len(peers) != 0 {
+	if peers, err := e.nm.ListPeers(t.Context(), "lab"); err != nil || len(peers) != 0 {
 		t.Errorf("out-of-scope enrollment leaked a peer: %+v (err %v)", peers, err)
 	}
 }
@@ -293,7 +293,7 @@ func TestAdminPeerEnrollHasNoTTL(t *testing.T) {
 	if code, body := e.do(t, http.MethodPost, "networks/peers/add", e.adminToken, `{"network":"office","public_key":"QURNSU5LRVktLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0="}`); code != http.StatusOK {
 		t.Fatalf("admin peers/add = %d (%s), want 200", code, body)
 	}
-	peers, err := e.nm.ListPeers("office")
+	peers, err := e.nm.ListPeers(t.Context(), "office")
 	if err != nil {
 		t.Fatalf("ListPeers: %v", err)
 	}
@@ -328,7 +328,7 @@ func TestWireGuardPeerRefreshOwnership(t *testing.T) {
 	if code, _ := e.do(t, http.MethodPost, "networks/peers/add", token, `{"network":"office","public_key":"UE9SVEFMS0VZLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0="}`); code != http.StatusOK {
 		t.Fatalf("peers/add failed")
 	}
-	before, err := e.nm.ListPeers("office")
+	before, err := e.nm.ListPeers(t.Context(), "office")
 	if err != nil {
 		t.Fatalf("ListPeers: %v", err)
 	}
@@ -338,7 +338,7 @@ func TestWireGuardPeerRefreshOwnership(t *testing.T) {
 	if code, body := e.do(t, http.MethodPost, "networks/peers/refresh", token, `{"network":"office","public_key":"UE9SVEFMS0VZLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0="}`); code != http.StatusOK {
 		t.Fatalf("refresh own peer = %d (%s), want 200", code, body)
 	}
-	after, err := e.nm.ListPeers("office")
+	after, err := e.nm.ListPeers(t.Context(), "office")
 	if err != nil {
 		t.Fatalf("ListPeers: %v", err)
 	}
@@ -385,10 +385,10 @@ func TestReapExpiredPeersHandler(t *testing.T) {
 
 	past := time.Now().Add(-time.Hour)
 	future := time.Now().Add(time.Hour)
-	if _, err := e.nm.AddPeer(&account.NetworkPeer{Network: "office", PublicKey: "DEAD", AllowedIP: "10.90.12.2/32", CreatedBy: "portal", ExpiresAt: &past}); err != nil {
+	if _, err := e.nm.AddPeer(t.Context(), &account.NetworkPeer{Network: "office", PublicKey: "DEAD", AllowedIP: "10.90.12.2/32", CreatedBy: "portal", ExpiresAt: &past}); err != nil {
 		t.Fatalf("AddPeer dead: %v", err)
 	}
-	if _, err := e.nm.AddPeer(&account.NetworkPeer{Network: "office", PublicKey: "LIVE", AllowedIP: "10.90.12.3/32", CreatedBy: "portal", ExpiresAt: &future}); err != nil {
+	if _, err := e.nm.AddPeer(t.Context(), &account.NetworkPeer{Network: "office", PublicKey: "LIVE", AllowedIP: "10.90.12.3/32", CreatedBy: "portal", ExpiresAt: &future}); err != nil {
 		t.Fatalf("AddPeer live: %v", err)
 	}
 
@@ -398,7 +398,7 @@ func TestReapExpiredPeersHandler(t *testing.T) {
 	}
 	h.reapExpiredPeers(context.Background())
 
-	peers, err := e.nm.ListPeers("office")
+	peers, err := e.nm.ListPeers(t.Context(), "office")
 	if err != nil {
 		t.Fatalf("ListPeers: %v", err)
 	}

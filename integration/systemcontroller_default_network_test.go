@@ -30,19 +30,19 @@ func TestIntegrationHomeNetworkExistsBeforeAnythingCreatesIt(t *testing.T) {
 		}
 	})
 
-	nm, err := account.InitNetworkManager(db)
+	nm, err := account.InitNetworkManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitNetworkManager: %v", err)
 	}
 
-	home, err := nm.Get(account.DefaultNetworkName)
+	home, err := nm.Get(t.Context(), account.DefaultNetworkName)
 	if err != nil {
 		t.Fatalf("the home network is missing on a fresh database: %v", err)
 	}
 	if !home.Enabled {
 		t.Error("the home network came back disabled")
 	}
-	nets, err := nm.List()
+	nets, err := nm.List(t.Context())
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}

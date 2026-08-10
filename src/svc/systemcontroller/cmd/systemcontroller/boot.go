@@ -311,7 +311,7 @@ func (b *boot) openStores(ctx context.Context) error {
 		return fmt.Errorf("init pages manager: %w", err)
 	}
 
-	if b.networkMgr, err = account.InitNetworkManager(b.db); err != nil {
+	if b.networkMgr, err = account.InitNetworkManager(ctx, b.db); err != nil {
 		return fmt.Errorf("init network manager: %w", err)
 	}
 

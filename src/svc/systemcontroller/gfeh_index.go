@@ -4,6 +4,7 @@
 package systemcontroller
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -149,13 +150,13 @@ func gfehIndexSite(network, tld string) (GfehSite, bool) {
 // them all every time a partition was slow to start, taking the index off the
 // air until the next pass rewrote it. What may be pruned has to be decidable
 // from state Town OS owns.
-func gfehIndexHostnames(reg GfehRegistry, nm account.NetworkManager, globalTLD string) map[string]struct{} {
+func gfehIndexHostnames(ctx context.Context, reg GfehRegistry, nm account.NetworkManager, globalTLD string) map[string]struct{} {
 	out := map[string]struct{}{}
 	if reg == nil {
 		return out
 	}
 	for network := range reg.Clients() {
-		fqdn := gfehFQDN(gfeh.IndexLabel, gfehNetworkTLD(nm, network, globalTLD))
+		fqdn := gfehFQDN(gfeh.IndexLabel, gfehNetworkTLD(ctx, nm, network, globalTLD))
 		if fqdn == "" {
 			continue
 		}

@@ -117,7 +117,7 @@ func (s *SystemControllerHandlers) listDNSRecords(c *echo.Context) error {
 	}
 	var zones []zone
 	if nm := s.Controller.GetNetworkManager(); nm != nil {
-		if nets, err := nm.List(); err == nil {
+		if nets, err := nm.List(c.Request().Context()); err == nil {
 			for _, n := range nets {
 				// The default network's records live in the global home zone;
 				// they carry an empty Network so callers treat them as global
@@ -260,7 +260,7 @@ func (s *SystemControllerHandlers) setDNSTLD(c *echo.Context) error {
 	// home scope owns. Move it with the setting rather than leaving the two to
 	// disagree until the next boot repairs it.
 	if nm := s.Controller.GetNetworkManager(); nm != nil {
-		if err := nm.SetTLD(account.DefaultNetworkName, req.TLD); err != nil {
+		if err := nm.SetTLD(c.Request().Context(), account.DefaultNetworkName, req.TLD); err != nil {
 			return echo.NewHTTPError(500, fmt.Sprintf("repoint the home network: %v", err))
 		}
 	}

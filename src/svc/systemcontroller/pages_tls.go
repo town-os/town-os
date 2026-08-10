@@ -47,11 +47,11 @@ func pageDomain(p account.PageSite) string {
 // SettingsManager because every page call site already has the global TLD in
 // hand. An empty/unknown network, or a network with no TLD, falls back to
 // globalTLD.
-func pageNetworkTLD(nm account.NetworkManager, network, globalTLD string) string {
+func pageNetworkTLD(ctx context.Context, nm account.NetworkManager, network, globalTLD string) string {
 	if network == "" || network == account.DefaultNetworkName || nm == nil {
 		return globalTLD
 	}
-	n, err := nm.Get(network)
+	n, err := nm.Get(ctx, network)
 	if err != nil || n.TLD == "" {
 		return globalTLD
 	}
@@ -63,8 +63,8 @@ func pageNetworkTLD(nm account.NetworkManager, network, globalTLD string) string
 // cert SAN, its DANE TLSA owner, its ingress vhost, AND its on-disk subvolume /
 // webroot symlink (the pages Caddy roots on /srv/<host>) must all agree on.
 // Deriving all of them from this function is what stops them drifting apart.
-func pageFQDN(nm account.NetworkManager, p account.PageSite, globalTLD string) string {
-	return pageHostname(pageDomain(p), pageNetworkTLD(nm, p.Network, globalTLD))
+func pageFQDN(ctx context.Context, nm account.NetworkManager, p account.PageSite, globalTLD string) string {
+	return pageHostname(pageDomain(p), pageNetworkTLD(ctx, nm, p.Network, globalTLD))
 }
 
 // pageOnDefaultNetwork reports whether a page belongs to the default/home

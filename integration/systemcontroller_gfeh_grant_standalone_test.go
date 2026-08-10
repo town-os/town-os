@@ -64,13 +64,13 @@ func initGfehGrantTest(t *testing.T) *gfehGrantEnv {
 	if err != nil {
 		t.Fatalf("InitSessionManager: %v", err)
 	}
-	nm, err := account.InitNetworkManager(db)
+	nm, err := account.InitNetworkManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitNetworkManager: %v", err)
 	}
 	// A second network, so the scope the grant is confined to is a real choice
 	// rather than the only one on the box.
-	if _, err := nm.Create(&account.Network{Name: "office", TLD: "office", Enabled: true}); err != nil {
+	if _, err := nm.Create(t.Context(), &account.Network{Name: "office", TLD: "office", Enabled: true}); err != nil {
 		t.Fatalf("create office network: %v", err)
 	}
 

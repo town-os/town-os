@@ -26,7 +26,7 @@ func dnsRecordsFixture(t *testing.T) *SystemControllerHandlers {
 	home := &account.Network{Name: account.DefaultNetworkName, TLD: "home", Subnet: "10.64.0.0/24", Address: "10.64.0.1/24", PublicKey: "PUB", ListenPort: 51820, Enabled: true}
 	office := &account.Network{Name: "office", TLD: "office", Subnet: "10.90.12.0/24", Address: "10.90.12.1/24", PublicKey: "PUB", ListenPort: 51821, Enabled: true}
 	nm.Seed(home)
-	if _, err := nm.Create(office); err != nil {
+	if _, err := nm.Create(t.Context(), office); err != nil {
 		t.Fatalf("seed office network: %v", err)
 	}
 

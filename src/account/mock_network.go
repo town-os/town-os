@@ -1,6 +1,7 @@
 package account
 
 import (
+	"context"
 	"sort"
 	"sync"
 	"time"
@@ -72,7 +73,7 @@ func (m *MockNetworkManager) Seed(n *Network) {
 	m.networks[n.Name] = &stored
 }
 
-func (m *MockNetworkManager) Create(n *Network) (*Network, error) {
+func (m *MockNetworkManager) Create(_ context.Context, n *Network) (*Network, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "Create", Args: []any{n}})
@@ -100,7 +101,7 @@ func (m *MockNetworkManager) Create(n *Network) (*Network, error) {
 	return &out, nil
 }
 
-func (m *MockNetworkManager) Get(name string) (*Network, error) {
+func (m *MockNetworkManager) Get(_ context.Context, name string) (*Network, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "Get", Args: []any{name}})
@@ -116,7 +117,7 @@ func (m *MockNetworkManager) Get(name string) (*Network, error) {
 	return &out, nil
 }
 
-func (m *MockNetworkManager) List() ([]Network, error) {
+func (m *MockNetworkManager) List(_ context.Context) ([]Network, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "List", Args: nil})
@@ -132,7 +133,7 @@ func (m *MockNetworkManager) List() ([]Network, error) {
 	return out, nil
 }
 
-func (m *MockNetworkManager) Remove(name string) error {
+func (m *MockNetworkManager) Remove(_ context.Context, name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "Remove", Args: []any{name}})
@@ -151,7 +152,7 @@ func (m *MockNetworkManager) Remove(name string) error {
 	return nil
 }
 
-func (m *MockNetworkManager) SetEnabled(name string, enabled bool) error {
+func (m *MockNetworkManager) SetEnabled(_ context.Context, name string, enabled bool) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "SetEnabled", Args: []any{name, enabled}})
@@ -168,7 +169,7 @@ func (m *MockNetworkManager) SetEnabled(name string, enabled bool) error {
 	return nil
 }
 
-func (m *MockNetworkManager) SetTLD(name, tld string) error {
+func (m *MockNetworkManager) SetTLD(_ context.Context, name, tld string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "SetTLD", Args: []any{name, tld}})
@@ -185,14 +186,14 @@ func (m *MockNetworkManager) SetTLD(name, tld string) error {
 	return nil
 }
 
-func (m *MockNetworkManager) Count() (int, error) {
+func (m *MockNetworkManager) Count(_ context.Context) (int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "Count", Args: nil})
 	return len(m.networks), nil
 }
 
-func (m *MockNetworkManager) AddPeer(p *NetworkPeer) (*NetworkPeer, error) {
+func (m *MockNetworkManager) AddPeer(_ context.Context, p *NetworkPeer) (*NetworkPeer, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "AddPeer", Args: []any{p}})
@@ -220,7 +221,7 @@ func (m *MockNetworkManager) AddPeer(p *NetworkPeer) (*NetworkPeer, error) {
 	return &out, nil
 }
 
-func (m *MockNetworkManager) RemovePeer(network, publicKey string) error {
+func (m *MockNetworkManager) RemovePeer(_ context.Context, network, publicKey string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "RemovePeer", Args: []any{network, publicKey}})
@@ -238,7 +239,7 @@ func (m *MockNetworkManager) RemovePeer(network, publicKey string) error {
 	return ErrNetworkPeerNotFound
 }
 
-func (m *MockNetworkManager) RefreshPeer(network, publicKey string, expiresAt time.Time) error {
+func (m *MockNetworkManager) RefreshPeer(_ context.Context, network, publicKey string, expiresAt time.Time) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "RefreshPeer", Args: []any{network, publicKey, expiresAt}})
@@ -256,7 +257,7 @@ func (m *MockNetworkManager) RefreshPeer(network, publicKey string, expiresAt ti
 	return ErrNetworkPeerNotFound
 }
 
-func (m *MockNetworkManager) ReapExpiredPeers(now time.Time) ([]NetworkPeer, error) {
+func (m *MockNetworkManager) ReapExpiredPeers(_ context.Context, now time.Time) ([]NetworkPeer, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "ReapExpiredPeers", Args: []any{now}})
@@ -287,7 +288,7 @@ func (m *MockNetworkManager) ReapExpiredPeers(now time.Time) ([]NetworkPeer, err
 	return reaped, nil
 }
 
-func (m *MockNetworkManager) ListPeers(network string) ([]NetworkPeer, error) {
+func (m *MockNetworkManager) ListPeers(_ context.Context, network string) ([]NetworkPeer, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "ListPeers", Args: []any{network}})

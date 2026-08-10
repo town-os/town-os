@@ -170,7 +170,7 @@ func TestReconcileGfehIndexesPrunesWhatIsNoLongerServed(t *testing.T) {
 // index names 404 until the ingress is next rebuilt.
 func TestGfehIndexHostnamesCoverEveryPartition(t *testing.T) {
 	nm := account.InitMockNetworkManager()
-	if _, err := nm.Create(&account.Network{Name: "office", TLD: "office", Enabled: true}); err != nil {
+	if _, err := nm.Create(t.Context(), &account.Network{Name: "office", TLD: "office", Enabled: true}); err != nil {
 		t.Fatalf("create network: %v", err)
 	}
 	reg := stubGfehRegistry{clients: map[string]gfeh.Client{
@@ -178,7 +178,7 @@ func TestGfehIndexHostnamesCoverEveryPartition(t *testing.T) {
 		"office": allViews("office", "office"),
 	}}
 
-	hosts := gfehIndexHostnames(reg, nm, "home")
+	hosts := gfehIndexHostnames(t.Context(), reg, nm, "home")
 	for _, want := range []string{"gfeh.home", "gfeh.office"} {
 		if _, ok := hosts[want]; !ok {
 			t.Errorf("%s is not protected from the pages prune: %v", want, hosts)
@@ -193,7 +193,7 @@ func TestGfehIndexHostnamesDoNotDependOnTheDaemon(t *testing.T) {
 	dead.Errors["Names"] = errGfehIndexTestDown
 	reg := stubGfehRegistry{clients: map[string]gfeh.Client{"home": dead}}
 
-	hosts := gfehIndexHostnames(reg, nil, "home")
+	hosts := gfehIndexHostnames(t.Context(), reg, nil, "home")
 	if _, ok := hosts["gfeh.home"]; !ok {
 		t.Error("a partition whose daemon is down lost its index symlink protection")
 	}

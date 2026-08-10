@@ -100,7 +100,7 @@ func TestRebuildIngressPushesRoutes(t *testing.T) {
 // only for blog.fart.
 func TestBuildIngressRoutesPagesUseNetworkTLD(t *testing.T) {
 	nm := account.InitMockNetworkManager()
-	if _, err := nm.Create(&account.Network{
+	if _, err := nm.Create(t.Context(), &account.Network{
 		Name: "fart", TLD: "fart", Subnet: "10.65.0.0/24", Address: "10.65.0.1/24",
 		PublicKey: "PUB", ListenPort: 51820, Enabled: true,
 	}); err != nil {

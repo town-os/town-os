@@ -116,24 +116,24 @@ func TestCollectPageHostnamesNilManager(t *testing.T) {
 // page-side twin of networkTLDValue for packages.
 func TestPageNetworkTLD(t *testing.T) {
 	nm := account.InitMockNetworkManager()
-	if _, err := nm.Create(&account.Network{
+	if _, err := nm.Create(t.Context(), &account.Network{
 		Name: "fart", TLD: "fart", Subnet: "10.65.0.0/24", Address: "10.65.0.1/24",
 		PublicKey: "PUB", ListenPort: 51820, Enabled: true,
 	}); err != nil {
 		t.Fatalf("create network: %v", err)
 	}
 
-	if got := pageNetworkTLD(nm, "fart", "home"); got != "fart" {
+	if got := pageNetworkTLD(t.Context(), nm, "fart", "home"); got != "fart" {
 		t.Errorf("fart network: got %q, want fart", got)
 	}
 	// The default network, an empty network, an unknown network, and a nil
 	// manager all fall back to the global dns_tld.
 	for _, network := range []string{"", account.DefaultNetworkName, "nonexistent"} {
-		if got := pageNetworkTLD(nm, network, "home"); got != "home" {
+		if got := pageNetworkTLD(t.Context(), nm, network, "home"); got != "home" {
 			t.Errorf("network %q: got %q, want the global home", network, got)
 		}
 	}
-	if got := pageNetworkTLD(nil, "fart", "home"); got != "home" {
+	if got := pageNetworkTLD(t.Context(), nil, "fart", "home"); got != "home" {
 		t.Errorf("nil manager: got %q, want home", got)
 	}
 }
@@ -142,21 +142,21 @@ func TestPageNetworkTLD(t *testing.T) {
 // ingress vhost AND on-disk subvolume/symlink must all agree on.
 func TestPageFQDNUsesNetworkTLD(t *testing.T) {
 	nm := account.InitMockNetworkManager()
-	if _, err := nm.Create(&account.Network{
+	if _, err := nm.Create(t.Context(), &account.Network{
 		Name: "fart", TLD: "fart", Subnet: "10.65.0.0/24", Address: "10.65.0.1/24",
 		PublicKey: "PUB", ListenPort: 51820, Enabled: true,
 	}); err != nil {
 		t.Fatalf("create network: %v", err)
 	}
 
-	if got := pageFQDN(nm, account.PageSite{Name: "blog", Network: "fart"}, "home"); got != "blog.fart" {
+	if got := pageFQDN(t.Context(), nm, account.PageSite{Name: "blog", Network: "fart"}, "home"); got != "blog.fart" {
 		t.Errorf("fart page: got %q, want blog.fart", got)
 	}
-	if got := pageFQDN(nm, account.PageSite{Name: "blog"}, "home"); got != "blog.home" {
+	if got := pageFQDN(t.Context(), nm, account.PageSite{Name: "blog"}, "home"); got != "blog.home" {
 		t.Errorf("default-network page: got %q, want blog.home", got)
 	}
 	// A public FQDN is used verbatim regardless of network.
-	if got := pageFQDN(nm, account.PageSite{Name: "shop", Domain: "shop.example.com", Network: "fart"}, "home"); got != "shop.example.com" {
+	if got := pageFQDN(t.Context(), nm, account.PageSite{Name: "shop", Domain: "shop.example.com", Network: "fart"}, "home"); got != "shop.example.com" {
 		t.Errorf("public page: got %q, want shop.example.com", got)
 	}
 }

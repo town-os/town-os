@@ -33,7 +33,7 @@ func TestInstalledInfoNotesFollowNetworkTLD(t *testing.T) {
 	// controller layer derives keys/subnet; the manager stores fields verbatim,
 	// so name + TLD are all networkTLD needs.
 	nm := initNetworkDB(t)
-	if _, err := nm.Create(&account.Network{Name: "fart", TLD: "fart", Enabled: true}); err != nil {
+	if _, err := nm.Create(t.Context(), &account.Network{Name: "fart", TLD: "fart", Enabled: true}); err != nil {
 		t.Fatalf("create fart network: %v", err)
 	}
 

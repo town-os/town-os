@@ -73,7 +73,7 @@ func buildIngressRoutes(ctx context.Context, pagesMgr account.PagesManager, nm a
 	for _, page := range pages {
 		domain := pageDomain(page)
 		// The page's own network TLD, not the global dns_tld.
-		pageTLD := pageNetworkTLD(nm, page.Network, tld)
+		pageTLD := pageNetworkTLD(ctx, nm, page.Network, tld)
 		hostname := pageHostname(domain, pageTLD)
 		if hostname == "" {
 			continue
@@ -85,7 +85,7 @@ func buildIngressRoutes(ctx context.Context, pagesMgr account.PagesManager, nm a
 			routes = append(routes, &ingresspb.Route{Hostname: hostname, Backend: backend, Acme: true, ServeHttp: true})
 			continue
 		}
-		certDir, lerr := issuePageLeaf(ca, btrfsBase, page.Name, hostname, internalIP, networkOverlayIPValue(nm, page.Network))
+		certDir, lerr := issuePageLeaf(ca, btrfsBase, page.Name, hostname, internalIP, networkOverlayIPValue(ctx, nm, page.Network))
 		if lerr != nil {
 			slog.Debug(fmt.Sprintf("ingress: page leaf %s: %v", page.Name, lerr))
 			continue
@@ -150,7 +150,7 @@ func gfehIngressRoutes(ctx context.Context, nm account.NetworkManager, reg GfehR
 		if !ok {
 			dir, err := issueGfehLeaf(ca, btrfsBase, site.Network,
 				gfehHTTPFQDNs(all, site.Network),
-				internalIP, networkOverlayIPValue(nm, site.Network))
+				internalIP, networkOverlayIPValue(ctx, nm, site.Network))
 			if err != nil {
 				slog.Debug(fmt.Sprintf("ingress: gfeh leaf %s: %v", site.Network, err))
 				issued[site.Network] = ""

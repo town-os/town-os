@@ -44,7 +44,7 @@ func (s *SystemControllerHandlers) writePackageNetworkState(ctx context.Context,
 	if err := applyPackageTLS(
 		&state, s.Controller.GetTLSCA(), s.Controller.GetBtrfsBasePath(),
 		repoName, pkgName, version, s.Controller.GetInternalIP(), s.networkTLD(ctx, network),
-		s.networkOverlayIP(network), compiled, supplies,
+		s.networkOverlayIP(ctx, network), compiled, supplies,
 	); err != nil {
 		return err
 	}

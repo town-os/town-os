@@ -30,7 +30,7 @@ func seedNetwork(t *testing.T) *account.MockNetworkManager {
 	t.Helper()
 	nm := account.InitMockNetworkManager()
 	n := &account.Network{Name: "fart", TLD: "fart", Subnet: "10.65.0.1/24", Address: "10.65.0.1/24", PublicKey: "PUB", ListenPort: 51820, Enabled: true}
-	if _, err := nm.Create(n); err != nil {
+	if _, err := nm.Create(t.Context(), n); err != nil {
 		t.Fatalf("seed network: %v", err)
 	}
 	return nm

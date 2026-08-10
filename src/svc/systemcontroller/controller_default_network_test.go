@@ -27,7 +27,7 @@ func TestEnsureDefaultNetworkFindsTheSeededRow(t *testing.T) {
 		t.Fatalf("ensureDefaultNetwork: %v", err)
 	}
 
-	nets, err := nm.List()
+	nets, err := nm.List(t.Context())
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -49,7 +49,7 @@ func TestEnsureDefaultNetworkReconcilesTheTLD(t *testing.T) {
 		t.Fatalf("ensureDefaultNetwork: %v", err)
 	}
 
-	home, err := nm.Get(account.DefaultNetworkName)
+	home, err := nm.Get(t.Context(), account.DefaultNetworkName)
 	if err != nil {
 		t.Fatalf("Get home: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestSetDNSTLDRepointsTheHomeNetwork(t *testing.T) {
 		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
 	}
 
-	home, err := nm.Get(account.DefaultNetworkName)
+	home, err := nm.Get(t.Context(), account.DefaultNetworkName)
 	if err != nil {
 		t.Fatalf("Get home: %v", err)
 	}

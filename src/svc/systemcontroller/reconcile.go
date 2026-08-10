@@ -517,7 +517,7 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 	isDep := netInfo.ParentNCUnitName != ""
 	needsNetworkState := !isDep && (len(compiled.Network.External) > 0 || len(compiled.Network.Internal) > 0)
 	if cfg.NetworkStatePath != "" && needsNetworkState {
-		overlay := networkOverlayIPValue(cfg.NetworkMgr, network)
+		overlay := networkOverlayIPValue(ctx, cfg.NetworkMgr, network)
 		if err := reconcileWriteNetworkState(cfg, repoName, pi.Name, pi.Version, tld, overlay, compiled, ip.Supplies); err != nil {
 			return nil, fmt.Errorf("write network state: %w", err)
 		}
@@ -924,7 +924,7 @@ func RebuildNetworkDNS(ctx context.Context, cfg ReconcileDNSConfig) error {
 		return nil
 	}
 
-	nets, err := cfg.NetworkMgr.List()
+	nets, err := cfg.NetworkMgr.List(ctx)
 	if err != nil {
 		return fmt.Errorf("list networks: %w", err)
 	}
@@ -951,7 +951,7 @@ func RebuildNetworkDNS(ctx context.Context, cfg ReconcileDNSConfig) error {
 		// A at the overlay address for WireGuard peers, and a global A at the LAN
 		// address for loopback/LAN clients. Pages have no install record, so they
 		// are keyed off PageSite.Network rather than Installer.LoadNetwork.
-		overlay := networkOverlayIPValue(cfg.NetworkMgr, n.Name)
+		overlay := networkOverlayIPValue(ctx, cfg.NetworkMgr, n.Name)
 		for _, host := range collectNetworkPageHostnames(ctx, cfg.PagesManager, n.Name, n.TLD) {
 			if overlay != "" {
 				if err := cfg.Client.AddScopedRecord(ctx, n.Name, &upstream.DnsRecord{
@@ -1314,7 +1314,7 @@ func reconcilePages(ctx context.Context, cfg ReconcileConfig) error {
 	globalTLD := reconcileDNSTLD(ctx, cfg.SettingsMgr)
 	valid := make(map[string]struct{}, len(pages))
 	for _, page := range pages {
-		dir := pageFQDN(cfg.NetworkMgr, page, globalTLD)
+		dir := pageFQDN(ctx, cfg.NetworkMgr, page, globalTLD)
 		if dir == "" {
 			continue
 		}
@@ -1356,7 +1356,7 @@ func reconcilePages(ctx context.Context, cfg ReconcileConfig) error {
 	// partition that is merely slow to start does not have its index pruned out
 	// from under it — what may be deleted has to be decidable from state Town OS
 	// owns.
-	for host := range gfehIndexHostnames(cfg.Gfeh, cfg.NetworkMgr, globalTLD) {
+	for host := range gfehIndexHostnames(ctx, cfg.Gfeh, cfg.NetworkMgr, globalTLD) {
 		valid[host] = struct{}{}
 	}
 

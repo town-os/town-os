@@ -28,7 +28,7 @@ func initNetworkDB(t *testing.T) *account.SQLiteNetworkManager {
 			t.Errorf("db.Close: %v", cerr)
 		}
 	})
-	nm, err := account.InitNetworkManager(db)
+	nm, err := account.InitNetworkManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitNetworkManager: %v", err)
 	}
@@ -55,7 +55,7 @@ func TestReconcileNetworksSeedsHomeAndAppliesTransport(t *testing.T) {
 
 	// Pre-seed a disabled "office" network so we can confirm disabled
 	// networks are still materialized (config + unit) but not "remote-on".
-	if _, err := nm.Create(&account.Network{
+	if _, err := nm.Create(t.Context(), &account.Network{
 		Name:       "office",
 		TLD:        "office",
 		Subnet:     "10.90.5.0/24",
@@ -80,7 +80,7 @@ func TestReconcileNetworksSeedsHomeAndAppliesTransport(t *testing.T) {
 	})
 
 	// The "home" network is present and its TLD matches the dns_tld setting.
-	home, err := nm.Get("home")
+	home, err := nm.Get(t.Context(), "home")
 	if err != nil {
 		t.Fatalf("home network not present: %v", err)
 	}
@@ -137,7 +137,7 @@ func TestNetworkTransportTogglesUnitStatus(t *testing.T) {
 	ctx := context.Background()
 
 	nm := initNetworkDB(t)
-	if _, err := nm.Create(&account.Network{
+	if _, err := nm.Create(t.Context(), &account.Network{
 		Name: "lab", TLD: "lab", Subnet: "10.90.7.0/24", Address: "10.90.7.1/24",
 		PublicKey: "LABPUB", PrivateKey: "LABPRIV", ListenPort: 51822, Enabled: true,
 	}); err != nil {
@@ -158,7 +158,7 @@ func TestNetworkTransportTogglesUnitStatus(t *testing.T) {
 	}
 
 	// Disable and re-reconcile → the unit is stopped.
-	if err := nm.SetEnabled("lab", false); err != nil {
+	if err := nm.SetEnabled(t.Context(), "lab", false); err != nil {
 		t.Fatalf("SetEnabled: %v", err)
 	}
 	sd.ClearCalls()
@@ -193,7 +193,7 @@ func TestNetworkReconcileRealSystemd(t *testing.T) {
 
 	nm := initNetworkDB(t)
 
-	if _, err := nm.Create(&account.Network{
+	if _, err := nm.Create(t.Context(), &account.Network{
 		Name: "lab", TLD: "lab",
 		Subnet: "10.91.3.0/24", Address: "10.91.3.1/24",
 		PublicKey: "LABPUB", PrivateKey: "LABPRIV", ListenPort: 51931, Enabled: false,

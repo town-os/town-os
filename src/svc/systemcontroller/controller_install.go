@@ -252,7 +252,7 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 
 	// Resolve and validate the target network (default "home") before any
 	// side effects. Returns an echo error when the network does not exist.
-	network, nerr := s.resolveInstallNetwork(req.Network)
+	network, nerr := s.resolveInstallNetwork(c.Request().Context(), req.Network)
 	if nerr != nil {
 		return nerr
 	}

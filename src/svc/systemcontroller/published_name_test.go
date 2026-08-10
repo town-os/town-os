@@ -252,7 +252,7 @@ func TestPageAndPackageQualifyDifferentlyOnPurpose(t *testing.T) {
 	}
 	// A bare label is qualified, as a page's own name normally is.
 	site := account.PageSite{Name: "blog"}
-	if got := pageFQDN(nil, site, "home"); got != "blog.home" {
+	if got := pageFQDN(t.Context(), nil, site, "home"); got != "blog.home" {
 		t.Errorf("pageFQDN(bare) = %q, want blog.home", got)
 	}
 }

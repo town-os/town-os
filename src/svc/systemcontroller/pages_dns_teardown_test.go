@@ -59,7 +59,7 @@ func initPagesDNSEnv(t *testing.T, withNetworks bool) pagesDNSEnv {
 	}
 	var networks account.NetworkManager
 	if withNetworks {
-		nm, err := account.InitNetworkManager(db)
+		nm, err := account.InitNetworkManager(t.Context(), db)
 		if err != nil {
 			t.Fatalf("InitNetworkManager: %v", err)
 		}
