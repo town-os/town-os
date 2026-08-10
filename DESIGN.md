@@ -14,6 +14,12 @@ README.md ([zh-Hans](README.zh-Hans.md), [zh-Hant](README.zh-Hant.md)).
 **This file is authoritative** — describe the change here, and the translations
 follow.
 
+Spanish translations of this file ship in two regional variants:
+[DESIGN.es-ES.md](DESIGN.es-ES.md) (Spain) and
+[DESIGN.es-MX.md](DESIGN.es-MX.md) (Mexico); see also
+[README.es-ES.md](README.es-ES.md) / [README.es-MX.md](README.es-MX.md) and
+[CLAUDE.es-ES.md](CLAUDE.es-ES.md) / [CLAUDE.es-MX.md](CLAUDE.es-MX.md).
+
 ## Architectural Invariants
 
 Rules that constrain the design rather than the code. Breaking one does not fail

@@ -18,6 +18,12 @@ Town OS is a self-service platform that runs entirely from a USB drive, turning 
 > [DESIGN.zh-Hant.md](DESIGN.zh-Hant.md).
 > The English files are authoritative; where the two disagree, the English is
 > correct and the translation is what needs fixing.
+>
+> **Español / Spanish.** The same three documents are also available in Spanish,
+> in two regional variants — Spain: [README.es-ES.md](README.es-ES.md),
+> [CLAUDE.es-ES.md](CLAUDE.es-ES.md), [DESIGN.es-ES.md](DESIGN.es-ES.md);
+> Mexico: [README.es-MX.md](README.es-MX.md),
+> [CLAUDE.es-MX.md](CLAUDE.es-MX.md), [DESIGN.es-MX.md](DESIGN.es-MX.md).
 
 ## Table of Contents
 
