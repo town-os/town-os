@@ -16,7 +16,9 @@ CLAUDE.md.
 > comandos, variables de entorno, rutas de la API y nombres de llaves YAML se
 > conservan sin traducir.
 >
-> Otra traducción: español de España ([DESIGN.es-ES.md](DESIGN.es-ES.md)).
+> Otras traducciones: español de España ([DESIGN.es-ES.md](DESIGN.es-ES.md)) y
+> chino, en escritura simplificada ([DESIGN.zh-Hans.md](DESIGN.zh-Hans.md)) y
+> tradicional ([DESIGN.zh-Hant.md](DESIGN.zh-Hant.md)).
 
 ## Invariantes Arquitectónicos
 

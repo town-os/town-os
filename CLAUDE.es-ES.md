@@ -6,7 +6,9 @@ CLAUDE, NO TIENES PERMISO PARA EDITAR ESTE ARCHIVO SALVO QUE YO TE LO DIGA.
 > código, rutas de archivo, comandos, variables de entorno, rutas de la API y
 > nombres de claves YAML se conservan sin traducir.
 >
-> Otra traducción: español de México ([CLAUDE.es-MX.md](CLAUDE.es-MX.md)).
+> Otras traducciones: español de México ([CLAUDE.es-MX.md](CLAUDE.es-MX.md)) y
+> chino, en escritura simplificada ([CLAUDE.zh-Hans.md](CLAUDE.zh-Hans.md)) y
+> tradicional ([CLAUDE.zh-Hant.md](CLAUDE.zh-Hant.md)).
 
 **Este archivo contiene solo instrucciones de compilación y estilo de código.**
 Cómo funciona realmente el sistema — arquitectura, comportamiento de los
