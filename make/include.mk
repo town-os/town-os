@@ -37,6 +37,9 @@ check-libsystemd:
 test:
 	@make/test.sh unit
 
+test-race:
+	@make/test.sh unit-race
+
 docker-login:
 	@make/images.sh docker-login
 

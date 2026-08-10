@@ -270,7 +270,7 @@ include make/include.mk
 
 .PHONY: help deps
 .PHONY: check-go check-bun check-podman check-runc check-btrfs check-binfmt check-golangci-lint check-python3 check-libsystemd
-.PHONY: test test-ui-unit test-ui-integration-local docker-login ensure-image-cache pull-images pull-images-daily
+.PHONY: test test-race test-ui-unit test-ui-integration-local docker-login ensure-image-cache pull-images pull-images-daily
 .PHONY: ui-image nc-image nc-image-dev ingress-image gfeh-image ui-integration-image production-image test-image dev-production-image dev-image
 .PHONY: registry registry-populate registry-stop
 .PHONY: gitea gitea-populate gitea-stop
@@ -285,6 +285,10 @@ endif
 .PHONY: btrfs clean-btrfs clean-integration clean clean-build-cache clean-cache clean-image-cache clean-bun-cache clean-containers clean-all
 
 test: lint check-bun check-libsystemd
+# check-bun is not listed because this target runs no UI tests, but lint does
+# (eslint), so it still arrives transitively. Listing it would imply the race
+# suite needs bun, which it does not.
+test-race: lint check-libsystemd
 test-ui-unit: check-bun
 test-ui-integration-local: check-bun
 $(STATE_DIR)/.images-pulled: ensure-image-cache docker-login

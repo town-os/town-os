@@ -44,6 +44,9 @@ Build & lint
 
 Tests
   test                    Run Go and UI unit tests.
+  test-race               Run the Go unit tests under the race detector.
+                          Slower than test and reports findings to triage
+                          rather than acting as a gate; Go only.
   test-ui-unit            Run UI unit tests only.
   test-ui-integration-local
                           Run the UI integration suite on the host against an

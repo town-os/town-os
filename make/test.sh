@@ -32,6 +32,26 @@ case "$1" in
     bun_install ui
     cd ui && bun run test
     ;;
+  # The Go unit suite under the race detector.
+  #
+  # A separate target rather than a flag on `test`, for two reasons. The race
+  # build is several times slower and allocates far more, and `make test` is a
+  # gate run constantly; and a data race is a finding to triage rather than a
+  # reason to block the change in front of you. Nothing else in the repo runs
+  # -race, which matters for a codebase carrying a sync.Map of per-package
+  # mutexes, an SSE broadcaster, a peer reaper, several pollers, and image
+  # pulls fanned out across goroutines — every one of those is a shape the
+  # detector is built to find and nothing here was looking.
+  #
+  # Go-only: the UI suite runs under bun, which has no equivalent.
+  #
+  # -count=1 for exactly the reason the unit case documents above. It matters
+  # more here, not less: a cached PASS from a non-race run would otherwise be
+  # replayed for a race run that never executed.
+  unit-race)
+    step "Running Go unit tests under the race detector"
+    go test "${GO_TAGS_ARG[@]}" -race -count=1 -v -timeout 90m ./src/...
+    ;;
   # Build integration test image and start the container with all images loaded.
   # Does not run any tests. Called by test-integration; can also be used standalone
   # to prepare the container for test-integration-rerun.
