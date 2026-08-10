@@ -10,6 +10,7 @@ import { ApiError, SystemControllerClient } from './core.js'
  * @param {number} [offset] - Number of entries to skip for pagination.
  * @param {string} [search] - Case-insensitive substring to match across string fields.
  * @param {boolean} [installedOnly] - When true, only return packages that are currently installed. Default false.
+ * @param {boolean} [featuredOnly] - When true, only return packages listed in a repository's featured.json. Intersects with installedOnly. Default false.
  * @returns {Promise<{entries: string[], has_more: boolean, total_pages: number, total_count: number}>}
  */
 SystemControllerClient.prototype.listPackages = async function (sortBy, sortOrder, limit, offset, search, installedOnly, featuredOnly) {
@@ -29,6 +30,7 @@ SystemControllerClient.prototype.listPackages = async function (sortBy, sortOrde
  * List packages grouped by their source repository.
  * Calls GET /packages/by-repo on the Control Plane Service.
  * @param {string} [search] - Case-insensitive substring to filter packages by name.
+ * @param {boolean} [featuredOnly] - When true, only return packages listed in a repository's featured.json. Default false.
  * @returns {Promise<Array<{repo: string, packages: Array<{repo: string, name: string, version: string}>, featured?: string[]}>>}
  *   Each group includes an optional `featured` array of package names marked as featured in that repository.
  */
@@ -173,6 +175,7 @@ SystemControllerClient.prototype.installPreview = async function (repo, name, ve
  * @param {Responses} responses - Configuration answers as a map of question keys to string values.
  * @param {boolean} [reuseVolumes=false] - When true, preserve existing data volumes from a prior installation.
  * @param {string} [importFromVersion] - When provided, import data from this prior installed version.
+ * @param {string} [network] - Network to install into. Empty means the default/home network. Selects the TLD the package's DNS name, leaf SAN, TLSA owner and ingress vhost are all named under.
  * @returns {Promise<void>}
  */
 SystemControllerClient.prototype.installPackage = async function (repo, name, version, responses, reuseVolumes = false, importFromVersion, network) {

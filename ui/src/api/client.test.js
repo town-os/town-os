@@ -2027,4 +2027,45 @@ describe('SystemControllerClient', () => {
       )
     })
   })
+
+  // uploadPageArchive uses fetch directly (multipart), so it does not go through
+  // postJSON's error path. It used to hand-roll its own error: a plain Error
+  // with an ad-hoc `detail` and none of ApiError's other fields, which made a
+  // page upload the single call whose failure `err instanceof ApiError` did not
+  // recognise.
+  describe('uploadPageArchive', () => {
+    it('throws ApiError with the full shape on a failed upload', async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 413,
+        text: () => Promise.resolve(JSON.stringify({ type: 'about:blank', status: 413, detail: 'archive too large' })),
+      })
+
+      const file = new File(['x'], 'site.tar.gz')
+      await expect(client.uploadPageArchive('blog', file)).rejects.toThrow(ApiError)
+
+      try {
+        await client.uploadPageArchive('blog', file)
+        expect.unreachable('upload should have thrown')
+      } catch (err) {
+        expect(err).toBeInstanceOf(ApiError)
+        expect(err.status).toBe(413)
+        expect(err.path).toBe('/pages/upload')
+        expect(err.detail).toBe('archive too large')
+        expect(err.problem).toMatchObject({ status: 413 })
+      }
+    })
+
+    it('returns the page on success', async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ name: 'blog', status: 'active' }),
+      })
+
+      const file = new File(['x'], 'site.tar.gz')
+      await expect(client.uploadPageArchive('blog', file)).resolves.toMatchObject({ name: 'blog' })
+    })
+  })
+
 })

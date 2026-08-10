@@ -1,5 +1,5 @@
 /** @import { PageSite, PageSiteUpdate } from './types.js' */
-import { SystemControllerClient } from './core.js'
+import { ApiError, SystemControllerClient } from './core.js'
 
 /**
  * Create a new page site for static content hosting.
@@ -11,6 +11,7 @@ import { SystemControllerClient } from './core.js'
  * @param {string} [sourceType] - Content source: "archive" (default), "container_image", or "git".
  * @param {string} [image] - Container image reference (required for source_type "container_image").
  * @param {string} [imageDirectory] - Directory within the container image to extract (required for source_type "container_image").
+ * @param {string} [network] - Network the page is published on. Empty means the default/home network. Selects the TLD the page's hostname, cert, DNS records and ingress vhost are named under, and which WireGuard peers can resolve it.
  * @returns {Promise<PageSite>}
  *
  * Calls POST /pages/create on the Control Plane Service.
@@ -117,16 +118,17 @@ SystemControllerClient.prototype.uploadPageArchive = async function (name, file)
     body: form,
   })
 
+  // ApiError, like every other method on this client. This was the one place
+  // that hand-rolled its own: it re-implemented ApiError.parseDetail inline and
+  // threw a plain Error carrying an ad-hoc `detail`, so a page upload was the
+  // single call whose failure had no `status`, no `path`, no `body` and no
+  // parsed `problem`, and for which `err instanceof ApiError` was false.
+  //
+  // Nothing reads those today, which is exactly why it went unnoticed — and why
+  // the first caller to branch on err.status would have found it working
+  // everywhere except here.
   if (!resp.ok) {
-    const text = await resp.text()
-    let detail = text
-    try {
-      const parsed = JSON.parse(text)
-      detail = parsed.detail || parsed.message || text
-    } catch { /* use raw text */ }
-    const err = new Error(detail)
-    err.detail = detail
-    throw err
+    throw new ApiError('POST', '/pages/upload', resp.status, await resp.text())
   }
 
   return resp.json()
