@@ -176,7 +176,7 @@ These are used by `make dev` to set default repository credentials on the backen
 
 Integration tests (`make test-full`) do **not** use `.env` credentials. They run a local Gitea instance with hardcoded test credentials (`town-os` / `town-os-test`) and never contact GitHub for repository operations.
 
-After installing prerequisites, run `make pull-images` once to fetch all container images from Docker Hub and save them to the global cache at `/var/cache/town-os/images/`. Docker Hub credentials (via `DOCKER_USERNAME` / `DOCKER_PASSWORD` in `.env`) are only needed if you hit rate limits. All other build and test targets load images from the global cache and never contact Docker Hub. If any cached image is missing when a target needs it, `make pull-images` runs automatically.
+After installing prerequisites, run `make pull-images` once to fetch all container images from Docker Hub and save them to this checkout's image cache at `.cache/images/`. Docker Hub credentials (via `DOCKER_USERNAME` / `DOCKER_PASSWORD` in `.env`) are only needed if you hit rate limits. All other build and test targets load images from that cache and never contact Docker Hub. If any cached image is missing when a target needs it, `make pull-images` runs automatically.
 
 ## Development
 
@@ -240,11 +240,11 @@ Integration tests use a local `registry:2` container to avoid Docker Hub rate li
 
 1. Discovers all `docker.io` images referenced by test package repositories (`discover-images` tool)
 2. Starts a local registry on a random port
-3. Loads each image from the global cache and pushes it to the local registry
+3. Loads each image from the image cache and pushes it to the local registry
 4. Generates a `registries.conf` that redirects `docker.io` pulls to the local mirror
 5. Mounts the config into the test container
 
-This is transparent -- no code changes are needed. All images are loaded from the global cache (`/var/cache/town-os/images/`); no docker.io pulls occur during the test pipeline.
+This is transparent -- no code changes are needed. All images are loaded from the checkout's image cache (`.cache/images/`); no docker.io pulls occur during the test pipeline.
 
 | Target                   | Description                                               |
 | ------------------------ | --------------------------------------------------------- |
@@ -289,7 +289,7 @@ Each working directory gets its own Gitea instance (via `INSTANCE_ID`), so concu
 | `make ui-image`               | Build the UI image locally as `localhost/town-os-ui:<INSTANCE_ID>` for tests (never pulls the quay UI image).          |
 | `make nc-image`               | Build the network controller image locally for tests; `make nc-image-dev` does the same against the dev base.          |
 | `make ingress-image`          | Build the ingress image locally for tests.                                                                             |
-| `make pull-images`            | Pull all container images from Docker Hub and save to global cache. Runs automatically if any cached image is missing. |
+| `make pull-images`            | Pull all container images from Docker Hub and save to the checkout's image cache. Runs automatically if any cached image is missing. |
 
 Dev and integration use separate production base images and build caches so concurrent builds cannot interfere with each other.
 
@@ -352,7 +352,7 @@ The dev and integration test environments use separate btrfs volumes, container 
 | `make clean-cache`       | Remove dev data, dev repos, and dev Rolodex data from the ephemeral state directory.    |
 | `make clean-integration` | Remove integration test containers (test, UI backend, UI runner) and clean btrfs.       |
 | `make clean-btrfs`       | Unmount and remove the integration test btrfs volume and orphaned loop devices.         |
-| `make clean-image-cache` | Delete the global image cache (`/var/cache/town-os/images/`).                           |
+| `make clean-image-cache` | Delete this checkout's image cache (`.cache/images/`).                           |
 | `make clean-containers`  | Remove all town-os and preflight containers from any working directory / instance.      |
 | `make clean-all`         | Clean everything: all containers, build cache, dev, integration, and btrfs.             |
 

@@ -24,7 +24,7 @@ case "$1" in
   populate)
     step "Populating local registry with images"
     # Pull each discovered image, re-tag for the local registry, and push.
-    ${SUDO} mkdir -p "${IMAGE_CACHE}"
+    ensure_image_cache_dir
     port=$(cat "${STATE_DIR}/.registry-port")
     while IFS= read -r image; do
       local_tag="localhost:${port}/${image#docker.io/}"

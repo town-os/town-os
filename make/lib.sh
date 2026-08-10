@@ -25,17 +25,22 @@ mkdir -p "${STATE_DIR}" 2>/dev/null || true
 BTRFS_IMAGE_DIR="${BTRFS_IMAGE_DIR:-${PWD}/.cache/btrfs}"
 
 # ---------------------------------------------------------------------------
-# Host-wide npmjs package cache
+# Per-checkout caches
 # ---------------------------------------------------------------------------
-# Defaulted here as well as in the Makefile so a script invoked directly still
-# lands in the shared cache. Bun silently falls back to ~/.bun/install/cache when
-# it is told nothing, which is how a build ends up re-downloading the world into
-# a directory nothing else reads. Every bun in this tree — host-side via
-# bun_install, and the container builds via the /bun-cache mount — resolves to
-# this one directory.
-BUN_CACHE="${BUN_CACHE:-${HOME}/.cache/town-os/bun}"
+# Every cache this build keeps lives under the checkout's gitignored .cache/,
+# so the checkout owns all of its own state (see the Makefile for why neither of
+# these is host-wide any more).
+#
+# Both are defaulted here as well as in the Makefile so a script invoked
+# directly still lands in the same place. That matters most for bun, which
+# silently falls back to ~/.bun/install/cache when it is told nothing — which is
+# how a build ends up re-downloading the world into a directory nothing else
+# reads. Every bun in this tree — host-side via bun_install, and the container
+# builds via the /bun-cache mount — resolves to this one directory.
+IMAGE_CACHE="${IMAGE_CACHE:-${PWD}/.cache/images}"
+BUN_CACHE="${BUN_CACHE:-${PWD}/.cache/bun}"
 BUN_INSTALL_CACHE_DIR="${BUN_INSTALL_CACHE_DIR:-${BUN_CACHE}}"
-export BUN_CACHE BUN_INSTALL_CACHE_DIR
+export IMAGE_CACHE BUN_CACHE BUN_INSTALL_CACHE_DIR
 
 # require_disk_backed DIR — create DIR and abort if it resolves to a tmpfs/
 # ramfs mount. Guards against re-introducing the loop-over-tmpfs host reboot
@@ -379,15 +384,27 @@ image_safe_name() {
   basename "$1" | tr ':' '-'
 }
 
+# ensure_image_cache_dir — create IMAGE_CACHE, owned by the user running make.
+#
+# Deliberately NOT ${SUDO} mkdir, even though everything that writes here is
+# rootful podman. IMAGE_CACHE now lives under the checkout's .cache/, and a
+# root-owned mkdir -p creates .cache itself as root on a fresh checkout — after
+# which every unprivileged `mkdir -p .cache/go-mod` in build.sh fails and the
+# build is dead before it compiles anything. Root can write its tars into a
+# user-owned directory perfectly well; the reverse is not true.
+ensure_image_cache_dir() {
+  mkdir -p "${IMAGE_CACHE}"
+}
+
 # image_cache_tar IMAGE — path to the cached tar for an image.
 image_cache_tar() {
   printf '%s/%s.tar' "${IMAGE_CACHE}" "$(image_safe_name "$1")"
 }
 
-# save_image_cache IMAGE — save an image to the global cache, replacing any existing tar.
+# save_image_cache IMAGE — save an image to the checkout's cache, replacing any existing tar.
 # The write is atomic (temp file + mv) because IMAGE_CACHE is shared across concurrent
-# `make test-full` runs (which refresh it through pull-images-daily, and through the
-# repair pull ensure-cache triggers when a tar is missing): a reader loading the tar
+# `make test-full` runs in the same checkout (which refresh it through pull-images-daily,
+# and through the repair pull ensure-cache triggers when a tar is missing): a reader loading the tar
 # must never observe a partial `podman save` mid-write. It also means an interrupted
 # pull leaves at most a stray .tmp file, never a truncated cache entry. The
 # temp name is per-PID unique so concurrent writers don't collide, and `mv` on the same
@@ -547,7 +564,7 @@ stamp_touch() {
 bun_install() {
   local dir="${1:-ui}"
   local start=${SECONDS}
-  local cache="${BUN_INSTALL_CACHE_DIR:-${BUN_CACHE:-${HOME}/.cache/town-os/bun}}"
+  local cache="${BUN_INSTALL_CACHE_DIR:-${BUN_CACHE:-${PWD}/.cache/bun}}"
   local stamp="${BUN_STAMP:-.cache/.bun-refreshed-daily}"
   local -a flags=(--cache-dir "${cache}")
   local refreshing=1

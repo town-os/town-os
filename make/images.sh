@@ -25,7 +25,7 @@ case "$1" in
     ;;
   load-base)
     step "Loading base images"
-    ${SUDO} mkdir -p "${IMAGE_CACHE}"
+    ensure_image_cache_dir
     for img in ${BASE_IMAGES}; do
       ensure_image "${img}"
     done
@@ -33,7 +33,7 @@ case "$1" in
     ;;
   pull)
     step "Pulling all container images"
-    ${SUDO} mkdir -p "${IMAGE_CACHE}"
+    ensure_image_cache_dir
     for img in ${ALL_IMAGES}; do
       substep "Pulling ${img}"
       ${SUDO} podman pull "${img}"

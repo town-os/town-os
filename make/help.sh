@@ -153,10 +153,11 @@ Variables
                           images they build, and for the Proton runner, which
                           is x86_64-only.
   ARCHES="x86_64 aarch64" Architectures the manifest-* targets assemble.
-  IMAGE_CACHE=<dir>       Shared image cache (default /var/cache/town-os/images).
-  BUN_CACHE=<dir>         Host-wide npmjs package cache, shared by host-side bun
-                          installs and the UI container builds
-                          (default ~/.cache/town-os/bun).
+  IMAGE_CACHE=<dir>       Saved image tars for this checkout
+                          (default .cache/images).
+  BUN_CACHE=<dir>         npmjs package cache for this checkout, shared by
+                          host-side bun installs and the UI container builds
+                          (default .cache/bun).
   PULL_MAX_AGE=<seconds>  How stale our picture of upstream may get before
                           test-full and dev re-pull images and let bun
                           re-resolve against npmjs (default 86400, one day).

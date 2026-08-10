@@ -31,12 +31,14 @@ clean_dev_data() {
   ${SUDO} rm -rf "${STATE_DIR}/dev-data" "${STATE_DIR}/dev-repos" "${STATE_DIR}/dev-rolodex"
 }
 
-# The per-checkout build cache: Go module and build caches, the UI bundle
+# The per-checkout build cache — which is every cache this build keeps: the Go
+# module and build caches, the bun cache, the saved image tars, the UI bundle
 # staging, and — the reason ordering matters — the btrfs loopback backing image
 # at .cache/btrfs (BTRFS_IMAGE_DIR in lib.sh).
 #
-# ${SUDO} is not belt-and-braces here. Rootful podman writes into .cache/bun and
-# .cache/go-* through its bind mounts, so parts of this tree are owned by root
+# ${SUDO} is not belt-and-braces here. Rootful podman writes into .cache/images,
+# .cache/bun and .cache/go-* through its bind mounts and its saves, so parts of
+# this tree are owned by root
 # and a plain rm leaves them behind — which is how a merged worktree ends up
 # impossible to `git worktree remove` as the user who created it.
 clean_build_cache() {
@@ -63,9 +65,12 @@ clean_image_cache() {
   ${SUDO} rm -rf "${IMAGE_CACHE}"
 }
 
+# ${SUDO} for the same reason clean_build_cache needs it: the container builds
+# bind-mount this directory as rootful podman, so some of what is in it is
+# owned by root and a plain rm would leave it behind.
 clean_bun_cache() {
   step "Cleaning bun package cache"
-  rm -rf "${BUN_CACHE}"
+  ${SUDO} rm -rf "${BUN_CACHE}"
 }
 
 clean_containers() {
@@ -112,11 +117,12 @@ clean_containers() {
 #     unlinked file: the mount survives, `losetup -j` can no longer find it by
 #     path, and the next run collides with a device nothing can clean up.
 #
-# The host-wide caches (IMAGE_CACHE, BUN_CACHE) are swept too, which is what
-# makes this different from the old clean-all. They are shared across checkouts
-# and re-populating them costs a multi-gigabyte pull and a full npmjs fetch,
-# which is why they stay reachable on their own — `make clean` is the deliberate
-# "leave nothing" hammer, not something to reach for between test runs.
+# The image and bun caches (IMAGE_CACHE, BUN_CACHE) now live under .cache too,
+# so clean-build-cache would take them regardless; they are still swept by name
+# first so the output says what is going. Re-populating them costs a
+# multi-gigabyte pull and a full npmjs fetch, which is why they stay reachable
+# on their own — `make clean` is the deliberate "leave nothing" hammer, not
+# something to reach for between test runs.
 clean_all() {
   ${MAKE} clean-containers
   ${MAKE} clean-integration

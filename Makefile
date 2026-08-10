@@ -147,9 +147,17 @@ GITEA_CONTAINER      := town-os-gitea-$(INSTANCE_ID)
 export PODMAN_CONTAINER PODMAN_UI_CONTAINER PODMAN_UI_BACKEND PODMAN_DEV_CONTAINER
 export PREFLIGHT_CONTAINER REGISTRY_CONTAINER GITEA_CONTAINER
 
-# Global image cache shared across all working trees. Override with:
+# Per-checkout image cache. Every cache this build keeps lives under the
+# gitignored .cache/ of the checkout that produced it, so a checkout owns all of
+# its own state and `rm -rf` on the tree really does leave nothing behind. This
+# one used to be /var/cache/town-os/images, shared across working trees: a
+# root-owned directory outside every checkout, which no `git worktree remove`
+# could reach, which `make clean` in one tree deleted out from under every
+# other, and which the ${SUDO} that had to write it made unreadable to anything
+# running as the user. Sharing bought a saved pull; it cost a cache nobody
+# owned. Override with:
 #   make IMAGE_CACHE=/some/other/path test-full
-IMAGE_CACHE ?= /var/cache/town-os/images
+IMAGE_CACHE ?= $(CURDIR)/.cache/images
 export IMAGE_CACHE
 
 # How often `make test-full` and `make dev` re-check upstream for new tags.
@@ -161,11 +169,10 @@ export IMAGE_CACHE
 # check ran; pull-images-daily skips entirely (no pull, no registry login) while
 # it is younger than PULL_MAX_AGE.
 #
-# The stamp lives in the gitignored .cache/ rather than beside IMAGE_CACHE
-# because /var/cache/town-os is root-owned and this is per-checkout bookkeeping,
-# not data. Force a check with `make pull-images`, which is still unconditional
-# and is what release-build uses — a release must never ship an image the box
-# happened to have lying around.
+# The stamps sit in .cache/ beside the caches they describe — per-checkout
+# bookkeeping about a per-checkout cache. Force a check with `make pull-images`,
+# which is still unconditional and is what release-build uses — a release must
+# never ship an image the box happened to have lying around.
 IMAGE_PULL_STAMP := $(CURDIR)/.cache/.images-pulled-daily
 BUN_STAMP := $(CURDIR)/.cache/.bun-refreshed-daily
 # One window for both, because they are the same question asked of two
@@ -173,21 +180,19 @@ BUN_STAMP := $(CURDIR)/.cache/.bun-refreshed-daily
 PULL_MAX_AGE ?= 86400
 export IMAGE_PULL_STAMP BUN_STAMP PULL_MAX_AGE
 
-# Host-wide npmjs package cache, the JS half of IMAGE_CACHE.
+# Per-checkout npmjs package cache, the JS half of IMAGE_CACHE and in the same
+# place for the same reason.
 #
-# The bun cache used to be $(CURDIR)/.cache/bun, mounted only into the UI
-# container builds — so every new worktree started cold against npmjs, and
-# host-side `bun install` (lint, test, dev) shared none of it. One host-wide
-# directory means a second checkout costs nothing and the container builds and
-# the host draw from the same downloads.
+# Every bun in this tree resolves to this one directory: host-side `bun install`
+# (lint, test, dev) via bun_install's --cache-dir, and the container builds via
+# the /bun-cache mount. What must not happen is a build reaching bun with the
+# variable unset, because bun then silently falls back to ~/.bun/install/cache
+# and re-downloads the world into a directory nothing else reads.
 #
-# Under $HOME rather than /var/cache/town-os because host-side bun runs as the
-# user and could not write a root-owned tree; rootful podman can still bind-mount
-# it into the image builds. Must be disk-backed — $HOME is, /tmp on Arch and
-# Fedora is not. Bun's cache is content-addressed and safe for concurrent use
-# (it is the machine-global cache by default), so parallel test runs sharing it
-# is the ordinary case, not a hazard — IRON RULE.
-BUN_CACHE ?= $(HOME)/.cache/town-os/bun
+# Must be disk-backed. The checkout is; /tmp on Arch and Fedora is not. Bun's
+# cache is content-addressed and safe for concurrent use, so parallel test runs
+# in one checkout sharing it is the ordinary case, not a hazard — IRON RULE.
+BUN_CACHE ?= $(CURDIR)/.cache/bun
 # Every host-side bun in this build reads it from the environment; the
 # Containerfiles set the same variable to the mount point.
 BUN_INSTALL_CACHE_DIR := $(BUN_CACHE)
