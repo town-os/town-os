@@ -14,6 +14,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -465,6 +466,20 @@ func run() (err error) {
 		resolutionMode = v
 	}
 
+	// When set, the forwarder list is discovered from the host's own resolv.conf
+	// rather than being the public defaults — the addresses that keep answering
+	// on a network that blocks external DNS. Discovery runs on every boot, so a
+	// box that changed networks picks up the new resolver without the operator
+	// touching anything. An unparseable stored value is read as off: the safe
+	// direction is the one that does not hand the local network every name the
+	// household looks up.
+	localForwarders := false
+	if v, fwdErr := settingsMgr.Get("dns_local_forwarders"); fwdErr == nil {
+		if parsed, parseErr := strconv.ParseBool(strings.TrimSpace(v)); parseErr == nil {
+			localForwarders = parsed
+		}
+	}
+
 	// Empty (the normal case) means rolodex.DefaultDNSPort — see ports.go for
 	// why the integration harness relocates it.
 	dnsPort := dnsPortFromEnv()
@@ -478,15 +493,16 @@ func run() (err error) {
 	storedRBL, storedDNSBL := systemcontroller.StoredBlocklists(settingsMgr)
 
 	rolMgr := rolodex.NewManager(rolodex.Config{
-		Systemd:        sd,
-		DataDir:        rolDataDir,
-		Image:          rolImage,
-		UnixSocketPath: filepath.Join(rolDataDir, "rolodex.sock"),
-		ResolutionMode: resolutionMode,
-		DNSPort:        dnsPort,
-		MetricsPort:    rolodexMetricsPortFromEnv(),
-		RBL:            storedRBL,
-		DNSBL:          storedDNSBL,
+		Systemd:         sd,
+		DataDir:         rolDataDir,
+		Image:           rolImage,
+		UnixSocketPath:  filepath.Join(rolDataDir, "rolodex.sock"),
+		ResolutionMode:  resolutionMode,
+		DNSPort:         dnsPort,
+		MetricsPort:     rolodexMetricsPortFromEnv(),
+		LocalForwarders: localForwarders,
+		RBL:             storedRBL,
+		DNSBL:           storedDNSBL,
 	})
 	configWritten, configErr := rolMgr.WriteConfig()
 	if configErr != nil {

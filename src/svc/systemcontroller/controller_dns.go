@@ -14,11 +14,20 @@ import (
 )
 
 // DNSStatusResponse is the response for GET /dns/status.
+//
+// LocalForwarders and Forwarders are reported together and answer different
+// questions: the first is what the operator asked for, the second is what
+// rolodex.yml actually holds. They disagree when discovery found nothing usable
+// and the public defaults were kept — which is the one case where the switch
+// reads as on and changes nothing, so a UI that showed only the flag would be
+// showing the operator a setting that is not in effect.
 type DNSStatusResponse struct {
-	Enabled     bool   `json:"enabled"`
-	Running     bool   `json:"running"`
-	TLD         string `json:"tld"`
-	RecordCount int    `json:"record_count"`
+	Enabled         bool     `json:"enabled"`
+	Running         bool     `json:"running"`
+	TLD             string   `json:"tld"`
+	RecordCount     int      `json:"record_count"`
+	LocalForwarders bool     `json:"local_forwarders"`
+	Forwarders      []string `json:"forwarders"`
 }
 
 // SetTLDRequest is the request body for POST /dns/tld.
@@ -78,10 +87,12 @@ func (s *SystemControllerHandlers) dnsStatus(c *echo.Context) error {
 	}
 
 	return c.JSON(200, DNSStatusResponse{
-		Enabled:     true,
-		Running:     status.Running,
-		TLD:         tld,
-		RecordCount: recordCount,
+		Enabled:         true,
+		Running:         status.Running,
+		TLD:             tld,
+		RecordCount:     recordCount,
+		LocalForwarders: mgr.LocalForwarders(),
+		Forwarders:      mgr.Forwarders(),
 	})
 }
 

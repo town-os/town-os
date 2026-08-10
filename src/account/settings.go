@@ -20,6 +20,23 @@ var DefaultSettings = map[string]string{
 	// Auto is the default because it keeps recursion's privacy wherever the
 	// network permits it and degrades instead of failing where it does not.
 	"dns_resolution_mode": "auto",
+	// Whether rolodex's forwarder list is taken from the resolvers this box's
+	// own network handed it (its DHCP-provided servers) instead of the public
+	// defaults written into rolodex.yml.
+	//
+	// It is what makes resolution survive a network that blocks external DNS:
+	// a hotel, a captive portal, or an ISP that drops outbound :53 to anywhere
+	// but its own servers still answers queries sent to the resolver it
+	// advertised, while the public forwarders the default list names are
+	// exactly the addresses such a network drops. In "auto" that tier is
+	// reached only after the roots and the encrypted upstreams have failed —
+	// which is that case and no other.
+	//
+	// Off by default because the local resolver sees every name the household
+	// looks up, which is the thing resolving from the roots exists to avoid.
+	// That is a trade an operator makes knowingly, not one a box makes for
+	// them the first time a network misbehaves.
+	"dns_local_forwarders": "false",
 	// peer_ttl is how long, in seconds, a WireGuard peer enrollment stays valid
 	// before the reaper removes it. Stored as raw seconds to match the other
 	// duration settings (archive_unpack_timeout). A long-lived client (the

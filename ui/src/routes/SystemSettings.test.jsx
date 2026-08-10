@@ -256,6 +256,16 @@ const mockGetLocales = vi.fn(() => Promise.resolve({
 }))
 
 const mockPing = vi.fn(() => Promise.resolve({ proton_enabled: true }))
+const mockDnsStatus = vi.fn(() =>
+  Promise.resolve({
+    enabled: true,
+    running: true,
+    tld: 'home',
+    record_count: 0,
+    local_forwarders: false,
+    forwarders: ['8.8.8.8:53', '8.8.4.4:53'],
+  }),
+)
 
 vi.mock('@/lib/client-instance.js', () => ({
   default: () => ({
@@ -265,6 +275,7 @@ vi.mock('@/lib/client-instance.js', () => ({
     getLocales: mockGetLocales,
     monitoringStatus: mockMonitoringStatus,
     ping: mockPing,
+    dnsStatus: mockDnsStatus,
   }),
 }))
 
@@ -1173,5 +1184,129 @@ describe('SystemSettings DNS resolution mode', () => {
     })
     expect(mockSetSetting).not.toHaveBeenCalled()
     expect(mockToast.info).toHaveBeenCalled()
+  })
+})
+
+describe('SystemSettings local DNS forwarders', () => {
+  beforeEach(() => {
+    mockGetSettings.mockClear()
+    mockSetSetting.mockClear()
+    mockGetLocales.mockClear()
+    mockDnsStatus.mockClear()
+    mockGetSettings.mockImplementation(() => Promise.resolve({ ...defaultSettings }))
+    mockDnsStatus.mockImplementation(() =>
+      Promise.resolve({
+        enabled: true,
+        running: true,
+        tld: 'home',
+        record_count: 0,
+        local_forwarders: false,
+        forwarders: ['8.8.8.8:53', '8.8.4.4:53'],
+      }),
+    )
+    mockGetLocales.mockImplementation(() => Promise.resolve({
+      current: 'en-US',
+      populated: ['en-US'],
+      common_languages: [{ code: 'en-US', native_name: 'English', english_name: 'English' }],
+      extended_locales: [],
+    }))
+  })
+
+  // The switch is a Radix Switch, which renders a button carrying aria-checked
+  // rather than a checkbox input. Reading that attribute is what a screen reader
+  // does, so it is also what tells us the control says what it means.
+  function localForwardersSwitchState() {
+    return screen.getByLabelText('Use local resolvers').getAttribute('aria-checked')
+  }
+
+  it('is off when the setting is absent', async () => {
+    renderSystemSettings()
+    await waitFor(() => {
+      expect(localForwardersSwitchState()).toBe('false')
+    })
+  })
+
+  it('reflects the stored value', async () => {
+    mockGetSettings.mockImplementation(() =>
+      Promise.resolve({ ...defaultSettings, dns_local_forwarders: 'true' }),
+    )
+    renderSystemSettings()
+    await waitFor(() => {
+      expect(localForwardersSwitchState()).toBe('true')
+    })
+  })
+
+  it('turns the setting on', async () => {
+    renderSystemSettings()
+    await waitFor(() => {
+      expect(localForwardersSwitchState()).toBe('false')
+    })
+    fireEvent.click(screen.getByLabelText('Use local resolvers'))
+    await waitFor(() => {
+      expect(mockSetSetting).toHaveBeenCalledWith('dns_local_forwarders', 'true')
+    })
+  })
+
+  it('turns the setting back off', async () => {
+    mockGetSettings.mockImplementation(() =>
+      Promise.resolve({ ...defaultSettings, dns_local_forwarders: 'true' }),
+    )
+    renderSystemSettings()
+    await waitFor(() => {
+      expect(localForwardersSwitchState()).toBe('true')
+    })
+    fireEvent.click(screen.getByLabelText('Use local resolvers'))
+    await waitFor(() => {
+      expect(mockSetSetting).toHaveBeenCalledWith('dns_local_forwarders', 'false')
+    })
+  })
+
+  // The addresses come from /dns/status, not from the setting: what rolodex
+  // actually forwards to is the only thing that tells an operator the switch
+  // took effect.
+  it('shows the forwarders rolodex is configured with', async () => {
+    mockGetSettings.mockImplementation(() =>
+      Promise.resolve({ ...defaultSettings, dns_local_forwarders: 'true' }),
+    )
+    mockDnsStatus.mockImplementation(() =>
+      Promise.resolve({
+        enabled: true,
+        running: true,
+        tld: 'home',
+        record_count: 0,
+        local_forwarders: true,
+        forwarders: ['192.168.7.1:53'],
+      }),
+    )
+    renderSystemSettings()
+    await waitFor(() => {
+      expect(screen.getByText('192.168.7.1:53')).toBeTruthy()
+    })
+  })
+
+  // Discovery can find nothing usable — a box with no lease, or one whose only
+  // nameserver line is a loopback stub. The switch then reads as on while the
+  // public forwarders are still what rolodex holds, and saying so is the whole
+  // point of reading the effective list back.
+  it('says so when no local resolver was found', async () => {
+    mockGetSettings.mockImplementation(() =>
+      Promise.resolve({ ...defaultSettings, dns_local_forwarders: 'true' }),
+    )
+    mockDnsStatus.mockImplementation(() =>
+      Promise.resolve({
+        enabled: true,
+        running: true,
+        tld: 'home',
+        record_count: 0,
+        local_forwarders: true,
+        forwarders: [],
+      }),
+    )
+    renderSystemSettings()
+    await waitFor(() => {
+      expect(
+        screen.getByText('No local resolver was found, so the public forwarders are still in use.'),
+      ).toBeTruthy()
+    })
   })
 })

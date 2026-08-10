@@ -111,6 +111,27 @@ type Config struct {
 	// without internet access (captive networks block direct queries to
 	// public resolvers).
 	Forwarders []string
+	// LocalForwarders replaces the forwarder list with the resolvers this
+	// box's own network handed it (HostResolvers), for a network that blocks
+	// external DNS. Off by default: the local resolver sees every name the
+	// household looks up, which is exactly what resolving from the roots
+	// avoids, so it is the operator's call and not a silent fallback.
+	//
+	// It is not a resolution mode of its own — it changes WHICH addresses the
+	// local tier holds, and the mode still decides whether that tier is
+	// consulted. In "auto" it is reached only after the roots and the
+	// encrypted upstreams have failed, which is the "external DNS is blocked"
+	// case; in "forward" it is the only upstream; in "recursive" it is unused.
+	//
+	// When discovery finds nothing usable the configured (or default)
+	// forwarders are kept, so turning this on can never leave the local tier
+	// pointing at nothing.
+	LocalForwarders bool
+	// ResolvConfPaths overrides the files host-resolver discovery reads, in
+	// order. Empty (the normal case) means the system paths. Tests point this
+	// at a fixture so discovery is a property of the test rather than of
+	// whatever resolver the machine running it happens to have.
+	ResolvConfPaths []string
 	// ResolutionMode selects how rolodex resolves unmatched queries: "auto"
 	// (the default: roots, then DoH/DoT, then Forwarders, then a public
 	// resolver — sticking to whichever tier last worked), "recursive"
@@ -279,13 +300,54 @@ func (m *Manager) UnitName() string {
 	return systemd.SystemServiceUnitName(m.key())
 }
 
-// forwarders returns the configured upstream forwarder addresses, defaulting
-// to DefaultForwarders.
+// forwarders returns the upstream forwarder addresses written to rolodex.yml:
+// the host's own resolvers when LocalForwarders is set and discovery found any,
+// otherwise the configured list, otherwise DefaultForwarders.
+//
+// The fallback ordering is deliberate. Discovery reads files that may hold
+// nothing usable — a box with no DHCP lease yet, or one whose only nameserver
+// line is a loopback stub — and a forwarder list that came back empty would
+// silently delete the local tier of the auto chain. Keeping the previous
+// addresses degrades to today's behavior instead.
 func (m *Manager) forwarders() []string {
+	if m.cfg.LocalForwarders {
+		if local := HostResolversFrom(m.resolvConfPaths()...); len(local) > 0 {
+			return local
+		}
+	}
 	if len(m.cfg.Forwarders) > 0 {
 		return m.cfg.Forwarders
 	}
 	return DefaultForwarders
+}
+
+// resolvConfPaths returns the files host-resolver discovery reads, defaulting
+// to the system ones.
+func (m *Manager) resolvConfPaths() []string {
+	if len(m.cfg.ResolvConfPaths) > 0 {
+		return m.cfg.ResolvConfPaths
+	}
+	return hostResolvConfPaths
+}
+
+// Forwarders returns the upstream forwarder addresses this manager would write
+// into rolodex.yml right now, so the API can report what the box is actually
+// configured to fall back to rather than what was asked for.
+func (m *Manager) Forwarders() []string {
+	return m.forwarders()
+}
+
+// LocalForwarders reports whether the forwarder list is taken from the host's
+// own resolvers.
+func (m *Manager) LocalForwarders() bool {
+	return m.cfg.LocalForwarders
+}
+
+// SetLocalForwarders changes whether the host's own resolvers are used as the
+// forwarder list. Callers must follow with RewriteConfig + a unit restart for
+// it to take effect on the running server.
+func (m *Manager) SetLocalForwarders(enabled bool) {
+	m.cfg.LocalForwarders = enabled
 }
 
 // rolodexConfig returns the canonical rolodex YAML configuration with the

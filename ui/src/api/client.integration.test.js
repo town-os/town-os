@@ -1705,6 +1705,15 @@ describe('SystemControllerClient integration', () => {
       expect(typeof status.running).toBe('boolean')
       expect(typeof status.tld).toBe('string')
       expect(typeof status.record_count).toBe('number')
+      // local_forwarders is what the operator asked for; forwarders is what
+      // rolodex.yml actually holds. The settings screen renders the second one,
+      // so a box with DNS configured has to report a list — the harness may run
+      // without rolodex at all, and that answer carries neither field.
+      expect(typeof status.local_forwarders).toBe('boolean')
+      if (status.enabled) {
+        expect(Array.isArray(status.forwarders)).toBe(true)
+        expect(status.forwarders.length).toBeGreaterThan(0)
+      }
     })
 
     it('returns dns tld with default value', async () => {

@@ -28,8 +28,9 @@ type GetSettingRequest struct {
 // settingsValidators maps setting keys to validation functions that are
 // called before the value is persisted via the generic settings API.
 var settingsValidators = map[string]func(string) error{
-	"dns_tld":             ValidateTLD,
-	"dns_resolution_mode": ValidateDNSResolutionMode,
+	"dns_tld":              ValidateTLD,
+	"dns_resolution_mode":  ValidateDNSResolutionMode,
+	"dns_local_forwarders": ValidateBool,
 }
 
 // ValidateBool accepts what strconv.ParseBool accepts, which is what every
@@ -146,6 +147,19 @@ func (s *SystemControllerHandlers) setSetting(c *echo.Context) error {
 	if req.Key == "dns_resolution_mode" {
 		if err := s.Controller.RefreshDNSResolutionMode(c.Request().Context(), value); err != nil {
 			return echo.NewHTTPError(500, fmt.Sprintf("failed to apply dns resolution mode: %v", err))
+		}
+	}
+
+	// Same for the forwarder list: repoint the local tier at the host's own
+	// resolvers (or back at the public defaults) and restart rolodex now. The
+	// value is already known parseable — ValidateBool ran above.
+	if req.Key == "dns_local_forwarders" {
+		enabled, parseErr := strconv.ParseBool(strings.TrimSpace(value))
+		if parseErr != nil {
+			return echo.NewHTTPError(400, fmt.Sprintf("invalid value for %q: must be true or false", req.Key))
+		}
+		if err := s.Controller.RefreshDNSLocalForwarders(c.Request().Context(), enabled); err != nil {
+			return echo.NewHTTPError(500, fmt.Sprintf("failed to apply dns local forwarders: %v", err))
 		}
 	}
 

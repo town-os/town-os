@@ -5,7 +5,11 @@ import { SystemControllerClient } from './core.js'
  *
  * Calls GET /dns/status on the Control Plane Service.
  *
- * @returns {Promise<{enabled: boolean, running: boolean, tld: string, record_count: number}>}
+ * `local_forwarders` is what the operator asked for; `forwarders` is what
+ * rolodex.yml actually holds. They disagree when local-resolver discovery found
+ * nothing usable and the public defaults were kept.
+ *
+ * @returns {Promise<{enabled: boolean, running: boolean, tld: string, record_count: number, local_forwarders: boolean, forwarders: string[]}>}
  */
 SystemControllerClient.prototype.dnsStatus = async function () {
   return this.getJSON('/dns/status')

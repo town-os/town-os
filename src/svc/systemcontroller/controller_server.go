@@ -231,6 +231,46 @@ func (s *serverBase) RefreshDNSResolutionMode(ctx context.Context, mode string) 
 	return nil
 }
 
+// RefreshDNSLocalForwarders switches rolodex's forwarder list between the
+// public defaults and the resolvers this box's own network handed it — the
+// addresses that keep answering on a network that blocks external DNS. It
+// rewrites the config and restarts the rolodex unit so the change takes effect
+// without a reboot.
+//
+// Unlike RefreshDNSResolutionMode it does not short-circuit when the flag is
+// unchanged: with the flag already on, the discovered addresses themselves can
+// have moved (a new DHCP lease, a different network), and re-rendering is how
+// that reaches rolodex. RewriteConfig reports whether the bytes actually
+// changed, so an identical render still costs no restart.
+//
+// RewriteConfig (not WriteConfig) for the same reason as the resolution mode:
+// the rolodex.yml written at the last boot is always newer than the
+// systemcontroller binary, which WriteConfig treats as user-modified and
+// refuses to touch.
+func (s *serverBase) RefreshDNSLocalForwarders(ctx context.Context, enabled bool) error {
+	if s.Rolodex == nil {
+		return nil
+	}
+
+	s.Rolodex.SetLocalForwarders(enabled)
+	written, err := s.Rolodex.RewriteConfig()
+	if err != nil {
+		return fmt.Errorf("write rolodex config: %w", err)
+	}
+	if !written {
+		return nil
+	}
+
+	sd := s.GetSystemdManager()
+	if sd == nil {
+		return nil
+	}
+	if err := sd.SetStatus(ctx, s.Rolodex.UnitName(), "restart"); err != nil {
+		return fmt.Errorf("restart rolodex: %w", err)
+	}
+	return nil
+}
+
 func (s *serverBase) GetRolodex() *rolodex.Manager           { return s.Rolodex }
 func (s *serverBase) GetIngress() *ingressctl.Manager           { return s.Ingress }
 func (s *serverBase) GetUI() *ui.Manager                     { return s.UI }

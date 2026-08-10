@@ -5,6 +5,7 @@ import { usePolling } from '@/lib/hooks.js'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
 import { toast } from 'sonner'
 
 const DEFAULT_QUOTA_KEY = 'default_quota'
@@ -18,6 +19,7 @@ const DEFAULT_PEER_TTL = 7200 // seconds (2 hours)
 const PROTON_IMAGE_KEY = 'proton_image'
 const MONITORING_BACKEND_KEY = 'monitoring_backend'
 const DNS_RESOLUTION_MODE_KEY = 'dns_resolution_mode'
+const DNS_LOCAL_FORWARDERS_KEY = 'dns_local_forwarders'
 
 function formatBytes(t, bytes) {
   if (bytes === 0) return t('settings.format_no_quota')
@@ -428,6 +430,35 @@ export default function SystemSettings() {
     }
   }
 
+  // --- Local DNS Forwarders ---
+  // Repoints rolodex's forwarder list at the resolvers this box's own network
+  // handed it, for a network that blocks external DNS. The effective list comes
+  // from /dns/status rather than being inferred from the setting: discovery can
+  // find nothing usable, in which case the switch reads as on and the public
+  // defaults are still what rolodex holds.
+  const localForwardersOn = String(settings[DNS_LOCAL_FORWARDERS_KEY]) === 'true'
+  const [localForwardersSaving, setLocalForwardersSaving] = useState(false)
+
+  const [dnsStatus] = usePolling(
+    () => getClient().dnsStatus().catch(() => ({})),
+    {},
+    [refreshKey],
+  )
+  const effectiveForwarders = dnsStatus?.forwarders || []
+
+  async function handleToggleLocalForwarders(next) {
+    setLocalForwardersSaving(true)
+    try {
+      await getClient().setSetting(DNS_LOCAL_FORWARDERS_KEY, String(next))
+      toast.success(t('settings.toast_dns_local_forwarders_saved'))
+      setRefreshKey((k) => k + 1)
+    } catch (err) {
+      toast.error(err.detail || err.message)
+    } finally {
+      setLocalForwardersSaving(false)
+    }
+  }
+
   const populated = new Set(localeData?.populated || [])
 
   return (
@@ -692,6 +723,48 @@ export default function SystemSettings() {
           </Button>
         </form>
       </div>
+
+      <div className="rounded-lg border p-6 space-y-6">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-lg font-semibold">{t('settings.dns_local_forwarders_title')}</h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              {t('settings.dns_local_forwarders_description')}{' '}
+              {t('settings.current_value', { value: '' })}
+              <strong>
+                {localForwardersOn
+                  ? t('settings.dns_local_forwarders_on')
+                  : t('settings.dns_local_forwarders_off')}
+              </strong>
+            </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <Label htmlFor="dns-local-forwarders-switch">
+              {t('settings.dns_local_forwarders_label')}
+            </Label>
+            <Switch
+              id="dns-local-forwarders-switch"
+              checked={localForwardersOn}
+              disabled={localForwardersSaving}
+              onCheckedChange={handleToggleLocalForwarders}
+            />
+          </div>
+        </div>
+
+        {effectiveForwarders.length > 0 ? (
+          <p className="text-sm text-muted-foreground">
+            {t('settings.dns_local_forwarders_active', { value: '' })}
+            <code className="font-mono">{effectiveForwarders.join(', ')}</code>
+          </p>
+        ) : (
+          localForwardersOn && (
+            <p className="text-sm text-muted-foreground">
+              {t('settings.dns_local_forwarders_none')}
+            </p>
+          )
+        )}
+      </div>
+
       <div className="rounded-lg border p-6 space-y-6">
         <div>
           <h2 className="text-lg font-semibold">{t('settings.monitoring_title')}</h2>

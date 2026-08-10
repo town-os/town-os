@@ -47,6 +47,10 @@ type systemControllerBackend interface {
 	// RefreshDNSResolutionMode switches rolodex between recursive-from-roots
 	// and forwarding to its upstream resolvers, taking effect immediately.
 	RefreshDNSResolutionMode(ctx context.Context, mode string) error
+	// RefreshDNSLocalForwarders switches rolodex's forwarder list between the
+	// public defaults and the resolvers this box's own network handed it,
+	// taking effect immediately.
+	RefreshDNSLocalForwarders(ctx context.Context, enabled bool) error
 	GetRolodex() *rolodex.Manager
 	GetRolodexClient() rolodex.Client
 	GetIngress() *ingressctl.Manager
