@@ -7,10 +7,13 @@ Read DESIGN.md when you need to know what Town OS does; read this when you need
 to know how to build it, how to test it, and how to write code in it. When a
 change alters behavior, DESIGN.md is the file that needs updating with it.
 
-Chinese translations of this file are [CLAUDE.zh-Hans.md](CLAUDE.zh-Hans.md)
-(Simplified) and [CLAUDE.zh-Hant.md](CLAUDE.zh-Hant.md) (Traditional); see also
-DESIGN.md ([zh-Hans](DESIGN.zh-Hans.md), [zh-Hant](DESIGN.zh-Hant.md)) and
-README.md ([zh-Hans](README.zh-Hans.md), [zh-Hant](README.zh-Hant.md)).
+Translations of this file: Chinese [zh-Hans](CLAUDE.zh-Hans.md) (Simplified) and
+[zh-Hant](CLAUDE.zh-Hant.md) (Traditional); Spanish [es-ES](CLAUDE.es-ES.md)
+(Spain) and [es-MX](CLAUDE.es-MX.md) (Mexico). See also
+DESIGN.md ([zh-Hans](DESIGN.zh-Hans.md), [zh-Hant](DESIGN.zh-Hant.md),
+[es-ES](DESIGN.es-ES.md), [es-MX](DESIGN.es-MX.md)) and
+README.md ([zh-Hans](README.zh-Hans.md), [zh-Hant](README.zh-Hant.md),
+[es-ES](README.es-ES.md), [es-MX](README.es-MX.md)).
 **This file is authoritative** — when a rule here changes, change it here, and
 the translations follow.
 

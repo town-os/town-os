@@ -7,18 +7,15 @@ rules, and code style live in [CLAUDE.md](CLAUDE.md).
 A behavioral change belongs in this file as part of the same commit that makes
 it. A change to how the repo is built or tested belongs in CLAUDE.md.
 
-Chinese translations of this file are [DESIGN.zh-Hans.md](DESIGN.zh-Hans.md)
-(Simplified) and [DESIGN.zh-Hant.md](DESIGN.zh-Hant.md) (Traditional); see also
-CLAUDE.md ([zh-Hans](CLAUDE.zh-Hans.md), [zh-Hant](CLAUDE.zh-Hant.md)) and
-README.md ([zh-Hans](README.zh-Hans.md), [zh-Hant](README.zh-Hant.md)).
+Translations of this file: Chinese [zh-Hans](DESIGN.zh-Hans.md) (Simplified) and
+[zh-Hant](DESIGN.zh-Hant.md) (Traditional); Spanish [es-ES](DESIGN.es-ES.md)
+(Spain) and [es-MX](DESIGN.es-MX.md) (Mexico). See also
+CLAUDE.md ([zh-Hans](CLAUDE.zh-Hans.md), [zh-Hant](CLAUDE.zh-Hant.md),
+[es-ES](CLAUDE.es-ES.md), [es-MX](CLAUDE.es-MX.md)) and
+README.md ([zh-Hans](README.zh-Hans.md), [zh-Hant](README.zh-Hant.md),
+[es-ES](README.es-ES.md), [es-MX](README.es-MX.md)).
 **This file is authoritative** — describe the change here, and the translations
 follow.
-
-Spanish translations of this file ship in two regional variants:
-[DESIGN.es-ES.md](DESIGN.es-ES.md) (Spain) and
-[DESIGN.es-MX.md](DESIGN.es-MX.md) (Mexico); see also
-[README.es-ES.md](README.es-ES.md) / [README.es-MX.md](README.es-MX.md) and
-[CLAUDE.es-ES.md](CLAUDE.es-ES.md) / [CLAUDE.es-MX.md](CLAUDE.es-MX.md).
 
 ## Architectural Invariants
 

@@ -13,6 +13,9 @@ Town OS 是一个完全从 U 盘运行的自助式平台，能把任何一台电
 > 仓库中的其他文档也有中文译本：
 > [CLAUDE.zh-Hans.md](CLAUDE.zh-Hans.md)（构建与代码风格规则；繁体：[CLAUDE.zh-Hant.md](CLAUDE.zh-Hant.md)）与
 > [DESIGN.zh-Hans.md](DESIGN.zh-Hans.md)（架构与功能规格说明；繁体：[DESIGN.zh-Hant.md](DESIGN.zh-Hant.md)）。
+> 另有西班牙语译本，分西班牙与墨西哥两种地区变体：
+> [README.es-ES.md](README.es-ES.md)、[CLAUDE.es-ES.md](CLAUDE.es-ES.md)、[DESIGN.es-ES.md](DESIGN.es-ES.md)；
+> [README.es-MX.md](README.es-MX.md)、[CLAUDE.es-MX.md](CLAUDE.es-MX.md)、[DESIGN.es-MX.md](DESIGN.es-MX.md)。
 > 两者出现分歧时以英文原件为准，并应修正译文。代码标识符、文件路径、命令、
 > 环境变量、make 目标名与 API 路径一律保留原文，不作翻译。
 

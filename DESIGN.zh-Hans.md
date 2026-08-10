@@ -4,7 +4,8 @@ Town OS 如何运作：架构、各子系统的行为、API 界面，以及维�
 构建说明、测试规则与代码风格在 [CLAUDE.md](CLAUDE.md) 中。
 
 > **本文件是 [DESIGN.md](DESIGN.md) 的简体中文译本。英文原件为准。**
-> 繁体中文译本见 [DESIGN.zh-Hant.md](DESIGN.zh-Hant.md)。
+> 繁体中文译本见 [DESIGN.zh-Hant.md](DESIGN.zh-Hant.md)；西班牙语译本见
+> [DESIGN.es-ES.md](DESIGN.es-ES.md)（西班牙）与 [DESIGN.es-MX.md](DESIGN.es-MX.md)（墨西哥）。
 > 两者出现分歧时，以英文原件为准，并应修正译文。代码标识符、文件路径、
 > 命令、环境变量、API 路径与 YAML 键名一律保留原文，不作翻译。
 
