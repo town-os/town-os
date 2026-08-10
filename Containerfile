@@ -64,10 +64,17 @@ RUN GOOS=linux GOARCH="${TARGETARCH:-$(go env GOARCH)}" CGO_ENABLED=0 go build -
 # whole reason this repo cross-compiles rather than emulating — bun is
 # JavaScriptCore, and its JIT does not survive qemu-user.
 FROM --platform=$BUILDPLATFORM docker.io/oven/bun:latest AS ui-builder
-# Fixed cache path so the make pipeline can mount .cache/bun into the build
-# (same pattern as the go-mod/go-build volumes) and bun install stays offline
-# once the cache is warm.
-ENV BUN_INSTALL_CACHE_DIR=/bun-cache
+# The make pipeline mounts .cache/bun into the build (same pattern as the
+# go-mod/go-build volumes) so bun install stays offline once the cache is warm.
+#
+# The path is a build-arg rather than a fixed /bun-cache because bun's cache
+# resolves packages through ABSOLUTE symlinks, so the directory's own path is
+# recorded inside it: an entry written under /bun-cache dangles for the host-side
+# bun that shares the same directory, and vice versa. make/lib.sh (BUN_BUILD_ARGS)
+# passes the host path and mounts it there. The default keeps a hand-run
+# `podman build` with no --build-arg working as it always did.
+ARG BUN_CACHE_DIR=/bun-cache
+ENV BUN_INSTALL_CACHE_DIR=${BUN_CACHE_DIR}
 COPY ui/package.json ui/bun.lock /ui/
 WORKDIR /ui
 RUN bun install --frozen-lockfile

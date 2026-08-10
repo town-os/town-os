@@ -185,16 +185,26 @@ export IMAGE_PULL_STAMP BUN_STAMP PULL_MAX_AGE
 #
 # Every bun in this tree resolves to this one directory: host-side `bun install`
 # (lint, test, dev) via bun_install's --cache-dir, and the container builds via
-# the /bun-cache mount. What must not happen is a build reaching bun with the
-# variable unset, because bun then silently falls back to ~/.bun/install/cache
-# and re-downloads the world into a directory nothing else reads.
+# the BUN_BUILD_ARGS mount. What must not happen is a build reaching bun with
+# the variable unset, because bun then silently falls back to
+# ~/.bun/install/cache and re-downloads the world into a directory nothing else
+# reads.
+#
+# "The same directory" has to mean the same PATH, on the host and inside every
+# build that mounts it. Bun resolves a package through an absolute symlink
+# (<cache>/<name>/<version> -> <cache>/<name>@<version>@@@N), so the cache's own
+# path is written into each of its entries and a cache mounted somewhere else is
+# a cache full of dangling links — a guaranteed miss on every package, with no
+# way for the missing side to repair it. This is why the container builds mount
+# BUN_CACHE at BUN_CACHE and pass it on as the BUN_CACHE_DIR build-arg rather
+# than parking it at a fixed /bun-cache; see BUN_BUILD_ARGS in make/lib.sh.
 #
 # Must be disk-backed. The checkout is; /tmp on Arch and Fedora is not. Bun's
 # cache is content-addressed and safe for concurrent use, so parallel test runs
 # in one checkout sharing it is the ordinary case, not a hazard — IRON RULE.
 BUN_CACHE ?= $(CURDIR)/.cache/bun
 # Every host-side bun in this build reads it from the environment; the
-# Containerfiles set the same variable to the mount point.
+# Containerfiles take the same path as a build-arg and mount it there.
 BUN_INSTALL_CACHE_DIR := $(BUN_CACHE)
 export BUN_CACHE BUN_INSTALL_CACHE_DIR
 

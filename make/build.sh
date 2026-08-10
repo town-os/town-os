@@ -47,6 +47,19 @@ case "$1" in
     ;;
 esac
 
+# The targets whose Containerfile runs `bun install`, and so mount the shared
+# bun cache via BUN_BUILD_ARGS. podman build is rootful here, so bun writes the
+# cache as root and the host-side bun_install that shares the directory cannot
+# add to it afterwards; bun_cache_reclaim puts it back. On EXIT rather than
+# after the build, because a build that failed part-way has usually already
+# downloaded packages worth keeping, and leaving them root-owned would make the
+# next `make dev` re-fetch every one of them.
+case "$1" in
+  production | dev-base | ui-integration | ui-local | release | release-ui | push-rc | push-release | push-tag)
+    trap bun_cache_reclaim EXIT
+    ;;
+esac
+
 case "$1" in
   production)
     step "Building production image"
@@ -55,7 +68,7 @@ case "$1" in
       --build-arg "TOWN_OS_GO_TAGS=${GO_BUILD_TAGS}" \
       --volume "$(pwd)/.cache/go-mod:/go/pkg/mod:z" \
       --volume "$(pwd)/.cache/go-build:/root/.cache/go-build:z" \
-      --volume "${BUN_CACHE}:/bun-cache:z" \
+      "${BUN_BUILD_ARGS[@]}" \
       -t "${PODMAN_IMAGE}" -f Containerfile .
     ;;
   test)
@@ -74,7 +87,7 @@ case "$1" in
     ${SUDO} podman build --network=host --pull=never \
       --volume "$(pwd)/.cache/dev-go-mod:/go/pkg/mod:z" \
       --volume "$(pwd)/.cache/dev-go-build:/root/.cache/go-build:z" \
-      --volume "${BUN_CACHE}:/bun-cache:z" \
+      "${BUN_BUILD_ARGS[@]}" \
       -t "${PODMAN_DEV_BASE}" -f Containerfile .
     ;;
   dev)
@@ -90,7 +103,7 @@ case "$1" in
     # keeps it off the network once warm.
     mkdir -p "${BUN_CACHE}"
     ${SUDO} podman build --network=host --pull=never --no-cache \
-      --volume "${BUN_CACHE}:/bun-cache:z" \
+      "${BUN_BUILD_ARGS[@]}" \
       -t "${PODMAN_UI_IMAGE}" -f integration/testdata/Containerfile.ui-integration .
     ;;
   # Local UI image for tests. Built from the in-repo UI source so it always
@@ -101,7 +114,7 @@ case "$1" in
     step "Building local UI test image"
     mkdir -p "${BUN_CACHE}"
     ${SUDO} podman build --network=host --pull=never \
-      --volume "${BUN_CACHE}:/bun-cache:z" \
+      "${BUN_BUILD_ARGS[@]}" \
       -t "${UI_IMAGE}" -f Containerfile.ui .
     save_image_cache "${UI_IMAGE}"
     ;;
@@ -161,7 +174,7 @@ case "$1" in
       --build-arg "TOWN_OS_GO_TAGS=${GO_BUILD_TAGS}" \
       --volume "$(pwd)/.cache/go-mod:/go/pkg/mod:z" \
       --volume "$(pwd)/.cache/go-build:/root/.cache/go-build:z" \
-      --volume "${BUN_CACHE}:/bun-cache:z" \
+      "${BUN_BUILD_ARGS[@]}" \
       -t "${RELEASE_IMAGE}" -f Containerfile .
     ;;
   release-ui)
@@ -177,7 +190,7 @@ case "$1" in
     require_cross_binfmt
     mkdir -p "${BUN_CACHE}"
     ${SUDO} podman build --network=host "${PULL_ARGS[@]}" "${BUILD_PLATFORM_ARGS[@]}" --no-cache \
-      --volume "${BUN_CACHE}:/bun-cache:z" \
+      "${BUN_BUILD_ARGS[@]}" \
       -t "${RELEASE_UI_IMAGE}" -f Containerfile.ui .
     ;;
   release-proton)
@@ -253,7 +266,7 @@ case "$1" in
       --build-arg "TOWN_OS_GO_TAGS=${GO_BUILD_TAGS}" \
       --volume "$(pwd)/.cache/go-mod:/go/pkg/mod:z" \
       --volume "$(pwd)/.cache/go-build:/root/.cache/go-build:z" \
-      --volume "${BUN_CACHE}:/bun-cache:z" \
+      "${BUN_BUILD_ARGS[@]}" \
       -t "${RELEASE_IMAGE}:rc.${DATE_TAG}-${ARCH}" -f Containerfile .
     substep "Tagging ${RELEASE_IMAGE}:rc.latest-${ARCH}"
     ${SUDO} podman tag "${RELEASE_IMAGE}:rc.${DATE_TAG}-${ARCH}" "${RELEASE_IMAGE}:rc.latest-${ARCH}"
@@ -336,7 +349,7 @@ case "$1" in
       --build-arg "TOWN_OS_GO_TAGS=${GO_BUILD_TAGS}" \
       --volume "$(pwd)/.cache/go-mod:/go/pkg/mod:z" \
       --volume "$(pwd)/.cache/go-build:/root/.cache/go-build:z" \
-      --volume "${BUN_CACHE}:/bun-cache:z" \
+      "${BUN_BUILD_ARGS[@]}" \
       -t "${RELEASE_IMAGE}:release.${DATE_TAG}-${ARCH}" -f Containerfile .
     substep "Tagging ${RELEASE_IMAGE}:latest-${ARCH}"
     ${SUDO} podman tag "${RELEASE_IMAGE}:release.${DATE_TAG}-${ARCH}" "${RELEASE_IMAGE}:latest-${ARCH}"
@@ -553,7 +566,7 @@ case "$1" in
       --build-arg "TOWN_OS_GO_TAGS=${GO_BUILD_TAGS}" \
       --volume "$(pwd)/.cache/go-mod:/go/pkg/mod:z" \
       --volume "$(pwd)/.cache/go-build:/root/.cache/go-build:z" \
-      --volume "${BUN_CACHE}:/bun-cache:z" \
+      "${BUN_BUILD_ARGS[@]}" \
       -t "${RELEASE_IMAGE}:${TAG}" -f Containerfile .
     substep "Pushing ${RELEASE_IMAGE}:${TAG}"
     ${SUDO} podman push "${RELEASE_IMAGE}:${TAG}"

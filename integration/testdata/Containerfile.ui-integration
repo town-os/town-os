@@ -1,10 +1,17 @@
 FROM docker.io/oven/bun:latest
 
-# Fixed cache path so the make pipeline can mount .cache/bun into the build
-# (same pattern as the go-mod/go-build volumes). This image is built with
-# --no-cache, so without the mounted bun cache every test-full run would
-# re-download all packages from the network.
-ENV BUN_INSTALL_CACHE_DIR=/bun-cache
+# The make pipeline mounts .cache/bun into the build (same pattern as the
+# go-mod/go-build volumes). This image is built with --no-cache, so without the
+# mounted bun cache every test-full run would re-download all packages from the
+# network.
+#
+# The path is a build-arg, not a fixed /bun-cache, because bun's cache resolves
+# packages through absolute symlinks and so has to be mounted at the same path
+# on both sides — see the ui-builder stage in Containerfile for the long form.
+# It matters most here: --no-cache means this bun install runs every single
+# time, so a cache the mount cannot resolve is a full download every test-full.
+ARG BUN_CACHE_DIR=/bun-cache
+ENV BUN_INSTALL_CACHE_DIR=${BUN_CACHE_DIR}
 
 COPY ui/package.json ui/bun.lock /ui/
 WORKDIR /ui

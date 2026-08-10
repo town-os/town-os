@@ -4,10 +4,13 @@
 # qemu-user, so an emulated bun stage does not merely crawl, it crashes. Only
 # the caddy runtime stage below is target-arch.
 FROM --platform=$BUILDPLATFORM docker.io/oven/bun:latest AS ui-builder
-# Fixed cache path so the make pipeline can mount .cache/bun into the build
-# (same pattern as the go-mod/go-build volumes) and bun install stays offline
-# once the cache is warm.
-ENV BUN_INSTALL_CACHE_DIR=/bun-cache
+# The make pipeline mounts .cache/bun into the build (same pattern as the
+# go-mod/go-build volumes) so bun install stays offline once the cache is warm.
+# The path is a build-arg, not a fixed /bun-cache, because bun's cache resolves
+# packages through absolute symlinks and so has to be mounted at the same path
+# on both sides — see the ui-builder stage in Containerfile for the long form.
+ARG BUN_CACHE_DIR=/bun-cache
+ENV BUN_INSTALL_CACHE_DIR=${BUN_CACHE_DIR}
 COPY ui/package.json ui/bun.lock /ui/
 WORKDIR /ui
 RUN bun install --frozen-lockfile

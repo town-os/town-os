@@ -36,11 +36,68 @@ BTRFS_IMAGE_DIR="${BTRFS_IMAGE_DIR:-${PWD}/.cache/btrfs}"
 # silently falls back to ~/.bun/install/cache when it is told nothing — which is
 # how a build ends up re-downloading the world into a directory nothing else
 # reads. Every bun in this tree — host-side via bun_install, and the container
-# builds via the /bun-cache mount — resolves to this one directory.
+# builds via the BUN_BUILD_ARGS mount — resolves to this one directory.
 IMAGE_CACHE="${IMAGE_CACHE:-${PWD}/.cache/images}"
 BUN_CACHE="${BUN_CACHE:-${PWD}/.cache/bun}"
 BUN_INSTALL_CACHE_DIR="${BUN_INSTALL_CACHE_DIR:-${BUN_CACHE}}"
 export IMAGE_CACHE BUN_CACHE BUN_INSTALL_CACHE_DIR
+
+# BUN_BUILD_ARGS — the podman build arguments that hand a build the shared bun
+# cache. Every `podman build` whose Containerfile runs `bun install` passes
+# these and nothing else; bun_cache_reclaim is the other half of the contract.
+#
+# The cache is mounted at ITS OWN HOST PATH rather than at a fixed /bun-cache,
+# and that path is forwarded as a build-arg so the Containerfile's
+# BUN_INSTALL_CACHE_DIR agrees with where it actually landed. This is not
+# cosmetic. Bun's cache is a flat set of extracted packages plus a lookup layer
+# of ABSOLUTE symlinks:
+#
+#   .cache/bun/react/19.2.4@@@1 -> <cache>/react@19.2.4@@@1
+#
+# so the cache directory's own path is written into every entry in it. While
+# the container mounted it at /bun-cache, every symlink it recorded named a
+# path that does not exist on the host: host-side bun_install missed on all
+# ~770 packages of ui/bun.lock, re-downloaded the lockfile from npmjs, and —
+# because the rootful build also left the per-package directories root-owned —
+# could not write its results back either. The cache was write-only as seen
+# from the host, so it never warmed: a full network install on every `make
+# dev`. Mounting at the same path on both sides makes an entry written by
+# either half resolvable by the other.
+BUN_BUILD_ARGS=(
+  --build-arg "BUN_CACHE_DIR=${BUN_CACHE}"
+  --volume "${BUN_CACHE}:${BUN_CACHE}:z"
+)
+
+# bun_cache_reclaim — hand the shared bun cache back to the invoking user after
+# a rootful build has written to it, and drop entries that can no longer be
+# resolved. Two repairs, both needed before host-side bun can use the cache:
+#
+#   - ownership. Every podman build in this pipeline is rootful, so bun runs as
+#     root and the package directories it creates are root:root 0755. Host-side
+#     bun can read them, but it cannot add a version symlink to an existing name
+#     directory — so it can never record a package it just downloaded, and the
+#     next run misses on it again.
+#
+#   - dangling lookup symlinks. They are absolute (see BUN_BUILD_ARGS), so an
+#     entry written under some other cache path — the historical /bun-cache
+#     mount, or a checkout that has since been moved or renamed — points at
+#     nothing. Bun reads that as a miss and has no way to replace the symlink,
+#     so it stays a miss forever. Deleting it costs one re-extract and makes the
+#     next lookup succeed.
+#
+# Best-effort throughout: a cache that cannot be repaired is slow, not broken,
+# and must never fail a build that otherwise succeeded. Called from an EXIT trap
+# so a FAILED build still leaves the cache usable — by then it has usually
+# already downloaded packages worth keeping.
+bun_cache_reclaim() {
+  [ -d "${BUN_CACHE}" ] || return 0
+  # -type l plus an explicit existence test rather than `-xtype l`, which also
+  # matches a symlink pointing at another symlink — resolvable, and not ours to
+  # delete.
+  ${SUDO} find "${BUN_CACHE}" -type l ! -exec test -e {} \; -delete 2>/dev/null || true
+  ${SUDO} chown -R "$(id -u):$(id -g)" "${BUN_CACHE}" 2>/dev/null || true
+  return 0
+}
 
 # require_disk_backed DIR — create DIR and abort if it resolves to a tmpfs/
 # ramfs mount. Guards against re-introducing the loop-over-tmpfs host reboot
@@ -570,6 +627,18 @@ bun_install() {
   local refreshing=1
 
   mkdir -p "${cache}"
+
+  # An entry the host cannot resolve is worse than no entry at all: bun re-fetches
+  # the package from npmjs and, on a cache still owned by a rootful build, cannot
+  # record what it fetched — so the next run pays the same download again. Only a
+  # build can repair that (bun_cache_reclaim needs root), and the symptom on its
+  # own is indistinguishable from a slow network, so name it.
+  local unresolvable
+  unresolvable="$(find "${cache}" -maxdepth 2 -type l ! -exec test -e {} \; -print 2>/dev/null | wc -l)"
+  if [ "${unresolvable}" -gt 0 ]; then
+    warn "${unresolvable} unresolvable entries in ${cache}: this install re-downloads them from npmjs"
+    warn "repair with any image build (make dev-production-image / ui-image) or 'make clean-bun-cache'"
+  fi
 
   if stamp_fresh "${stamp}"; then
     refreshing=0
