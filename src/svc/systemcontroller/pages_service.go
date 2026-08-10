@@ -57,6 +57,15 @@ func StartPagesService(ctx context.Context, sd systemd.Manager, btrfsBase, image
 	if err := os.MkdirAll(caddyDir, 0755); err != nil { //nolint:gosec // caddy config dir
 		return fmt.Errorf("ensure pages caddy dir: %w", err)
 	}
+	// The generated object-storage index pages. A second content root beside
+	// the pages one, mounted at the path the webroot symlinks point into —
+	// see the header comment in gfeh_index.go for why the index does not simply
+	// live under pages/. Created here so podman has something to bind even on a
+	// box with no partitions yet; an unmounted source would fail the unit.
+	indexDir := gfehIndexRoot(btrfsBase)
+	if err := os.MkdirAll(indexDir, 0755); err != nil { //nolint:gosec // served read-only by the pages container
+		return fmt.Errorf("ensure gfeh index dir: %w", err)
+	}
 	caddyfilePath := filepath.Join(caddyDir, "Caddyfile")
 	if err := os.WriteFile(caddyfilePath, []byte(pagesServeCaddyfile), 0644); err != nil { //nolint:gosec // caddy config readable by container
 		return fmt.Errorf("write pages Caddyfile: %w", err)
@@ -67,12 +76,13 @@ func StartPagesService(ctx context.Context, sd systemd.Manager, btrfsBase, image
 		Key:          PagesServiceKey,
 		Description:  "Pages (static file server)",
 		Image:        image,
-		VolumeDirs:   []string{webroot, pagesDir, caddyDir},
+		VolumeDirs:   []string{webroot, pagesDir, caddyDir, indexDir},
 		ExecStartPre: []string{"-/usr/bin/podman network create " + systemd.IngressNetworkName},
 		Args: []string{
 			"--net", systemd.IngressNetworkName,
 			"-v", webroot + ":/srv:ro,z",
 			"-v", pagesDir + ":/data/pages:ro,z",
+			"-v", indexDir + ":" + GfehIndexContainerDir + ":ro,z",
 			"-v", caddyfilePath + ":/etc/caddy/Caddyfile:ro,z",
 		},
 	})

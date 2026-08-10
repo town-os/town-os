@@ -123,6 +123,22 @@ func gfehIngressRoutes(ctx context.Context, nm account.NetworkManager, reg GfehR
 		all = append(all, collectGfehSites(ctx, reg, nm, tld, network)...)
 	}
 
+	// Render the index pages from exactly the site set these routes are built
+	// from, on this same pass.
+	//
+	// Here rather than in ReconcileGfeh, and that placement is the point: this
+	// function runs whenever the route set is rebuilt — boot, the hourly
+	// reconcile, package and page CRUD, and critically publishGfehNames, which
+	// is the first pass on a cold boot at which any daemon is answering at all
+	// (gfehd polls /status/ping, which is 503 until the handler swap). An index
+	// written from the gfeh reconcile would be written before the daemons could
+	// say what they serve, and would sit stale until the next hour.
+	//
+	// It is I/O in a function named "build", which the leaf issuing above
+	// already established: a route cannot be programmed before the bytes it
+	// serves exist.
+	reconcileGfehIndexes(btrfsBase, all)
+
 	var routes []*ingresspb.Route
 	issued := map[string]string{}
 	for _, site := range all {

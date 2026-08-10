@@ -38,9 +38,43 @@ export default function OverviewTab({ partition }) {
       key: 'fqdn',
       label: t('objects.col_address'),
       sortable: true,
-      transform: (v) => <code className="font-mono text-xs">{v}</code>,
+      // A link for the views the ingress fronts, plain text for the ones it
+      // does not. The whole table already turns on that distinction (see the
+      // "reachable via" column) and an address somebody can click is the
+      // difference between being told the name and being able to use it --
+      // including the `index` row, which is the browsable page listing all of
+      // these. SMB stays plain: https:// on an SMB address is a handshake that
+      // completes and then does nothing.
+      transform: (v, row) =>
+        row.http ? (
+          <a
+            href={`https://${v}`}
+            target="_blank"
+            rel="noreferrer"
+            className="font-mono text-xs underline underline-offset-2"
+          >
+            {v}
+          </a>
+        ) : (
+          <code className="font-mono text-xs">{v}</code>
+        ),
     },
-    { key: 'port', label: t('objects.col_port'), sortable: true, width: '100px' },
+    {
+      key: 'port',
+      label: t('objects.col_port'),
+      sortable: true,
+      width: '100px',
+      // Blank for an HTTP view, and that is a correction rather than a
+      // simplification. The port gfeh reports for those is the container-side
+      // port the ingress proxies to; it is not reachable from anywhere a reader
+      // of this table sits, and printing 9000 in a column headed "Port" beside
+      // "Ingress (HTTPS)" invites exactly one thing -- somebody dialling
+      // s3.gfeh.home:9000 and concluding object storage is broken. The ingress
+      // answers these on :443, which is implied by the address being a link.
+      // SMB keeps its number: there it is the real host port, and dialling it
+      // is the only way in.
+      transform: (v, row) => (row.http ? <span className="text-muted-foreground">—</span> : v),
+    },
     {
       key: 'http',
       label: t('objects.col_reachable'),

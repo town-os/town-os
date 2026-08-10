@@ -83,9 +83,20 @@ type GfehSite struct {
 // There is no public-FQDN case here to get right: TOWNOS_CONTRACT.md is
 // explicit that gfeh answers with a label and never an FQDN, precisely so the
 // zone stays Town OS's to decide.
+//
+// This is also the chokepoint where a label stops being a string on a wire and
+// becomes a vhost, a DNS record and a path — see the comment on
+// gfeh.ValidateLabel. A label that does not validate yields the empty string,
+// and every caller already drops an empty FQDN, so a malformed name contributes
+// no record, no route, no certificate and no directory rather than contributing
+// a broken one.
 func gfehFQDN(label, tld string) string {
-	label = strings.TrimSuffix(strings.TrimSpace(label), ".")
+	label = gfeh.NormalizeLabel(label)
 	if label == "" || tld == "" {
+		return ""
+	}
+	if err := gfeh.ValidateLabel(label); err != nil {
+		slog.Warn("gfeh reported a hostname label Town OS will not publish", "label", label, "error", err)
 		return ""
 	}
 	// Idempotent, so a label that somehow arrives already qualified does not
@@ -93,7 +104,16 @@ func gfehFQDN(label, tld string) string {
 	if label == tld || strings.HasSuffix(label, "."+tld) {
 		return label
 	}
-	return label + "." + tld
+	// Length is checked on the composed name rather than on the label alone: a
+	// label within the limit can still qualify past it under a long TLD, and a
+	// name DNS will not carry is one the certificate and the vhost should not
+	// claim either.
+	fqdn := label + "." + tld
+	if len(fqdn) > gfeh.NameMaxLen {
+		slog.Warn("gfeh hostname is too long to publish once qualified", "fqdn", fqdn)
+		return ""
+	}
+	return fqdn
 }
 
 // gfehNetworkTLD resolves a partition's TLD. The page-side twin, reused rather
@@ -143,6 +163,7 @@ func collectGfehSites(ctx context.Context, reg GfehRegistry, nm account.NetworkM
 		tld := gfehNetworkTLD(nm, network, globalTLD)
 		container := gfehContainerName(gfeh.ServiceKey(network))
 
+		browsable := false
 		for _, name := range list.Names {
 			fqdn := gfehFQDN(name.Hostname, tld)
 			if fqdn == "" {
@@ -157,8 +178,27 @@ func collectGfehSites(ctx context.Context, reg GfehRegistry, nm account.NetworkM
 			}
 			if site.HTTP {
 				site.Backend = fmt.Sprintf("%s:%d", container, name.Port)
+				browsable = true
 			}
 			sites = append(sites, site)
+		}
+
+		// The index, published under the label every view label is a child of.
+		//
+		// Contributed here rather than by a parallel collector so it is carried
+		// by the same six derivations the views are — A, AAAA, scoped record,
+		// DANE pin, leaf SAN, ingress route — with no chance of the vhost and
+		// the certificate being composed from different strings.
+		//
+		// Only when the partition has at least one view the ingress fronts. An
+		// index for a partition serving nothing browsable would be a name in
+		// DNS, a certificate and a route, all to render a page that says there
+		// is nothing to see; and a partition whose daemon did not answer at all
+		// has already contributed nothing above.
+		if browsable {
+			if site, ok := gfehIndexSite(network, tld); ok {
+				sites = append(sites, site)
+			}
 		}
 	}
 

@@ -48,9 +48,11 @@ func TestCollectGfehSitesComposesTheZone(t *testing.T) {
 		"home": allViews("home", ""),
 	}}
 
+	// Five views, plus the index the collector contributes for a partition with
+	// at least one view the ingress fronts.
 	sites := collectGfehSites(gfehTLSCtx(t), reg, nil, "home", "")
-	if len(sites) != 5 {
-		t.Fatalf("got %d sites, want 5: %+v", len(sites), sites)
+	if len(sites) != 6 {
+		t.Fatalf("got %d sites, want 6 (5 views + index): %+v", len(sites), sites)
 	}
 	byView := map[string]GfehSite{}
 	for _, s := range sites {
@@ -142,6 +144,11 @@ func TestCollectGfehSitesMarksSMBAsNotHTTP(t *testing.T) {
 // TestCollectGfehSitesBackendIsTheContainer. The four HTTP views publish no
 // host port; the ingress reaches them by container name on the shared network,
 // which is what makes the fixed in-container ports safe.
+//
+// The index is the deliberate exception: it is static HTML Town OS generates,
+// not something gfehd serves, so its backend is the pages container. A test
+// that lumped it in with the views would be asserting the bug — a vhost aimed
+// at gfehd for a path gfehd has no route for.
 func TestCollectGfehSitesBackendIsTheContainer(t *testing.T) {
 	reg := stubGfehRegistry{clients: map[string]gfeh.Client{"home": allViews("home", "")}}
 
@@ -150,8 +157,61 @@ func TestCollectGfehSitesBackendIsTheContainer(t *testing.T) {
 			continue
 		}
 		want := "town-os-system--gfeh-home"
+		if s.View == gfeh.ViewIndex {
+			want = pagesBackend()
+			if s.Backend != want {
+				t.Errorf("index backend = %q, want the pages container %q", s.Backend, want)
+			}
+			continue
+		}
 		if len(s.Backend) < len(want) || s.Backend[:len(want)] != want {
 			t.Errorf("%s backend = %q, want the partition's container", s.View, s.Backend)
+		}
+	}
+}
+
+// TestCollectGfehSitesPublishesTheIndex. The index is contributed by the same
+// collector as the views so it is carried by the same six derivations — A,
+// AAAA, scoped record, DANE pin, leaf SAN, ingress route — rather than by a
+// parallel path that could name it differently from the certificate.
+func TestCollectGfehSitesPublishesTheIndex(t *testing.T) {
+	reg := stubGfehRegistry{clients: map[string]gfeh.Client{"home": allViews("home", "")}}
+
+	var index *GfehSite
+	for _, s := range collectGfehSites(gfehTLSCtx(t), reg, nil, "home", "") {
+		if s.View == gfeh.ViewIndex {
+			index = &s
+			break
+		}
+	}
+	if index == nil {
+		t.Fatal("no index site was published for a partition serving HTTP views")
+	}
+	// The parent of every view label, so it needs no name anybody has to learn.
+	if index.FQDN != "gfeh.home" {
+		t.Errorf("index FQDN = %q, want gfeh.home", index.FQDN)
+	}
+	if !index.HTTP {
+		t.Error("the index was not marked as an HTTP site, so it gets no ingress route")
+	}
+	// There is no gfeh listener behind this name; the ingress answers it on :443.
+	if index.Port != 0 {
+		t.Errorf("index Port = %d, want 0", index.Port)
+	}
+}
+
+// TestCollectGfehSitesPublishesNoIndexWithoutBrowsableViews. An index for a
+// partition serving nothing the ingress fronts would be a name, a certificate
+// and a route, all to render a page saying there is nothing to see.
+func TestCollectGfehSitesPublishesNoIndexWithoutBrowsableViews(t *testing.T) {
+	smbOnly := gfeh.NewMockClient("home", "",
+		gfeh.Name{Hostname: "smb.gfeh", View: gfeh.ViewSMB, Port: 4450},
+	)
+	reg := stubGfehRegistry{clients: map[string]gfeh.Client{"home": smbOnly}}
+
+	for _, s := range collectGfehSites(gfehTLSCtx(t), reg, nil, "home", "") {
+		if s.View == gfeh.ViewIndex {
+			t.Fatal("an index was published for a partition with no browsable view")
 		}
 	}
 }
@@ -210,8 +270,12 @@ func TestGfehHTTPFQDNsIsSortedAndExcludesSMB(t *testing.T) {
 	reg := stubGfehRegistry{clients: map[string]gfeh.Client{"home": allViews("home", "")}}
 	sites := collectGfehSites(gfehTLSCtx(t), reg, nil, "home", "")
 
+	// The index name is in the SAN set too, and must be: it is served over
+	// HTTPS from the same :443 listener under the same leaf, so a certificate
+	// that omitted it would make the one browsable name on the partition the
+	// only one a browser refuses.
 	got := gfehHTTPFQDNs(sites, "home")
-	want := []string{"drive.gfeh.home", "http.gfeh.home", "ipfs.gfeh.home", "s3.gfeh.home"}
+	want := []string{"drive.gfeh.home", "gfeh.home", "http.gfeh.home", "ipfs.gfeh.home", "s3.gfeh.home"}
 	if len(got) != len(want) {
 		t.Fatalf("got %v, want %v", got, want)
 	}

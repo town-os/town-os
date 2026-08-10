@@ -3,6 +3,7 @@ import { toast } from 'sonner'
 
 import getClient from '@/lib/client-instance.js'
 import { usePolling } from '@/lib/hooks.js'
+import { copyToClipboard } from '@/lib/utils.js'
 import { useI18n } from '@/i18n/I18nContext.jsx'
 import DataTable from '@/components/DataTable.jsx'
 import ConfirmDialog from '@/components/ConfirmDialog.jsx'
@@ -43,11 +44,69 @@ export default function LinksTab({ network, canManage }) {
     }
   }
 
+  async function handleCopy(url) {
+    try {
+      await copyToClipboard(url)
+      toast.success(t('dashboard.copied_label'))
+    } catch {
+      toast.error(t('networks.toast_copy_failed'))
+    }
+  }
+
   const columns = [
     {
-      key: 'token',
-      label: t('objects.col_token'),
-      transform: (v) => <code className="font-mono text-xs">{v}</code>,
+      // The link, not the token. A published link exists to be sent to
+      // somebody, and a bare token is not something anybody can act on -- it
+      // left the operator to work out that the serving name is the partition's
+      // *http* view, qualified under that partition's network TLD, on :443, at
+      // /f/<token>. The server composes it now (GfehExposureView.URL) from the
+      // same collector that names the ingress vhost, so what is rendered here
+      // is by construction a URL the ingress routes.
+      key: 'url',
+      label: t('objects.col_link'),
+      transform: (v, row) => {
+        if (!v) {
+          // No HTTP view is being served, so nothing answers this token. The
+          // token is still shown, because it is the row's identity and the
+          // handle the withdraw action uses.
+          return (
+            <span title={t('objects.link_unavailable')}>
+              <code className="font-mono text-xs text-muted-foreground">{row.token}</code>
+            </span>
+          )
+        }
+        if (!row.enabled) {
+          // Deliberately not an anchor: the exposure exists but is disabled, so
+          // the URL is what it *would* be. Rendering something clickable that
+          // answers 404 is worse than rendering it plainly.
+          return (
+            <span className="font-mono text-xs text-muted-foreground line-through" title={t('objects.link_disabled')}>
+              {v}
+            </span>
+          )
+        }
+        return (
+          <div className="flex min-w-0 items-center gap-2">
+            <a
+              href={v}
+              target="_blank"
+              rel="noreferrer"
+              className="truncate font-mono text-xs underline underline-offset-2"
+            >
+              {v}
+            </a>
+            <Button
+              variant="ghost"
+              size="sm"
+              title={t('dashboard.copy_btn_label')}
+              aria-label={t('dashboard.copy_btn_label')}
+              onClick={() => handleCopy(v)}
+            >
+              {t('networks.copy')}
+            </Button>
+          </div>
+        )
+      },
       clip: true,
     },
     {

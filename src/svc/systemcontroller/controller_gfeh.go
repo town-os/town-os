@@ -4,9 +4,11 @@
 package systemcontroller
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 
@@ -79,6 +81,25 @@ type GfehExposureView struct {
 	Path     string `json:"path"`
 	Filename string `json:"filename,omitempty"`
 	Enabled  bool   `json:"enabled"`
+	// URL is the link as it is actually served: the partition's HTTP view name,
+	// on :443, with the token on the one route that view answers.
+	//
+	// Composed here rather than in the browser, and that is the whole point of
+	// the field. A published link exists to be sent to somebody, so the only
+	// useful form of it is the complete URL — and the UI cannot build one
+	// correctly. It would have to know that the serving name is the *http*
+	// view's and not the partition's or the box's, that the name is qualified
+	// under the partition's own network TLD rather than the global one, that the
+	// route is /f/<token>, and that the port gfeh reports for that view is a
+	// container-side backend port the ingress proxies to and must never appear
+	// in the URL. Each of those is a fact the server already holds and the
+	// browser would be re-deriving from a different source.
+	//
+	// It comes from the same collector that names the ingress vhost and the
+	// leaf's SAN, so the link is by construction a name the ingress routes and
+	// the certificate covers. Empty when the partition serves no HTTP view,
+	// which is the honest answer: there is then nothing serving that token.
+	URL string `json:"url,omitempty"`
 }
 
 // Request bodies.
@@ -485,15 +506,19 @@ func (s *SystemControllerHandlers) revokeGfehGrant(c *echo.Context) error {
 
 // listGfehExposures handles GET /gfeh/exposures?network=.
 func (s *SystemControllerHandlers) listGfehExposures(c *echo.Context) error {
-	client, err := s.gfehClientFor(c, c.Request().URL.Query().Get("network"))
+	network := c.Request().URL.Query().Get("network")
+	client, err := s.gfehClientFor(c, network)
 	if err != nil {
 		return err
 	}
 
-	exposures, err := client.ListExposures(c.Request().Context())
+	ctx := c.Request().Context()
+	exposures, err := client.ListExposures(ctx)
 	if err != nil {
 		return s.gfehStatus(err)
 	}
+
+	base := s.gfehPublishedLinkBase(ctx, strings.TrimSpace(network))
 
 	out := make([]GfehExposureView, 0, len(exposures))
 	for _, e := range exposures {
@@ -501,9 +526,42 @@ func (s *SystemControllerHandlers) listGfehExposures(c *echo.Context) error {
 		if e.Filename != nil {
 			view.Filename = *e.Filename
 		}
+		if base != "" && e.Token != "" {
+			view.URL = base + url.PathEscape(e.Token)
+		}
 		out = append(out, view)
 	}
 	return c.JSON(http.StatusOK, out)
+}
+
+// gfehPublishedLinkBase is the prefix every published link of a partition
+// shares: "https://<http-view-fqdn>/f/", or empty when that view is not served.
+//
+// The name comes from collectGfehSites — the same collector that produces the
+// ingress vhost, the leaf's SAN set and the DANE pin — so a link handed to the
+// operator cannot name something the ingress does not route.
+//
+// The port gfeh reported for the view is deliberately not used. It is the
+// container-side port the ingress proxies to; the published listener is :443,
+// and a link carrying :9001 would be refused by every client that tried it.
+func (s *SystemControllerHandlers) gfehPublishedLinkBase(ctx context.Context, network string) string {
+	reg := s.Controller.GetGfehRegistry()
+	if reg == nil || network == "" {
+		return ""
+	}
+	filter := network
+	if gfeh.IsDefaultNetwork(network) {
+		// The default network's names live in the global zone, which the
+		// collector selects with the empty filter rather than by name.
+		filter = ""
+	}
+	tld := reconcileDNSTLD(s.Controller.GetSettingsManager())
+	for _, site := range collectGfehSites(ctx, reg, s.Controller.GetNetworkManager(), tld, filter) {
+		if site.Network == network && site.View == gfeh.ViewHTTP && site.FQDN != "" {
+			return "https://" + site.FQDN + "/f/"
+		}
+	}
+	return ""
 }
 
 // withdrawGfehExposure handles POST /gfeh/exposures/withdraw (admin).

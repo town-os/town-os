@@ -49,6 +49,43 @@ describe('OverviewTab', () => {
     expect(screen.queryByText(/not answering/i)).toBeNull()
   })
 
+  // The whole table already turns on whether the ingress fronts a view, and an
+  // address somebody can click is the difference between being told the name
+  // and being able to use it — including the `index` row, which is the
+  // browsable page listing all of these.
+  it('makes an ingress-fronted address followable', () => {
+    render(<OverviewTab partition={RUNNING} />)
+
+    const link = screen.getByRole('link', { name: 's3.gfeh.home' })
+    expect(link.getAttribute('href')).toBe('https://s3.gfeh.home')
+  })
+
+  // https:// on an SMB address is a handshake that completes and then does
+  // nothing, which is exactly the failure that reads as a broken service.
+  it('does not make an SMB address followable', () => {
+    render(
+      <OverviewTab
+        partition={{ ...RUNNING, names: [{ view: 'smb', fqdn: 'smb.gfeh.home', port: 4450, http: false }] }}
+      />,
+    )
+
+    expect(screen.queryByRole('link', { name: 'smb.gfeh.home' })).toBeNull()
+    expect(screen.getByText('smb.gfeh.home')).toBeTruthy()
+    // SMB keeps its number: there it is the real host port, and dialling it is
+    // the only way in.
+    expect(screen.getByText('4450')).toBeTruthy()
+  })
+
+  // The port reported for an HTTP view is the container-side port the ingress
+  // proxies to. Printing 9000 in a column headed "Port" beside "Ingress
+  // (HTTPS)" invites somebody to dial s3.gfeh.home:9000 and conclude object
+  // storage is broken.
+  it('does not print the container-side backend port of an HTTP view', () => {
+    const { container } = render(<OverviewTab partition={RUNNING} />)
+
+    expect(container.textContent).not.toContain('9000')
+  })
+
   it('renders nothing without a partition', () => {
     const { container } = render(<OverviewTab partition={null} />)
 

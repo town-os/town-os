@@ -1346,6 +1346,20 @@ func reconcilePages(ctx context.Context, cfg ReconcileConfig) error {
 		}
 	}
 
+	// The webroot is shared with object storage: each partition's generated
+	// index page is linked in beside the pages (see gfeh_index.go). Those links
+	// are not pages, so without this the prune below deletes every one of them
+	// on the first reconcile and the index names 404 until the ingress is next
+	// rebuilt.
+	//
+	// Derived from the network set rather than by asking the daemons, so a
+	// partition that is merely slow to start does not have its index pruned out
+	// from under it — what may be deleted has to be decidable from state Town OS
+	// owns.
+	for host := range gfehIndexHostnames(cfg.Gfeh, cfg.NetworkMgr, globalTLD) {
+		valid[host] = struct{}{}
+	}
+
 	// Prune webroot symlinks left behind by a TLD change or removed page so the
 	// static server never resolves a stale hostname to old content.
 	pruneStalePageSymlinks(cfg.BtrfsBasePath, valid)

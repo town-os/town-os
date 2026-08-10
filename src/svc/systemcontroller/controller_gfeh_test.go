@@ -102,13 +102,32 @@ func TestGfehListReportsNamesAndLiveness(t *testing.T) {
 	if out[0].TLD != "office" {
 		t.Errorf("TLD = %q, want office", out[0].TLD)
 	}
-	if len(out[0].Names) != 5 {
-		t.Errorf("got %d names, want 5: %+v", len(out[0].Names), out[0].Names)
+	// Five views, plus the browsable index the collector contributes for a
+	// partition serving at least one view the ingress fronts. The index is in
+	// this list on purpose: it is the one name on the partition a person can
+	// usefully open, so a screen that listed the four protocol endpoints and
+	// omitted it would hide the only actionable row.
+	if len(out[0].Names) != 6 {
+		t.Errorf("got %d names, want 6 (5 views + index): %+v", len(out[0].Names), out[0].Names)
 	}
+	var sawIndex bool
 	for _, n := range out[0].Names {
 		if n.View == gfeh.ViewSMB && n.HTTP {
 			t.Error("smb was reported as an HTTP view; the UI would tell a user to browse to it")
 		}
+		if n.View != gfeh.ViewIndex {
+			continue
+		}
+		sawIndex = true
+		if n.FQDN != "gfeh.office" {
+			t.Errorf("index FQDN = %q, want gfeh.office (the partition's own network TLD)", n.FQDN)
+		}
+		if !n.HTTP {
+			t.Error("the index was not reported as HTTP, so the UI would not link it")
+		}
+	}
+	if !sawIndex {
+		t.Errorf("no index row was reported: %+v", out[0].Names)
 	}
 }
 
