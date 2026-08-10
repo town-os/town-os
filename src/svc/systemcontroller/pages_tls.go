@@ -4,6 +4,7 @@
 package systemcontroller
 
 import (
+	"context"
 	"path/filepath"
 	"strings"
 
@@ -156,24 +157,24 @@ func buildPageTLSAEntries(btrfsBase, pageName, hostname string) []rolodex.TLSAEn
 // packages. Including them here would republish them as .home AND make
 // ReconcileDNS's remove pass fight the scoped registration. Returns
 // deduplicated, never-empty hostnames.
-func collectPageHostnames(mgr account.PagesManager, tld string) []string {
-	return collectPageHostnamesForNetwork(mgr, "", tld, true)
+func collectPageHostnames(ctx context.Context, mgr account.PagesManager, tld string) []string {
+	return collectPageHostnamesForNetwork(ctx, mgr, "", tld, true)
 }
 
 // collectNetworkPageHostnames returns the internal hostnames of pages on the
 // given NON-default network, named under that network's TLD.
-func collectNetworkPageHostnames(mgr account.PagesManager, network, tld string) []string {
-	return collectPageHostnamesForNetwork(mgr, network, tld, false)
+func collectNetworkPageHostnames(ctx context.Context, mgr account.PagesManager, network, tld string) []string {
+	return collectPageHostnamesForNetwork(ctx, mgr, network, tld, false)
 }
 
 // collectPageHostnamesForNetwork is the shared core: when defaultOnly is set it
 // selects pages on the default network; otherwise it selects pages whose network
 // matches `network`. tld is the TLD that selection is published under.
-func collectPageHostnamesForNetwork(mgr account.PagesManager, network, tld string, defaultOnly bool) []string {
+func collectPageHostnamesForNetwork(ctx context.Context, mgr account.PagesManager, network, tld string, defaultOnly bool) []string {
 	if mgr == nil {
 		return nil
 	}
-	list, err := mgr.List()
+	list, err := mgr.List(ctx)
 	if err != nil {
 		return nil
 	}
@@ -206,21 +207,21 @@ func collectPageHostnamesForNetwork(mgr account.PagesManager, network, tld strin
 // collectPageTLSA returns DANE TLSA entries for every default-network page's
 // leaf, used by RebuildDNS to re-pin page certs after a zone teardown.
 // Non-default-network pages are pinned under their own TLD by RebuildNetworkDNS.
-func collectPageTLSA(mgr account.PagesManager, btrfsBase, tld string) []rolodex.TLSAEntry {
-	return collectPageTLSAForNetwork(mgr, btrfsBase, "", tld, true)
+func collectPageTLSA(ctx context.Context, mgr account.PagesManager, btrfsBase, tld string) []rolodex.TLSAEntry {
+	return collectPageTLSAForNetwork(ctx, mgr, btrfsBase, "", tld, true)
 }
 
 // collectNetworkPageTLSA returns DANE TLSA entries for the pages on the given
 // non-default network, pinned under that network's TLD.
-func collectNetworkPageTLSA(mgr account.PagesManager, btrfsBase, network, tld string) []rolodex.TLSAEntry {
-	return collectPageTLSAForNetwork(mgr, btrfsBase, network, tld, false)
+func collectNetworkPageTLSA(ctx context.Context, mgr account.PagesManager, btrfsBase, network, tld string) []rolodex.TLSAEntry {
+	return collectPageTLSAForNetwork(ctx, mgr, btrfsBase, network, tld, false)
 }
 
-func collectPageTLSAForNetwork(mgr account.PagesManager, btrfsBase, network, tld string, defaultOnly bool) []rolodex.TLSAEntry {
+func collectPageTLSAForNetwork(ctx context.Context, mgr account.PagesManager, btrfsBase, network, tld string, defaultOnly bool) []rolodex.TLSAEntry {
 	if mgr == nil || btrfsBase == "" {
 		return nil
 	}
-	list, err := mgr.List()
+	list, err := mgr.List(ctx)
 	if err != nil {
 		return nil
 	}

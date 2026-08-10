@@ -1,6 +1,7 @@
 package account
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -12,8 +13,8 @@ type SQLitePagesManager struct {
 	db *sql.DB
 }
 
-func InitPagesManager(db *sql.DB) (*SQLitePagesManager, error) {
-	ctx, cancel := dbCtx()
+func InitPagesManager(ctx context.Context, db *sql.DB) (*SQLitePagesManager, error) {
+	ctx, cancel := queryCtx(ctx)
 	defer cancel()
 
 	_, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS pages (
@@ -55,7 +56,7 @@ func InitPagesManager(db *sql.DB) (*SQLitePagesManager, error) {
 	return &SQLitePagesManager{db: db}, nil
 }
 
-func (m *SQLitePagesManager) Create(name, repoURL, branch, domain, sourceType, image, imageDirectory, network string) (*PageSite, error) {
+func (m *SQLitePagesManager) Create(ctx context.Context, name, repoURL, branch, domain, sourceType, image, imageDirectory, network string) (*PageSite, error) {
 	if strings.TrimSpace(name) == "" {
 		return nil, ErrPageNameRequired
 	}
@@ -95,7 +96,7 @@ func (m *SQLitePagesManager) Create(name, repoURL, branch, domain, sourceType, i
 	now := time.Now().UTC()
 	nowStr := now.Format(time.RFC3339)
 
-	ctx, cancel := dbCtx()
+	ctx, cancel := queryCtx(ctx)
 	defer cancel()
 
 	_, err := m.db.ExecContext(ctx,
@@ -125,11 +126,11 @@ func (m *SQLitePagesManager) Create(name, repoURL, branch, domain, sourceType, i
 	}, nil
 }
 
-func (m *SQLitePagesManager) Get(name string) (*PageSite, error) {
+func (m *SQLitePagesManager) Get(ctx context.Context, name string) (*PageSite, error) {
 	var page PageSite
 	var createdStr, updatedStr string
 
-	ctx, cancel := dbCtx()
+	ctx, cancel := queryCtx(ctx)
 	defer cancel()
 
 	err := m.db.QueryRowContext(ctx,
@@ -156,7 +157,7 @@ func (m *SQLitePagesManager) Get(name string) (*PageSite, error) {
 	return &page, nil
 }
 
-func (m *SQLitePagesManager) Update(name string, fields PageSiteUpdate) (*PageSite, error) {
+func (m *SQLitePagesManager) Update(ctx context.Context, name string, fields PageSiteUpdate) (*PageSite, error) {
 	var sets []string
 	var args []any
 
@@ -203,7 +204,7 @@ func (m *SQLitePagesManager) Update(name string, fields PageSiteUpdate) (*PageSi
 	}
 
 	if len(sets) == 0 {
-		return m.Get(name)
+		return m.Get(ctx, name)
 	}
 
 	nowStr := time.Now().UTC().Format(time.RFC3339)
@@ -211,7 +212,7 @@ func (m *SQLitePagesManager) Update(name string, fields PageSiteUpdate) (*PageSi
 	args = append(args, nowStr)
 	args = append(args, name)
 
-	ctx, cancel := dbCtx()
+	ctx, cancel := queryCtx(ctx)
 	defer cancel()
 
 	res, err := m.db.ExecContext(ctx,
@@ -230,11 +231,11 @@ func (m *SQLitePagesManager) Update(name string, fields PageSiteUpdate) (*PageSi
 		return nil, ErrPageNotFound
 	}
 
-	return m.Get(name)
+	return m.Get(ctx, name)
 }
 
-func (m *SQLitePagesManager) Remove(name string) error {
-	ctx, cancel := dbCtx()
+func (m *SQLitePagesManager) Remove(ctx context.Context, name string) error {
+	ctx, cancel := queryCtx(ctx)
 	defer cancel()
 
 	res, err := m.db.ExecContext(ctx, "DELETE FROM pages WHERE name = ?", name)
@@ -253,8 +254,8 @@ func (m *SQLitePagesManager) Remove(name string) error {
 	return nil
 }
 
-func (m *SQLitePagesManager) List() (_ []PageSite, err error) {
-	ctx, cancel := dbCtx()
+func (m *SQLitePagesManager) List(ctx context.Context) (_ []PageSite, err error) {
+	ctx, cancel := queryCtx(ctx)
 	defer cancel()
 
 	rows, err := m.db.QueryContext(ctx,

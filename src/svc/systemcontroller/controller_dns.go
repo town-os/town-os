@@ -267,7 +267,7 @@ func (s *SystemControllerHandlers) setDNSTLD(c *echo.Context) error {
 
 	// Page content directories are keyed by the served FQDN, which for internal
 	// pages embeds the TLD — rename them so served content follows the new TLD.
-	s.migratePageDirsForTLD(oldTLD, req.TLD)
+	s.migratePageDirsForTLD(c.Request().Context(), oldTLD, req.TLD)
 
 	// Update systemd-resolved routing for the new TLD so inter-package
 	// DNS resolution uses rolodex for the new domain.

@@ -64,7 +64,7 @@ func buildIngressRoutes(ctx context.Context, pagesMgr account.PagesManager, nm a
 	if pagesMgr == nil {
 		return dedupeIngressRoutes(routes)
 	}
-	pages, err := pagesMgr.List()
+	pages, err := pagesMgr.List(ctx)
 	if err != nil {
 		slog.Debug(fmt.Sprintf("ingress: list pages: %v", err))
 		return dedupeIngressRoutes(routes)

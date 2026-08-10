@@ -72,7 +72,7 @@ func initSystemControllerPagesEnv(t *testing.T) pagesIntegrationEnv {
 		t.Fatalf("InitAuditManager: %v", err)
 	}
 
-	pagesMgr, err := account.InitPagesManager(db)
+	pagesMgr, err := account.InitPagesManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitPagesManager: %v", err)
 	}
@@ -846,7 +846,7 @@ func initSystemControllerPagesTLSEnv(t *testing.T) (*systemcontroller.SystemdCli
 	if err != nil {
 		t.Fatalf("InitAuditManager: %v", err)
 	}
-	pagesMgr, err := account.InitPagesManager(db)
+	pagesMgr, err := account.InitPagesManager(t.Context(), db)
 	if err != nil {
 		t.Fatalf("InitPagesManager: %v", err)
 	}

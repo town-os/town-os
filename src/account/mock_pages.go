@@ -1,6 +1,7 @@
 package account
 
 import (
+	"context"
 	"sync"
 	"time"
 )
@@ -31,7 +32,7 @@ func (m *MockPagesManager) GetCalls() []MockCall {
 	return out
 }
 
-func (m *MockPagesManager) Create(name, repoURL, branch, domain, sourceType, image, imageDirectory, network string) (*PageSite, error) {
+func (m *MockPagesManager) Create(_ context.Context, name, repoURL, branch, domain, sourceType, image, imageDirectory, network string) (*PageSite, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "Create", Args: []any{name, repoURL, branch, domain, sourceType, image, imageDirectory, network}})
@@ -96,7 +97,7 @@ func (m *MockPagesManager) Create(name, repoURL, branch, domain, sourceType, ima
 	return &out, nil
 }
 
-func (m *MockPagesManager) Get(name string) (*PageSite, error) {
+func (m *MockPagesManager) Get(_ context.Context, name string) (*PageSite, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "Get", Args: []any{name}})
@@ -114,7 +115,7 @@ func (m *MockPagesManager) Get(name string) (*PageSite, error) {
 	return &out, nil
 }
 
-func (m *MockPagesManager) Update(name string, fields PageSiteUpdate) (*PageSite, error) {
+func (m *MockPagesManager) Update(_ context.Context, name string, fields PageSiteUpdate) (*PageSite, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "Update", Args: []any{name, fields}})
@@ -164,7 +165,7 @@ func (m *MockPagesManager) Update(name string, fields PageSiteUpdate) (*PageSite
 	return &out, nil
 }
 
-func (m *MockPagesManager) Remove(name string) error {
+func (m *MockPagesManager) Remove(_ context.Context, name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "Remove", Args: []any{name}})
@@ -181,7 +182,7 @@ func (m *MockPagesManager) Remove(name string) error {
 	return nil
 }
 
-func (m *MockPagesManager) List() ([]PageSite, error) {
+func (m *MockPagesManager) List(_ context.Context) ([]PageSite, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "List", Args: nil})

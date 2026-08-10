@@ -223,7 +223,7 @@ func (s *SystemControllerHandlers) createPage(c *echo.Context) error {
 		return nerr
 	}
 
-	page, err := mgr.Create(req.Name, req.RepoURL, req.Branch, req.Domain, req.SourceType, req.Image, req.ImageDirectory, network)
+	page, err := mgr.Create(c.Request().Context(), req.Name, req.RepoURL, req.Branch, req.Domain, req.SourceType, req.Image, req.ImageDirectory, network)
 	if err != nil {
 		return err
 	}
@@ -233,7 +233,7 @@ func (s *SystemControllerHandlers) createPage(c *echo.Context) error {
 	// the page's NETWORK TLD, not its short name and not the global dns_tld.
 	dir := s.pageDirName(c.Request().Context(), req.Domain, network)
 	if dir == "" {
-		if rerr := mgr.Remove(req.Name); rerr != nil {
+		if rerr := mgr.Remove(c.Request().Context(), req.Name); rerr != nil {
 			slog.Debug(fmt.Sprintf("pages rollback remove %s: %v", req.Name, rerr))
 		}
 		return fmt.Errorf("pages: could not derive directory for domain %q", req.Domain)
@@ -245,7 +245,7 @@ func (s *SystemControllerHandlers) createPage(c *echo.Context) error {
 		fsName := PagesVolumePrefix + "/" + dir
 		if err := st.CreateFilesystem(storage.Filesystem{Name: fsName}); err != nil {
 			// Rollback: remove the page from the DB.
-			if rerr := mgr.Remove(req.Name); rerr != nil {
+			if rerr := mgr.Remove(c.Request().Context(), req.Name); rerr != nil {
 				slog.Debug(fmt.Sprintf("pages rollback remove %s: %v", req.Name, rerr))
 			}
 			return fmt.Errorf("create pages subvolume: %w", err)
@@ -281,7 +281,7 @@ func (s *SystemControllerHandlers) createPage(c *echo.Context) error {
 					status = "error"
 				}
 
-				if _, err := mgr.Update(req.Name, account.PageSiteUpdate{Status: &status}); err != nil {
+				if _, err := mgr.Update(c.Request().Context(), req.Name, account.PageSiteUpdate{Status: &status}); err != nil {
 					slog.Debug(fmt.Sprintf("pages update status %s: %v", req.Name, err))
 				}
 			}()
@@ -300,7 +300,7 @@ func (s *SystemControllerHandlers) createPage(c *echo.Context) error {
 					status = "error"
 				}
 
-				if _, err := mgr.Update(req.Name, account.PageSiteUpdate{Status: &status}); err != nil {
+				if _, err := mgr.Update(c.Request().Context(), req.Name, account.PageSiteUpdate{Status: &status}); err != nil {
 					slog.Debug(fmt.Sprintf("pages update status %s: %v", req.Name, err))
 				}
 			}()
@@ -344,14 +344,14 @@ func (s *SystemControllerHandlers) updatePage(c *echo.Context) error {
 		}
 	}
 
-	old, getErr := mgr.Get(req.Name)
+	old, getErr := mgr.Get(c.Request().Context(), req.Name)
 	if getErr != nil {
 		// Best effort: without the prior record we just skip retiring the old
 		// hostname's DNS below; the update itself still proceeds.
 		slog.Debug(fmt.Sprintf("pages get %s before update: %v", req.Name, getErr))
 	}
 
-	page, err := mgr.Update(req.Name, req.Fields)
+	page, err := mgr.Update(c.Request().Context(), req.Name, req.Fields)
 	if err != nil {
 		return err
 	}
@@ -387,12 +387,12 @@ func (s *SystemControllerHandlers) removePage(c *echo.Context) error {
 	}
 
 	// Capture the domain before removal so we can retire its DNS record.
-	removed, getErr := mgr.Get(req.Name)
+	removed, getErr := mgr.Get(c.Request().Context(), req.Name)
 	if getErr != nil {
 		slog.Debug(fmt.Sprintf("pages get %s before remove: %v", req.Name, getErr))
 	}
 
-	if err := mgr.Remove(req.Name); err != nil {
+	if err := mgr.Remove(c.Request().Context(), req.Name); err != nil {
 		return err
 	}
 
@@ -442,7 +442,7 @@ func (s *SystemControllerHandlers) listPages(c *echo.Context) error {
 		return fmt.Errorf("%s", i18n.T(s.getLocale(), i18n.MsgPagesNotConfigured))
 	}
 
-	pages, err := mgr.List()
+	pages, err := mgr.List(c.Request().Context())
 	if err != nil {
 		return err
 	}
@@ -466,7 +466,7 @@ func (s *SystemControllerHandlers) rebuildPage(c *echo.Context) error {
 		return err
 	}
 
-	page, err := mgr.Get(req.Name)
+	page, err := mgr.Get(c.Request().Context(), req.Name)
 	if err != nil {
 		return err
 	}
@@ -496,7 +496,7 @@ func (s *SystemControllerHandlers) rebuildPage(c *echo.Context) error {
 			if err := gitClient.CloneBranch(c.Request().Context(), pagesDir, page.RepoURL, dir, page.Branch); err != nil {
 				s.resetPageContent(dir)
 				status := "error"
-				if _, uerr := mgr.Update(page.Name, account.PageSiteUpdate{Status: &status}); uerr != nil {
+				if _, uerr := mgr.Update(c.Request().Context(), page.Name, account.PageSiteUpdate{Status: &status}); uerr != nil {
 					slog.Debug(fmt.Sprintf("pages update status %s: %v", page.Name, uerr))
 				}
 				return fmt.Errorf("pages clone %s: %w", page.Name, err)
@@ -506,7 +506,7 @@ func (s *SystemControllerHandlers) rebuildPage(c *echo.Context) error {
 			// reset it.
 			if err := gitClient.Pull(c.Request().Context(), targetDir); err != nil {
 				status := "error"
-				if _, uerr := mgr.Update(page.Name, account.PageSiteUpdate{Status: &status}); uerr != nil {
+				if _, uerr := mgr.Update(c.Request().Context(), page.Name, account.PageSiteUpdate{Status: &status}); uerr != nil {
 					slog.Debug(fmt.Sprintf("pages update status %s: %v", page.Name, uerr))
 				}
 				return fmt.Errorf("pages pull %s: %w", page.Name, err)
@@ -517,7 +517,7 @@ func (s *SystemControllerHandlers) rebuildPage(c *echo.Context) error {
 		if err := s.Controller.GetImageExtractFunc()(c.Request().Context(), page.Image, page.ImageDirectory, targetDir); err != nil {
 			s.resetPageContent(dir)
 			status := "error"
-			if _, uerr := mgr.Update(page.Name, account.PageSiteUpdate{Status: &status}); uerr != nil {
+			if _, uerr := mgr.Update(c.Request().Context(), page.Name, account.PageSiteUpdate{Status: &status}); uerr != nil {
 				slog.Debug(fmt.Sprintf("pages update status %s: %v", page.Name, uerr))
 			}
 			return fmt.Errorf("pages extract image %s: %w", page.Name, err)
@@ -530,7 +530,7 @@ func (s *SystemControllerHandlers) rebuildPage(c *echo.Context) error {
 	}
 
 	status := "active"
-	updated, err := mgr.Update(page.Name, account.PageSiteUpdate{Status: &status})
+	updated, err := mgr.Update(c.Request().Context(), page.Name, account.PageSiteUpdate{Status: &status})
 	if err != nil {
 		return err
 	}
@@ -553,7 +553,7 @@ func (s *SystemControllerHandlers) uploadPageArchive(c *echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, i18n.T(locale, i18n.MsgPagesNameRequired))
 	}
 
-	page, err := mgr.Get(name)
+	page, err := mgr.Get(c.Request().Context(), name)
 	if err != nil {
 		return err
 	}
@@ -593,7 +593,7 @@ func (s *SystemControllerHandlers) uploadPageArchive(c *echo.Context) error {
 	format, _, fmtErr := detectArchiveFormat(br)
 	if fmtErr != nil {
 		status := "error"
-		if _, uerr := mgr.Update(name, account.PageSiteUpdate{Status: &status}); uerr != nil {
+		if _, uerr := mgr.Update(c.Request().Context(), name, account.PageSiteUpdate{Status: &status}); uerr != nil {
 			slog.Debug(fmt.Sprintf("pages update status %s: %v", name, uerr))
 		}
 		if errors.Is(fmtErr, ErrUnsupportedArchive) {
@@ -604,7 +604,7 @@ func (s *SystemControllerHandlers) uploadPageArchive(c *echo.Context) error {
 
 	if _, extErr := archiveFormat(header.Filename); extErr != nil {
 		status := "error"
-		if _, uerr := mgr.Update(name, account.PageSiteUpdate{Status: &status}); uerr != nil {
+		if _, uerr := mgr.Update(c.Request().Context(), name, account.PageSiteUpdate{Status: &status}); uerr != nil {
 			slog.Debug(fmt.Sprintf("pages update status %s: %v", name, uerr))
 		}
 		return echo.NewHTTPError(http.StatusBadRequest, extErr.Error())
@@ -631,7 +631,7 @@ func (s *SystemControllerHandlers) uploadPageArchive(c *echo.Context) error {
 		// A failed unpack can leave a partial tree; reset the content.
 		s.resetPageContent(dir)
 		status := "error"
-		if _, uerr := mgr.Update(name, account.PageSiteUpdate{Status: &status}); uerr != nil {
+		if _, uerr := mgr.Update(c.Request().Context(), name, account.PageSiteUpdate{Status: &status}); uerr != nil {
 			slog.Debug(fmt.Sprintf("pages update status %s: %v", name, uerr))
 		}
 		if errors.Is(unpackErr, ErrArchiveTooLarge) {
@@ -644,7 +644,7 @@ func (s *SystemControllerHandlers) uploadPageArchive(c *echo.Context) error {
 	}
 
 	status := "active"
-	updated, err := mgr.Update(name, account.PageSiteUpdate{Status: &status})
+	updated, err := mgr.Update(c.Request().Context(), name, account.PageSiteUpdate{Status: &status})
 	if err != nil {
 		return err
 	}
@@ -719,12 +719,12 @@ func (s *SystemControllerHandlers) migratePageDir(ctx context.Context, old, upda
 // unaffected (their directory name does not include the TLD, so oldDir ==
 // newDir and they are skipped). Best-effort: failures are logged and the
 // periodic reconcile (with pruneStalePageSymlinks) is the backstop.
-func (s *SystemControllerHandlers) migratePageDirsForTLD(oldTLD, newTLD string) {
+func (s *SystemControllerHandlers) migratePageDirsForTLD(ctx context.Context, oldTLD, newTLD string) {
 	mgr := s.Controller.GetPagesManager()
 	if mgr == nil || oldTLD == newTLD {
 		return
 	}
-	pages, err := mgr.List()
+	pages, err := mgr.List(ctx)
 	if err != nil {
 		slog.Debug(fmt.Sprintf("pages TLD migrate list: %v", err))
 		return

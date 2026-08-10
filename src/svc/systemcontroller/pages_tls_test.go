@@ -4,6 +4,7 @@
 package systemcontroller
 
 import (
+	"context"
 	"testing"
 
 	"gitea.com/town-os/town-os/src/account"
@@ -65,12 +66,12 @@ type pagesTestManager struct {
 	pages []account.PageSite
 }
 
-func (m *pagesTestManager) Create(name, repoURL, branch, domain, sourceType, image, imageDirectory, network string) (*account.PageSite, error) {
+func (m *pagesTestManager) Create(_ context.Context, name, repoURL, branch, domain, sourceType, image, imageDirectory, network string) (*account.PageSite, error) {
 	p := account.PageSite{Name: name, Domain: domain, SourceType: sourceType}
 	m.pages = append(m.pages, p)
 	return &p, nil
 }
-func (m *pagesTestManager) Get(name string) (*account.PageSite, error) {
+func (m *pagesTestManager) Get(_ context.Context, name string) (*account.PageSite, error) {
 	for i := range m.pages {
 		if m.pages[i].Name == name {
 			return &m.pages[i], nil
@@ -78,11 +79,11 @@ func (m *pagesTestManager) Get(name string) (*account.PageSite, error) {
 	}
 	return nil, account.ErrPageNotFound
 }
-func (m *pagesTestManager) Update(string, account.PageSiteUpdate) (*account.PageSite, error) {
+func (m *pagesTestManager) Update(context.Context, string, account.PageSiteUpdate) (*account.PageSite, error) {
 	return nil, account.ErrPageNotFound
 }
-func (m *pagesTestManager) Remove(string) error          { return nil }
-func (m *pagesTestManager) List() ([]account.PageSite, error) { return m.pages, nil }
+func (m *pagesTestManager) Remove(context.Context, string) error { return nil }
+func (m *pagesTestManager) List(_ context.Context) ([]account.PageSite, error) { return m.pages, nil }
 
 func TestCollectPageHostnames(t *testing.T) {
 	mgr := &pagesTestManager{pages: []account.PageSite{
@@ -92,7 +93,7 @@ func TestCollectPageHostnames(t *testing.T) {
 		{Name: "dup", Domain: "blog"},           // duplicate hostname → deduped
 	}}
 
-	got := collectPageHostnames(mgr, "home")
+	got := collectPageHostnames(t.Context(), mgr, "home")
 
 	want := map[string]bool{"blog.home": true, "documentation.home": true}
 	if len(got) != len(want) {
@@ -106,7 +107,7 @@ func TestCollectPageHostnames(t *testing.T) {
 }
 
 func TestCollectPageHostnamesNilManager(t *testing.T) {
-	if got := collectPageHostnames(nil, "home"); got != nil {
+	if got := collectPageHostnames(t.Context(), nil, "home"); got != nil {
 		t.Fatalf("expected nil for nil manager, got %v", got)
 	}
 }
@@ -171,7 +172,7 @@ func TestCollectPageHostnamesExcludesNetworkPages(t *testing.T) {
 		{Name: "secret", Network: "fart"},  // non-default → excluded from home
 	}}
 
-	got := collectPageHostnames(mgr, "home")
+	got := collectPageHostnames(t.Context(), mgr, "home")
 
 	want := map[string]bool{"blog.home": true, "wiki.home": true}
 	if len(got) != len(want) {
@@ -194,7 +195,7 @@ func TestCollectNetworkPageHostnames(t *testing.T) {
 		{Name: "shop", Domain: "shop.example.com", Network: "fart"}, // public → excluded
 	}}
 
-	got := collectNetworkPageHostnames(mgr, "fart", "fart")
+	got := collectNetworkPageHostnames(t.Context(), mgr, "fart", "fart")
 
 	if len(got) != 1 || got[0] != "secret.fart" {
 		t.Fatalf("expected [secret.fart], got %v", got)

@@ -139,20 +139,20 @@ func TestPagesManagerRejectsUnderscoreDomainOnCreateAndUpdate(t *testing.T) {
 	t.Parallel()
 	mgr := initPagesTestDB(t)
 
-	if _, err := mgr.Create("bad", "", "", "my_site.example.com", PageSourceArchive, "", "", ""); err == nil {
+	if _, err := mgr.Create(t.Context(), "bad", "", "", "my_site.example.com", PageSourceArchive, "", "", ""); err == nil {
 		t.Error("Create accepted an underscore domain")
 	}
 
-	if _, err := mgr.Create("good", "", "", "ok.example.com", PageSourceArchive, "", "", ""); err != nil {
+	if _, err := mgr.Create(t.Context(), "good", "", "", "ok.example.com", PageSourceArchive, "", "", ""); err != nil {
 		t.Fatalf("Create with a valid domain: %v", err)
 	}
 	bad := "my_site.example.com"
-	if _, err := mgr.Update("good", PageSiteUpdate{Domain: &bad}); err == nil {
+	if _, err := mgr.Update(t.Context(), "good", PageSiteUpdate{Domain: &bad}); err == nil {
 		t.Error("Update accepted an underscore domain")
 	}
 
 	// The page keeps the domain it had, rather than being left half-edited.
-	page, err := mgr.Get("good")
+	page, err := mgr.Get(t.Context(), "good")
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}

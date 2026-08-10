@@ -862,7 +862,7 @@ func RebuildDNS(ctx context.Context, cfg ReconcileDNSConfig) error {
 	// Pages share the zone and resolve to the host IP, keyed by their internal
 	// hostname. Public-FQDN pages are excluded (resolved by the user's own DNS).
 	// An AAAA is added alongside the A when the host has a global IPv6.
-	for _, host := range collectPageHostnames(cfg.PagesManager, tld) {
+	for _, host := range collectPageHostnames(ctx, cfg.PagesManager, tld) {
 		if cfg.InternalIP != "" {
 			if err := cfg.Client.AddRecord(ctx, &upstream.DnsRecord{
 				Name:       host + ".",
@@ -894,7 +894,7 @@ func RebuildDNS(ctx context.Context, cfg ReconcileDNSConfig) error {
 	// TeardownTLD wiped every record including DANE TLSA, so re-pin the leaf
 	// for each installed package's terminated ports and each internal page.
 	entries := collectInstalledTLSA(cfg, tld)
-	entries = append(entries, collectPageTLSA(cfg.PagesManager, cfg.BtrfsBasePath, tld)...)
+	entries = append(entries, collectPageTLSA(ctx, cfg.PagesManager, cfg.BtrfsBasePath, tld)...)
 	entries = append(entries, collectGfehTLSA(gfehSites, cfg.BtrfsBasePath)...)
 	if len(entries) > 0 {
 		if err := rolodex.RegisterPackageTLSA(ctx, cfg.Client, entries); err != nil {
@@ -952,7 +952,7 @@ func RebuildNetworkDNS(ctx context.Context, cfg ReconcileDNSConfig) error {
 		// address for loopback/LAN clients. Pages have no install record, so they
 		// are keyed off PageSite.Network rather than Installer.LoadNetwork.
 		overlay := networkOverlayIPValue(cfg.NetworkMgr, n.Name)
-		for _, host := range collectNetworkPageHostnames(cfg.PagesManager, n.Name, n.TLD) {
+		for _, host := range collectNetworkPageHostnames(ctx, cfg.PagesManager, n.Name, n.TLD) {
 			if overlay != "" {
 				if err := cfg.Client.AddScopedRecord(ctx, n.Name, &upstream.DnsRecord{
 					Name: host + ".", RecordType: upstream.RecordTypeA, Value: overlay, Ttl: 300,
@@ -991,7 +991,7 @@ func RebuildNetworkDNS(ctx context.Context, cfg ReconcileDNSConfig) error {
 		publishGfehNetworkRecords(ctx, cfg, n.Name, overlay, gfehSites)
 
 		entries := collectNetworkTLSA(cfg, n.Name, n.TLD)
-		entries = append(entries, collectNetworkPageTLSA(cfg.PagesManager, cfg.BtrfsBasePath, n.Name, n.TLD)...)
+		entries = append(entries, collectNetworkPageTLSA(ctx, cfg.PagesManager, cfg.BtrfsBasePath, n.Name, n.TLD)...)
 		entries = append(entries, collectGfehTLSA(gfehSites, cfg.BtrfsBasePath)...)
 		if len(entries) > 0 {
 			if err := rolodex.RegisterPackageTLSA(ctx, cfg.Client, entries); err != nil {
@@ -1201,7 +1201,7 @@ func ReconcileDNS(ctx context.Context, cfg ReconcileDNSConfig) error {
 	// hostname (e.g. blog.<tld>). They live in the same zone as packages,
 	// so they must be in the desired set or the remove pass below would
 	// delete them as orphan records.
-	for _, host := range collectPageHostnames(cfg.PagesManager, tld) {
+	for _, host := range collectPageHostnames(ctx, cfg.PagesManager, tld) {
 		addDesired(host + ".")
 	}
 	// Object storage, for exactly the same reason -- and this is the easiest
@@ -1301,7 +1301,7 @@ func reconcilePages(ctx context.Context, cfg ReconcileConfig) error {
 		return fmt.Errorf("ensure pages webroot: %w", err)
 	}
 
-	pages, err := cfg.PagesManager.List()
+	pages, err := cfg.PagesManager.List(ctx)
 	if err != nil {
 		return fmt.Errorf("list pages: %w", err)
 	}

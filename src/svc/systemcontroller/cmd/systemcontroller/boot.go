@@ -307,7 +307,7 @@ func (b *boot) openStores(ctx context.Context) error {
 		return fmt.Errorf("init settings manager: %w", err)
 	}
 
-	if b.pagesMgr, err = account.InitPagesManager(b.db); err != nil {
+	if b.pagesMgr, err = account.InitPagesManager(ctx, b.db); err != nil {
 		return fmt.Errorf("init pages manager: %w", err)
 	}
 

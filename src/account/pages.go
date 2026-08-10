@@ -1,6 +1,7 @@
 package account
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -125,12 +126,16 @@ func ValidPageSourceType(s string) bool {
 	return s == PageSourceArchive || s == PageSourceContainerImage || s == PageSourceGit
 }
 
+// PagesManager stores the page records. Context-taking for the reasons on
+// SettingsManager: a caller's cancellation and a graceful shutdown must reach
+// the query rather than stopping at the manager boundary, behind the single
+// serialized SQLite connection.
 type PagesManager interface {
 	// Create registers a page. network is the network it is published on; ""
 	// means the default/home network (see PageSite.Network).
-	Create(name, repoURL, branch, domain, sourceType, image, imageDirectory, network string) (*PageSite, error)
-	Get(name string) (*PageSite, error)
-	Update(name string, fields PageSiteUpdate) (*PageSite, error)
-	Remove(name string) error
-	List() ([]PageSite, error)
+	Create(ctx context.Context, name, repoURL, branch, domain, sourceType, image, imageDirectory, network string) (*PageSite, error)
+	Get(ctx context.Context, name string) (*PageSite, error)
+	Update(ctx context.Context, name string, fields PageSiteUpdate) (*PageSite, error)
+	Remove(ctx context.Context, name string) error
+	List(ctx context.Context) ([]PageSite, error)
 }
