@@ -113,15 +113,25 @@ func TestInstallCompileAcceptsOrdinaryPackage(t *testing.T) {
 		},
 	}
 
-	pkg, err := ip.Compile(packages.Responses{"dbpass": "auto"})
+	// Compile takes responses as given; it is autoGenerateResponses in the
+	// systemcontroller that turns "auto" into a secret, before Compile is ever
+	// called (covered end to end by TestIntegrationSecretQuestionIsOneValueEverywhere).
+	// So hand it what that step hands it -- a real generated secret -- and hold
+	// Compile to the thing it does own: delivering the value unaltered.
+	dbpass, err := packages.GenerateSecret()
+	if err != nil {
+		t.Fatalf("GenerateSecret: %v", err)
+	}
+
+	pkg, err := ip.Compile(packages.Responses{"dbpass": dbpass})
 	if err != nil {
 		t.Fatalf("Compile of an ordinary package: %v", err)
 	}
 	if pkg.Environment["POSTGRES_INITDB_ARGS"] != "--encoding=UTF8 --lc-collate=C --lc-ctype=C" {
 		t.Errorf("multi-word env value was altered: %q", pkg.Environment["POSTGRES_INITDB_ARGS"])
 	}
-	if pkg.Environment["POSTGRES_PASSWORD"] == "" || pkg.Environment["POSTGRES_PASSWORD"] == "auto" {
-		t.Errorf("secret was not generated: %q", pkg.Environment["POSTGRES_PASSWORD"])
+	if pkg.Environment["POSTGRES_PASSWORD"] != dbpass {
+		t.Errorf("secret answer was altered: %q, want %q", pkg.Environment["POSTGRES_PASSWORD"], dbpass)
 	}
 
 	// The generated unit for it is well-formed: one directive per line.
@@ -135,5 +145,12 @@ func TestInstallCompileAcceptsOrdinaryPackage(t *testing.T) {
 	})
 	if !strings.Contains(units.Service.Content, "--encoding=UTF8 --lc-collate=C --lc-ctype=C") {
 		t.Errorf("multi-word env value did not survive into the unit:\n%s", units.Service.Content)
+	}
+	// And so does the secret, byte for byte. This is the reason GenerateSecret
+	// draws from an alphanumeric alphabet: quoteCommandArg drops control
+	// characters outright, so a secret carrying one would reach the container
+	// silently truncated rather than failing anywhere visible.
+	if !strings.Contains(units.Service.Content, dbpass) {
+		t.Errorf("generated secret did not survive into the unit:\n%s", units.Service.Content)
 	}
 }
