@@ -167,9 +167,7 @@ func TestSystemControllerModifyPackageVolumeRenameRejected(t *testing.T) {
 		t.Fatalf("CreateFilesystem(%q): %v", volPath, err)
 	}
 	t.Cleanup(func() {
-		if err := btr.RemoveFilesystem(volPath); err != nil {
-			t.Logf("cleanup RemoveFilesystem(%q): %v", volPath, err)
-		}
+		logCleanupf(t, btr.RemoveFilesystem(volPath), "RemoveFilesystem(%q)", volPath)
 	})
 
 	err := c.ModifyFilesystem(context.TODO(), volPath, storage.Filesystem{
@@ -189,9 +187,7 @@ func TestSystemControllerModifyPackageVolumeQuotaAllowed(t *testing.T) {
 		t.Fatalf("CreateFilesystem(%q): %v", volPath, err)
 	}
 	t.Cleanup(func() {
-		if err := btr.RemoveFilesystem(volPath); err != nil {
-			t.Logf("cleanup RemoveFilesystem(%q): %v", volPath, err)
-		}
+		logCleanupf(t, btr.RemoveFilesystem(volPath), "RemoveFilesystem(%q)", volPath)
 	})
 
 	// Quota must exceed the ~16KiB an empty subvolume already references;

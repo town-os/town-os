@@ -279,13 +279,9 @@ func TestSystemControllerPurgeVolumes(t *testing.T) {
 	// Safety net: if purge fails, clean up manually.
 	t.Cleanup(func() {
 		for _, child := range slices.Backward(children) {
-			if err := btr.RemoveFilesystem(child); err != nil {
-				t.Logf("cleanup RemoveFilesystem: %v", err)
-			}
+			logCleanupf(t, btr.RemoveFilesystem(child), "RemoveFilesystem %s", child)
 		}
-		if err := btr.RemoveFilesystem("installed/repo-purge/sc-purge"); err != nil {
-			t.Logf("cleanup RemoveFilesystem: %v", err)
-		}
+		logCleanupf(t, btr.RemoveFilesystem("installed/repo-purge/sc-purge"), "RemoveFilesystem installed/repo-purge/sc-purge")
 	})
 
 	// Verify children exist via direct storage.
@@ -333,18 +329,10 @@ func TestSystemControllerPurgeVolumesSimilarPrefix(t *testing.T) {
 		t.Fatalf("CreateFilesystem test-repo/sc-pfx2/data: %v", err)
 	}
 	t.Cleanup(func() {
-		if err := btr.RemoveFilesystem("installed/repo-pfx/sc-pfx/data"); err != nil {
-			t.Logf("cleanup RemoveFilesystem: %v", err)
-		}
-		if err := btr.RemoveFilesystem("installed/repo-pfx/sc-pfx"); err != nil {
-			t.Logf("cleanup RemoveFilesystem: %v", err)
-		}
-		if err := btr.RemoveFilesystem("installed/repo-pfx/sc-pfx2/data"); err != nil {
-			t.Logf("cleanup RemoveFilesystem: %v", err)
-		}
-		if err := btr.RemoveFilesystem("installed/repo-pfx/sc-pfx2"); err != nil {
-			t.Logf("cleanup RemoveFilesystem: %v", err)
-		}
+		logCleanupf(t, btr.RemoveFilesystem("installed/repo-pfx/sc-pfx/data"), "RemoveFilesystem installed/repo-pfx/sc-pfx/data")
+		logCleanupf(t, btr.RemoveFilesystem("installed/repo-pfx/sc-pfx"), "RemoveFilesystem installed/repo-pfx/sc-pfx")
+		logCleanupf(t, btr.RemoveFilesystem("installed/repo-pfx/sc-pfx2/data"), "RemoveFilesystem installed/repo-pfx/sc-pfx2/data")
+		logCleanupf(t, btr.RemoveFilesystem("installed/repo-pfx/sc-pfx2"), "RemoveFilesystem installed/repo-pfx/sc-pfx2")
 	})
 
 	// Purge "sc-pfx" only.
@@ -388,13 +376,9 @@ func TestSystemControllerPurgeVolumesDeepNesting(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		for _, name := range slices.Backward(names) {
-			if err := btr.RemoveFilesystem(name); err != nil {
-				t.Logf("cleanup RemoveFilesystem: %v", err)
-			}
+			logCleanupf(t, btr.RemoveFilesystem(name), "RemoveFilesystem %s", name)
 		}
-		if err := btr.RemoveFilesystem("installed/repo-dpurge/sc-dpurge"); err != nil {
-			t.Logf("cleanup RemoveFilesystem: %v", err)
-		}
+		logCleanupf(t, btr.RemoveFilesystem("installed/repo-dpurge/sc-dpurge"), "RemoveFilesystem installed/repo-dpurge/sc-dpurge")
 	})
 
 	if err := c.PurgeVolumes(context.TODO(), "repo-dpurge", "sc-dpurge"); err != nil {
@@ -454,13 +438,9 @@ func TestSystemControllerPurgeVolumesWithQuotas(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		for _, child := range slices.Backward(children) {
-			if err := btr.RemoveFilesystem(child.Name); err != nil {
-				t.Logf("cleanup RemoveFilesystem: %v", err)
-			}
+			logCleanupf(t, btr.RemoveFilesystem(child.Name), "RemoveFilesystem %s", child.Name)
 		}
-		if err := btr.RemoveFilesystem("installed/repo-pq/sc-pq"); err != nil {
-			t.Logf("cleanup RemoveFilesystem: %v", err)
-		}
+		logCleanupf(t, btr.RemoveFilesystem("installed/repo-pq/sc-pq"), "RemoveFilesystem installed/repo-pq/sc-pq")
 	})
 
 	// Verify quotas exist before purge via direct storage.
@@ -508,13 +488,9 @@ func TestSystemControllerPurgeVolumesMultipleChildren(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		for _, name := range slices.Backward(names) {
-			if err := btr.RemoveFilesystem(name); err != nil {
-				t.Logf("cleanup RemoveFilesystem: %v", err)
-			}
+			logCleanupf(t, btr.RemoveFilesystem(name), "RemoveFilesystem %s", name)
 		}
-		if err := btr.RemoveFilesystem("installed/repo-pmulti/sc-pmulti"); err != nil {
-			t.Logf("cleanup RemoveFilesystem: %v", err)
-		}
+		logCleanupf(t, btr.RemoveFilesystem("installed/repo-pmulti/sc-pmulti"), "RemoveFilesystem installed/repo-pmulti/sc-pmulti")
 	})
 
 	if err := c.PurgeVolumes(context.TODO(), "repo-pmulti", "sc-pmulti"); err != nil {

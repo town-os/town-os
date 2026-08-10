@@ -211,9 +211,7 @@ func TestNetworkReconcileRealSystemd(t *testing.T) {
 		t.Cleanup(func() {
 			cctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
-			if err := systemd.NewManager().UninstallUnit(cctx, unit); err != nil && !os.IsNotExist(err) {
-				t.Logf("cleanup UninstallUnit %s: %v", unit, err)
-			}
+			logCleanupf(t, systemd.NewManager().UninstallUnit(cctx, unit), "UninstallUnit %s", unit)
 		})
 	}
 

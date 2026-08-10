@@ -28,9 +28,7 @@ func TestBtrFS(t *testing.T) {
 		t.Fatalf("Could not create filesystem %s: %v", name, err)
 	}
 	t.Cleanup(func() {
-		if err := btr.RemoveFilesystem(name); err != nil {
-			t.Logf("cleanup RemoveFilesystem(%s): %v", name, err)
-		}
+		logCleanupf(t, btr.RemoveFilesystem(name), "RemoveFilesystem(%s)", name)
 	})
 
 	list, err := btr.ListFilesystems("")

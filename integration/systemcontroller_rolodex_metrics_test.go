@@ -90,12 +90,8 @@ func TestRolodexServesPrometheusMetrics(t *testing.T) {
 
 	t.Cleanup(func() {
 		cleanupCtx := context.Background()
-		if err := sd.SetStatus(cleanupCtx, unitName, systemd.Stop); err != nil {
-			t.Logf("cleanup SetStatus(stop): %v", err)
-		}
-		if err := sd.UninstallUnit(cleanupCtx, unitName); err != nil {
-			t.Logf("cleanup UninstallUnit: %v", err)
-		}
+		logCleanupf(t, sd.SetStatus(cleanupCtx, unitName, systemd.Stop), "SetStatus(stop)")
+		logCleanupf(t, sd.UninstallUnit(cleanupCtx, unitName), "UninstallUnit")
 	})
 
 	// Scrape the address the Prometheus job is built from, not a recomposed

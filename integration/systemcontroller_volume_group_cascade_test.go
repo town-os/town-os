@@ -39,18 +39,13 @@ func TestSystemControllerCascadeVolumeGroupDeleteRealSystemd(t *testing.T) {
 		cleanup := systemd.NewManager()
 		ctx := context.Background()
 		for _, name := range systemd.PackageUnitNames("core", "nginx", "1.0", packages.PortMap{8180: 80}, packages.PortMap{}) {
-			if err := cleanup.SetStatus(ctx, name, systemd.Stop); err != nil {
-				t.Logf("cleanup stop %s: %v", name, err)
-			}
-			if err := cleanup.SetStatus(ctx, name, systemd.Disable); err != nil {
-				t.Logf("cleanup disable %s: %v", name, err)
-			}
-			if err := cleanup.UninstallUnit(ctx, name); err != nil {
-				t.Logf("cleanup uninstall %s: %v", name, err)
-			}
+			logCleanupf(t, cleanup.SetStatus(ctx, name, systemd.Stop), "stop %s", name)
+			logCleanupf(t, cleanup.SetStatus(ctx, name, systemd.Disable), "disable %s", name)
+			logCleanupf(t, cleanup.UninstallUnit(ctx, name), "uninstall %s", name)
 		}
-		// Also remove the on-disk unit file just in case.
-		_ = os.Remove("/etc/systemd/system/" + unitName)
+		// Also remove the on-disk unit file just in case. Almost always
+		// already gone, which logCleanupf treats as the success it is.
+		logCleanupf(t, os.Remove("/etc/systemd/system/"+unitName), "remove %s", unitName)
 	})
 
 	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {

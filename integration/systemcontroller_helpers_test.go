@@ -233,15 +233,9 @@ WantedBy=multi-user.target
 	// then the unit is stopped and removed.
 	t.Cleanup(func() {
 		cleanupCtx := context.Background()
-		if err := sd.SetStatus(cleanupCtx, unitName, systemd.Stop); err != nil {
-			t.Logf("cleanup SetStatus(%s, stop): %v", unitName, err)
-		}
-		if err := sd.SetStatus(cleanupCtx, unitName, systemd.Disable); err != nil {
-			t.Logf("cleanup SetStatus(%s, disable): %v", unitName, err)
-		}
-		if err := sd.UninstallUnit(cleanupCtx, unitName); err != nil {
-			t.Logf("cleanup UninstallUnit(%s): %v", unitName, err)
-		}
+		logCleanupf(t, sd.SetStatus(cleanupCtx, unitName, systemd.Stop), "SetStatus(%s, stop)", unitName)
+		logCleanupf(t, sd.SetStatus(cleanupCtx, unitName, systemd.Disable), "SetStatus(%s, disable)", unitName)
+		logCleanupf(t, sd.UninstallUnit(cleanupCtx, unitName), "UninstallUnit(%s)", unitName)
 	})
 
 	mock := storage.InitBtrFSMock()

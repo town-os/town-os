@@ -182,12 +182,8 @@ func initRolodexRealTestWith(t *testing.T, forwarders []string, rbl, dnsbl rolod
 
 	t.Cleanup(func() {
 		cleanupCtx := context.Background()
-		if err := sd.SetStatus(cleanupCtx, unitName, systemd.Stop); err != nil {
-			t.Logf("cleanup SetStatus(stop): %v", err)
-		}
-		if err := sd.UninstallUnit(cleanupCtx, unitName); err != nil {
-			t.Logf("cleanup UninstallUnit: %v", err)
-		}
+		logCleanupf(t, sd.SetStatus(cleanupCtx, unitName, systemd.Stop), "SetStatus(stop)")
+		logCleanupf(t, sd.UninstallUnit(cleanupCtx, unitName), "UninstallUnit")
 	})
 
 	// Verify the unit actually started before waiting for the socket.
@@ -300,12 +296,8 @@ func TestRolodexRealContainerStart(t *testing.T) {
 	}
 
 	t.Cleanup(func() {
-		if err := sd.SetStatus(ctx, unitName, systemd.Stop); err != nil {
-			t.Logf("cleanup SetStatus(stop): %v", err)
-		}
-		if err := sd.UninstallUnit(ctx, unitName); err != nil {
-			t.Logf("cleanup UninstallUnit: %v", err)
-		}
+		logCleanupf(t, sd.SetStatus(ctx, unitName, systemd.Stop), "SetStatus(stop)")
+		logCleanupf(t, sd.UninstallUnit(ctx, unitName), "UninstallUnit")
 	})
 
 	// Wait for systemd to bring the container up.

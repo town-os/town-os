@@ -42,12 +42,8 @@ func TestUIContainerRealStartAndAccessible(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		unitName := systemd.SystemServiceUnitName("ui")
-		if err := sd.SetStatus(ctx, unitName, systemd.Stop); err != nil {
-			t.Logf("cleanup SetStatus(stop): %v", err)
-		}
-		if err := sd.UninstallUnit(ctx, unitName); err != nil {
-			t.Logf("cleanup UninstallUnit: %v", err)
-		}
+		logCleanupf(t, sd.SetStatus(ctx, unitName, systemd.Stop), "SetStatus(stop)")
+		logCleanupf(t, sd.UninstallUnit(ctx, unitName), "UninstallUnit")
 	})
 
 	var status ui.Status

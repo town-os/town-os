@@ -6,6 +6,7 @@ package integration_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"os"
 	"os/exec"
@@ -75,15 +76,9 @@ func TestSystemControllerInstallWithRealSystemd(t *testing.T) {
 		ctx := context.Background()
 		allUnits := systemd.PackageUnitNames("core", "nginx", "1.0", packages.PortMap{8080: 80}, packages.PortMap{})
 		for _, name := range allUnits {
-			if err := cleanup.SetStatus(ctx, name, systemd.Stop); err != nil {
-				t.Logf("cleanup: SetStatus stop %s: %v", name, err)
-			}
-			if err := cleanup.SetStatus(ctx, name, systemd.Disable); err != nil {
-				t.Logf("cleanup: SetStatus disable %s: %v", name, err)
-			}
-			if err := cleanup.UninstallUnit(ctx, name); err != nil {
-				t.Logf("cleanup: UninstallUnit %s: %v", name, err)
-			}
+			logCleanupf(t, cleanup.SetStatus(ctx, name, systemd.Stop), "SetStatus stop %s", name)
+			logCleanupf(t, cleanup.SetStatus(ctx, name, systemd.Disable), "SetStatus disable %s", name)
+			logCleanupf(t, cleanup.UninstallUnit(ctx, name), "UninstallUnit %s", name)
 		}
 	})
 
@@ -204,26 +199,36 @@ func initSystemControllerRealContainerTest(t *testing.T) *systemcontroller.Syste
 func cleanupContainerUnits(t *testing.T, repo, pkgName, version string, external, internal packages.PortMap) {
 	t.Helper()
 	cleanup := systemd.NewManager()
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
 	allUnits := systemd.PackageUnitNames(repo, pkgName, version, external, internal)
 	for _, name := range allUnits {
-		if err := cleanup.SetStatus(ctx, name, systemd.Stop); err != nil {
-			t.Logf("cleanup: SetStatus stop %s: %v", name, err)
-		}
-		if err := cleanup.SetStatus(ctx, name, systemd.Disable); err != nil {
-			t.Logf("cleanup: SetStatus disable %s: %v", name, err)
-		}
-		if err := cleanup.UninstallUnit(ctx, name); err != nil {
-			t.Logf("cleanup: UninstallUnit %s: %v", name, err)
-		}
+		logCleanupf(t, cleanup.SetStatus(ctx, name, systemd.Stop), "SetStatus stop %s", name)
+		logCleanupf(t, cleanup.SetStatus(ctx, name, systemd.Disable), "SetStatus disable %s", name)
+		logCleanupf(t, cleanup.UninstallUnit(ctx, name), "UninstallUnit %s", name)
 	}
+	// --ignore is what makes the ordinary case silent: the unit's own ExecStop
+	// has usually already removed the container, and without it podman exits
+	// 125 with nothing on stderr, which is indistinguishable from a real
+	// failure. With it, an error here means the container is genuinely stuck.
 	containerName := systemd.ContainerName(repo, pkgName, version)
-	if err := exec.CommandContext(context.TODO(), "podman","stop", "-t", "10", containerName).Run(); err != nil {
-		t.Logf("cleanup: podman stop %s: %v", containerName, err)
+	logCleanupf(t, podmanCleanup(ctx, "stop", "--ignore", "-t", "10", containerName), "podman stop %s", containerName)
+	logCleanupf(t, podmanCleanup(ctx, "rm", "-f", "--ignore", containerName), "podman rm %s", containerName)
+}
+
+// podmanCleanup runs a podman teardown command, folding its output into the
+// error. exec.Cmd.Run alone reports "exit status 125" and drops the sentence
+// that says why, which is the difference between a leak worth chasing and a
+// container that was already gone.
+func podmanCleanup(ctx context.Context, args ...string) error {
+	out, err := exec.CommandContext(ctx, "podman", args...).CombinedOutput()
+	if err != nil {
+		if trimmed := strings.TrimSpace(string(out)); trimmed != "" {
+			return fmt.Errorf("%w: %s", err, trimmed)
+		}
+		return err
 	}
-	if err := exec.CommandContext(context.TODO(), "podman","rm", "-f", containerName).Run(); err != nil {
-		t.Logf("cleanup: podman rm %s: %v", containerName, err)
-	}
+	return nil
 }
 
 // waitForContainer polls podman inspect until the container reaches "running"

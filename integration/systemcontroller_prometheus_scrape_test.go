@@ -170,9 +170,7 @@ func prometheusScrapeDir(t *testing.T) string {
 		t.Fatalf("MkdirTemp under /town-os: %v", err)
 	}
 	t.Cleanup(func() {
-		if err := os.RemoveAll(dir); err != nil {
-			t.Logf("cleanup %s: %v", dir, err)
-		}
+		logCleanupf(t, os.RemoveAll(dir), "RemoveAll %s", dir)
 	})
 	return dir
 }
@@ -226,12 +224,8 @@ func startRolodexForScrape(t *testing.T) string {
 	}
 	t.Cleanup(func() {
 		cleanupCtx := context.Background()
-		if err := sd.SetStatus(cleanupCtx, uf.Name, systemd.Stop); err != nil {
-			t.Logf("cleanup rolodex stop: %v", err)
-		}
-		if err := sd.UninstallUnit(cleanupCtx, uf.Name); err != nil {
-			t.Logf("cleanup rolodex uninstall: %v", err)
-		}
+		logCleanupf(t, sd.SetStatus(cleanupCtx, uf.Name, systemd.Stop), "rolodex stop")
+		logCleanupf(t, sd.UninstallUnit(cleanupCtx, uf.Name), "rolodex uninstall")
 	})
 
 	return mgr.MetricsAddr()
