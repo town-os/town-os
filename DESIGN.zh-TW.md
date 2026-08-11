@@ -1,39 +1,40 @@
 # Town OS 設計
 
-Town OS 如何運作：架構、各子系統的行為、API 介面，以及維繫它們的不變數。
-構建說明、測試規則與程式碼風格在 [CLAUDE.md](CLAUDE.md) 中。
+Town OS 如何運作：架構、各子系統的行為、API 介面，以及維繫它們的不變量。
+構建說明、測試規則與程式碼風格在 [CLAUDE.md](CLAUDE.md)（繁體中文譯本見
+[CLAUDE.zh-TW.md](CLAUDE.zh-TW.md)）中。
 
 > **本文件是 [DESIGN.md](DESIGN.md) 的繁體中文譯本。英文原件為準。**
-> 簡體中文譯本見 [DESIGN.zh-Hans.md](DESIGN.zh-Hans.md)；西班牙語譯本見
+> 簡體中文譯本見 [DESIGN.zh-CN.md](DESIGN.zh-CN.md)；西班牙語譯本見
 > [DESIGN.es-ES.md](DESIGN.es-ES.md)（西班牙）與 [DESIGN.es-MX.md](DESIGN.es-MX.md)（墨西哥）。
-> 兩者出現分歧時，以英文原件為準，並應修正譯文。程式碼識別字、檔案路徑、
+> 兩者出現分歧時，以英文原件為準，並應修正譯文。程式碼識別符號、檔案路徑、
 > 命令、環境變數、API 路徑與 YAML 鍵名一律保留原文，不作翻譯。
 
 行為上的改動應當在做出該改動的同一個提交中寫入本檔案。倉庫構建方式或測試方式
 的改動則屬於 CLAUDE.md。
 
-## 架構不變數
+## 架構不變量
 
 這些規則約束的是設計，而非程式碼。違反其中任何一條都不會讓構建或 linter 失敗——
-它產生的是一臺能啟動、但隨後行為失常的機器，而且失常之處通常離改動很遠。
+它產生的是一台能啟動、但隨後行為失常的機器，而且失常之處通常離改動很遠。
 
-- **儲存層管理卷；gfeh 提供物件儲存。** `src/storage` 只處理 btrfs 子卷與配額，別無其他——它完全不負責物件儲存。物件、每個檔案的後設資料與許可權、分層的使用者/ACL 資料庫、共享、按檔案的 HTTP 暴露、聯邦，以及每一種協議檢視（S3、IPFS、Google Drive、純 HTTP——以及 SMB/CIFS，gfehd 實現了它但 Town OS 不提供服務）都屬於 gfeh，由它負責。絕不要向 `src/storage` 或 `/storage/*` 新增物件/blob/按檔案的端點，也絕不要讓 `storage.Storage` 或 `storage.Controller` 知道使用者、許可權或協議。參見 [Storage](#儲存)。
+- **儲存層管理卷；gfeh 提供物件儲存。** `src/storage` 只處理 btrfs 子卷與配額，別無其他——它完全不負責物件儲存。物件、每個檔案的後設資料與權限、分層的使用者/ACL 資料庫、共享、按檔案的 HTTP 暴露、聯邦，以及每一種協議檢視（S3、IPFS、Google Drive、純 HTTP——以及 SMB/CIFS，gfehd 實現了它但 Town OS 不提供服務）都屬於 gfeh，由它負責。絕不要向 `src/storage` 或 `/storage/*` 新增物件/blob/按檔案的端點，也絕不要讓 `storage.Storage` 或 `storage.Controller` 知道使用者、權限或協議。參見 [Storage](#儲存)。
 
 - **Pages 功能始終啟用** —— pages 子系統（通過 Caddy 託管靜態站點）在啟動時無條件初始化；不存在 `TOWN_OS_PAGES` 環境變數開關。正常啟動時 pages manager 非 nil，因此 pages API 始終可用。處理器仍保留一個防禦性的 nil-manager 保護，返回 "pages not configured"（由那些構建伺服器時不帶 `ServerConfig.PagesMgr` 的測試觸發），但真實啟動永遠不會走到那裡。
 
-- **版本變更檢測與單元重啟** —— systemcontroller 通過比較執行中容器的映象 SHA（取自 `/proc/1/cgroup` → `podman inspect`）與持久化在 `<btrfsPath>/town-os-version` 的版本檔案來檢測映象升級。版本變更時：(1) 拉取所有容器映象，(2) 重建 NC 映象，(3) reconcile 重新生成所有 systemd 單元，(4) 內容發生變化的單元按順序重啟：先 NC 單元（它們擁有網路），再依賴服務，最後父服務/獨立服務，(5) 對於單元發生變化的容器包，通過 `podman exec` 執行更新後命令（`post_update` 欄位）。版本檔案在 reconcile 成功之後寫入。單元內容通過 `ReadUnit()` 在前後比對，以避免內容未變時的無謂重啟。
+- **版本變更檢測與單元重啟** —— systemcontroller 通過比較執行中容器的鏡像 SHA（取自 `/proc/1/cgroup` → `podman inspect`）與持久化在 `<btrfsPath>/town-os-version` 的版本檔案來檢測鏡像升級。版本變更時：(1) 拉取所有容器鏡像，(2) 重建 NC 鏡像，(3) reconcile 重新生成所有 systemd 單元，(4) 內容發生變化的單元按順序重啟：先 NC 單元（它們擁有網路），再依賴服務，最後父服務/獨立服務，(5) 對於單元發生變化的容器包，通過 `podman exec` 執行更新後命令（`post_update` 欄位）。版本檔案在 reconcile 成功之後寫入。單元內容通過 `ReadUnit()` 在前後比對，以避免內容未變時的無謂重啟。
 
-- **網路控制器映象是拉取的，而非啟動時構建** —— NC 映象是一個已釋出的同族映象（`quay.io/town/networkcontroller:<tag>`，標籤來自 `resolveImageTag()`），與其他核心映象一同拉取，就像 UI、rolodex 與 ingress 映象一樣。它**不會**在啟動過程中用 `podman build` 構建；早先的啟動時構建（`localhost/town-os-networkcontroller:local`，alpine 基礎映象，`--dns=8.8.8.8`）已經移除。`NC_IMAGE` 覆蓋推匯出的預設值，整合測試框架正是用它注入本地構建的映象。拉取失敗不是致命的：每個包的 NC 單元都帶有一個 `ExecStartPre` 的 `--pull=never` 網路建立兜底，因此失敗的拉取可以在下次啟動時恢復。
+- **網路控制器鏡像是拉取的，而非啟動時構建** —— NC 鏡像是一個已釋出的同族鏡像（`quay.io/town/networkcontroller:<tag>`，標籤來自 `resolveImageTag()`），與其他核心鏡像一同拉取，就像 UI、rolodex 與 ingress 鏡像一樣。它**不會**在啟動過程中用 `podman build` 構建；早先的啟動時構建（`localhost/town-os-networkcontroller:local`，alpine 基礎鏡像，`--dns=8.8.8.8`）已經移除。`NC_IMAGE` 覆蓋推匯出的預設值，整合測試框架正是用它注入本地構建的鏡像。拉取失敗不是致命的：每個包的 NC 單元都帶有一個 `ExecStartPre` 的 `--pull=never` 網路建立兜底，因此失敗的拉取可以在下次啟動時恢復。
 
 - **所有監控服務都是系統服務** —— Prometheus、Node Exporter 與監控 UI 全部執行在系統服務名稱空間下（`town-os-system--` 字首），在 reconcile 之前直接由 `main.go` 啟動。它們從不通過包倉庫系統安裝；不存在可安裝的 "monitoring" 包。這三個服務是：`town-os-system--node-exporter.service`（宿主機網路，埠 9100）、`town-os-system--prometheus.service`（埠 9090，從 `{btrfsBase}/monitoring/` 繫結掛載配置與資料）、`town-os-system--monitoring-ui.service`（埠 5308）。監控 UI 服務執行的要麼是 socat 轉發器（uPlot 模式，預設），要麼是 Grafana（grafana 模式），由 `monitoring_backend` 設定控制。Prometheus 配置直接寫入磁碟。Prometheus、Grafana 與 uPlot 的 socat 轉發器都通過設定了 `PackageUnitConfig.SystemServiceKey` 的 `systemd.GeneratePackageUnits` 生成，因此它們同樣獲得完整的網路控制器、socket 啟用與私有 podman 網路——與普通包相同的管路，只是採用系統服務的命名。
 
-- **宿主機卷的屬主在 `HostVolumeMount` 上以宣告方式指定，且不遞迴** —— 內部 uid 寫死的容器映象（Grafana 的 `472`、Prometheus 的 `65534` 等）需要寫入其繫結掛載的宿主機路徑，而繫結掛載會直接透傳宿主機的屬主資訊，因此宿主機路徑必須在容器啟動前就屬於該 uid:gid。我們使用繫結掛載（而不是命名的 podman 卷，那樣 podman 會在首次建立時自動 chown），因為我們希望資料位於帶配額的 btrfs 子捲上。`src/systemd/unit.go` 中的 `systemd.HostVolumeMount` 結構體帶有可選的 `UID *uint32` 與 `GID *uint32` 欄位；當兩者都設定時，單元生成器會為該掛載點在 `ExecStartPre=/bin/mkdir -p` 各行之後、`podman run` 之前發出 **`ExecStartPre=/bin/chown <uid>:<gid> <hostpath>`**（不帶 `-R`）。這是系統服務上宿主機繫結掛載卷屬主的唯一宣告式來源，取代了此前在 `GrafanaPackageConfig` 與 `PrometheusPackageConfig` 中手寫的 `ExecStartPreExtra` chown 條目。
+- **宿主機卷的屬主在 `HostVolumeMount` 上以宣告方式指定，且不遞迴** —— 內部 uid 寫死的容器鏡像（Grafana 的 `472`、Prometheus 的 `65534` 等）需要寫入其繫結掛載的宿主機路徑，而繫結掛載會直接透傳宿主機的屬主資訊，因此宿主機路徑必須在容器啟動前就屬於該 uid:gid。我們使用繫結掛載（而不是命名的 podman 卷，那樣 podman 會在首次建立時自動 chown），因為我們希望資料位於帶配額的 btrfs 子捲上。`src/systemd/unit.go` 中的 `systemd.HostVolumeMount` 結構體帶有可選的 `UID *uint32` 與 `GID *uint32` 欄位；當兩者都設定時，單元生成器會為該掛載點在 `ExecStartPre=/bin/mkdir -p` 各行之後、`podman run` 之前發出 **`ExecStartPre=/bin/chown <uid>:<gid> <hostpath>`**（不帶 `-R`）。這是系統服務上宿主機繫結掛載卷屬主的唯一宣告式來源，取代了此前在 `GrafanaPackageConfig` 與 `PrometheusPackageConfig` 中手寫的 `ExecStartPreExtra` chown 條目。
 
   chown 刻意不遞迴，這已經足夠，原因是：
   1. **可寫掛載**（`grafana-data` → `/var/lib/grafana`，`prometheus-data` → `/prometheus`）只需要頂層屬主正確，容器就能在其中建立自己的子目錄。容器程序以自己的 uid（472 或 65534）建立這些子項，因此它們本來就屬主正確，永遠不會漂移。無需遞迴。
-  2. **只讀掛載**（`grafana-provisioning` → `/etc/grafana/provisioning`）根本不宣告 UID/GID，也不會產生 chown 行。只要宿主機許可權是 0755/0644（`WriteGrafanaProvisioningFiles` 就是這樣設定的），任何 uid 都能讀取其內容，與屬主是誰無關。
+  2. **只讀掛載**（`grafana-provisioning` → `/etc/grafana/provisioning`）根本不宣告 UID/GID，也不會產生 chown 行。只要宿主機權限是 0755/0644（`WriteGrafanaProvisioningFiles` 就是這樣設定的），任何 uid 都能讀取其內容，與屬主是誰無關。
 
-  `EnsureGrafanaStorage`（`src/monitoring/monitoring_ui.go`）現在只建立目錄然後返回；它完全不做 chown。`WriteGrafanaProvisioningFiles` 以全域性可讀的許可權寫出資料來源與儀表板的 YAML/JSON 檔案，之後無需再修正屬主。過去每次啟動都遍歷 `grafana-data` 的、基於 `filepath.WalkDir` 的程序內 chown 已經移除；由 systemd 發出的那一次 `chown` 系統呼叫就是權威的修正。uid/gid 常量仍留在各自的檔案中（`monitoring_ui.go` 中的 `grafanaUID = 472` / `grafanaGID = 472`，`prometheus.go` 中的 `prometheusUID = 65534` / `prometheusGID = 65534`）；除非上游容器映象也隨之改變，否則不要改動它們。
+  `EnsureGrafanaStorage`（`src/monitoring/monitoring_ui.go`）現在只建立目錄然後返回；它完全不做 chown。`WriteGrafanaProvisioningFiles` 以全域可讀的權限寫出資料來源與儀表板的 YAML/JSON 檔案，之後無需再修正屬主。過去每次啟動都遍歷 `grafana-data` 的、基於 `filepath.WalkDir` 的程序內 chown 已經移除；由 systemd 發出的那一次 `chown` 系統呼叫就是權威的修正。uid/gid 常量仍留在各自的檔案中（`monitoring_ui.go` 中的 `grafanaUID = 472` / `grafanaGID = 472`，`prometheus.go` 中的 `prometheusUID = 65534` / `prometheusGID = 65534`）；除非上游容器鏡像也隨之改變，否則不要改動它們。
 
 - **網路狀態目錄必須與宿主機共享** —— `-network-state` 的預設值是 `/run/town-os`（`src/svc/systemcontroller/cmd/systemcontroller/main.go` 中的 `DefaultNetworkStatePath`）。systemcontroller 執行在容器內，卻通過 `CONTAINER_HOST` 在宿主機上建立 NC 容器，因此繫結掛載的源路徑（每個 NC 單元中的 `-v /run/town-os:/run/town-os:ro`）必須存在於宿主機檔案系統上。install 倉庫中的 systemcontroller systemd 單元必須繫結掛載 `/run/town-os:/run/town-os`，並確保在 systemcontroller 啟動之前該宿主機目錄已經存在（`ExecStartPre=/usr/bin/mkdir -p /run/town-os` 或 `RuntimeDirectory=town-os`）。沒有這個掛載，systemcontroller 的 `os.MkdirAll` 與狀態檔案寫入都會落在容器的 tmpfs 裡，宿主機目錄並不存在，NC 容器隨即以 `Error: statfs /run/town-os: no such file or directory` 啟動失敗——進而拖垮 Prometheus、監控 UI 以及每一個帶網路的包。絕不要把預設值設為 `/var/run/town-os`，或 `/var/run`、`/tmp` 之下的任何路徑；該路徑必須位於 `/run` 之下（或另一個與宿主機共享的繫結掛載中），並且在掛載兩側必須是同一個路徑。
 
@@ -48,41 +49,41 @@ Town OS 如何運作：架構、各子系統的行為、API 介面，以及維�
 3. **用啟動處理器繫結 `:5309`** —— `NewBootStatus()` + `NewRootHandler(NewBootHandler(bs))` 在任何啟動工作之前立即繫結監聽。在第 24 步的切換髮生之前，該套接字只應答 `GET /status/ping`（503，附 `{booting, step, done, boot_id}`）與 `GET /boot-status`（SSE）；其餘一律 403。
 4. **階段 `boot_controller`** —— 臨時工作目錄；建立 btrfs 基礎目錄與網路狀態目錄；清除舊部署遺留在 btrfs 根上的陳舊 `town-os.db`（`cleanupStaleRootDB`），並拒絕會重新建立它的 `-db` 路徑（`validateDBPath`）——執行時資料庫位於 `<btrfsBase>/data/db/system.db`，絕不在根目錄。
 5. **開啟 SQLite 資料庫** —— 設定了 `-db` 則持久化，否則使用臨時檔案。
-6. **初始化賬戶 manager** —— 建立 accounts 表並遷移舊錶（能力列轉為 grants；`smb_nt_hash` 被丟棄）。隨後 `PurgeLegacyServiceAccounts` **(非致命)** 在升級後的首次啟動時，一次性移除物件儲存守護程序舊的管理員賬戶及其儲存的密碼——參見 [No service accounts](#沒有服務賬戶)。
+6. **初始化帳戶 manager** —— 建立 accounts 表並遷移舊錶（能力列轉為 grants；`smb_nt_hash` 被丟棄）。隨後 `PurgeLegacyServiceAccounts` **(非致命)** 在升級後的首次啟動時，一次性移除物件儲存守護程序舊的管理員帳戶及其儲存的密碼——參見 [No service accounts](#沒有服務帳戶)。
 7. **生成臨時 JWT 簽名金鑰** —— 通過 `crypto/rand` 取 32 位元組隨機數，可用 `TOWN_OS_SIGNING_KEY` 覆蓋。初始化會話 manager，它會清除此前所有會話（舊令牌在新金鑰下無效）。
 8. **初始化審計、設定、pages 與網路 manager** —— 設定項以預設值播種（`default_quota`、`max_archive_size`、`locale`、`dns_tld`、`dns_resolution_mode`、`peer_ttl` 等）；pages 始終初始化；網路 manager 擁有 WireGuard 網路表與 peer 表，**並播種 home 網路**，因此從此刻起它必然存在（參見 [The home network always exists](#home-網路始終存在)）。
 9. **播種倉庫** —— 若 `repositories.json` 不存在，寫入預設倉庫（若設定了 `TOWN_OS_TEST`/`DEBUG` 則寫入測試倉庫）。應用 `TOWN_OS_REPO_USERNAME`/`TOWN_OS_REPO_PASSWORD` 憑據。
 10. **初始化倉庫根並強制重新整理** —— 通過 go-git 克隆/拉取所有已配置的倉庫。
 11. **初始化安裝 manager、btrfs 儲存、systemd manager**。
-12. **解析映象標籤** —— `resolveImageTag()`：優先取 `TOWN_OS_TAG` 環境變數（由 install 構建系統設定），否則取 `rc.latest-<arch>`（`defaultVersionTag()`，架構由 `runtime.GOARCH` 經 `archTag()` 對映為 `x86_64`/`aarch64`）。不存在 `/town-os.tag` 檔案，也沒有編譯期的 `Version` 固定值。每一個同族映象標籤（UI、rolodex、network controller、ingress）都由這一個值推導；推送標籤是按架構分的，因此推匯出的同族標籤也是。
-13. **推導 NC 映象** —— `quay.io/town/networkcontroller:<tag>`，可通過 `NC_IMAGE` 覆蓋。它是拉取的（第 17 步），從不構建。
-14. **啟動後臺倉庫重新整理** —— goroutine 每 5 分鐘輪詢一次。
+12. **解析鏡像標籤** —— `resolveImageTag()`：優先取 `TOWN_OS_TAG` 環境變數（由 install 構建系統設定），否則取 `rc.latest-<arch>`（`defaultVersionTag()`，架構由 `runtime.GOARCH` 經 `archTag()` 對映為 `x86_64`/`aarch64`）。不存在 `/town-os.tag` 檔案，也沒有編譯期的 `Version` 固定值。每一個同族鏡像標籤（UI、rolodex、network controller、ingress）都由這一個值推導；推送標籤是按架構分的，因此推匯出的同族標籤也是。
+13. **推導 NC 鏡像** —— `quay.io/town/networkcontroller:<tag>`，可通過 `NC_IMAGE` 覆蓋。它是拉取的（第 17 步），從不構建。
+14. **啟動後台倉庫重新整理** —— goroutine 每 5 分鐘輪詢一次。
 15. **階段 `boot_dns`：寫入 Rolodex 配置，內容變化則重啟** **(非致命)** —— Rolodex 是由 systemd 管理的啟動服務。systemcontroller 寫出 `rolodex.yml`（冪等：若該檔案比二進位制更新且內容未變則跳過），並且僅在檔案確實被寫入時才重啟服務。`resolution.mode` 來自 `dns_resolution_mode` 設定；儲存值無法解析時回退到預設值，而不是渲染出一份 rolodex 會拒絕的配置。`forwarders:` 來自 `dns_local_forwarders` 設定：開啟時，該列表在每次啟動時從宿主機的解析器中發現，因此換了網路的機器無需操作者做任何事就能用上新的解析器（參見 [Local forwarders](#本地轉發器)）。rolodex 容器以 `--net host` 執行，並直接把 DNS 繫結到 `127.0.0.2:{port}`。隨後等待 DNS 就緒（TCP 連線輪詢），並配置 systemd-resolved 把該 TLD 路由到 rolodex——**當 `TOWN_OS_DNS_PORT` 已把 rolodex 從 `:53` 遷走時，這一步被跳過**，因為 resolved 的按域名伺服器地址不攜帶埠，那樣會讓該 TLD 下的每一次查詢都被黑洞吞掉。
 16. **讀取監控後端並發現 btrfs 磁碟裝置** —— `monitoring_backend`（預設 `uplot`）；`monitoring.BtrfsDevices(btrfsPath)` **(非致命)** 通過 `/monitoring/status` 暴露底層塊裝置。
-17. **階段 `boot_services`：拉取核心容器映象** **(非致命)** —— NC 映象、Prometheus、Node Exporter、UI 映象，以及在選中該後端時的 Grafana，通過 `parallelEnsureImages` 並行拉取（映象已載入時跳過拉取）。
+17. **階段 `boot_services`：拉取核心容器鏡像** **(非致命)** —— NC 鏡像、Prometheus、Node Exporter、UI 鏡像，以及在選中該後端時的 Grafana，通過 `parallelEnsureImages` 並行拉取（鏡像已載入時跳過拉取）。
 18. **啟動監控系統服務** **(全部非致命)** —— 先拆除上一版設計遺留的 NC/socket 監控單元（它們仍佔用 `-p 9090`/`-p 5308`，會讓新服務不斷崩潰重啟）。Node Exporter、Prometheus 與監控 UI 都以 `--net host` 執行；node-exporter 與 Prometheus 繫結環回地址，只有監控 UI 的 `:5308` 面向區域網。這三個埠都來自 `monitoringPortsFromEnv()`，其零值即為生產預設值（[System-service host ports](#系統服務的宿主機埠)）。隨後安裝每夜執行的 podman prune 定時器 **(非致命)**。
 19. **確保本地 TLS CA 存在** **(非致命)** —— 在 reconcile 之前執行 `tls.EnsureCA(<btrfsPath>/tls)`，這樣 reconcile 遍歷已安裝包時才能簽發葉子證書。
-20. **啟動 ingress 與 pages 服務** **(非致命)** —— `ingressctl.Manager` 安裝並啟動 `town-os-system--ingress`（共享的 `:443` SNI + `:80` Host 路由器），僅當宿主機擁有全域性 IPv6 時才啟用雙棧。pages 的 Caddy 服務隨之啟動。當 `INGRESS_IMAGE` 被顯式設為空時（開發模式），兩者都會跳過。
+20. **啟動 ingress 與 pages 服務** **(非致命)** —— `ingressctl.Manager` 安裝並啟動 `town-os-system--ingress`（共享的 `:443` SNI + `:80` Host 路由器），僅當宿主機擁有全域 IPv6 時才啟用雙棧。pages 的 Caddy 服務隨之啟動。當 `INGRESS_IMAGE` 被顯式設為空時（開發模式），兩者都會跳過。
 21. **Reconcile 物件儲存** **(非致命)** —— `ReconcileGfeh` 確保每個網路有一個 gfeh 分割槽：`gfeh/<network>` 子卷（chown 給 uid 2000）、渲染出的 `gfehd.yaml`，以及 `town-os-system--gfeh-<network>` 單元，且僅在渲染內容發生變化時才重啟。當 `GFEH_IMAGE` 被顯式置空時整體跳過；當 ingress 被停用時也跳過（四個 HTTP 檢視只能經由它訪問）。分割槽的*名稱*會在稍後非同步釋出——見第 30 步。參見 [Object Storage (gfeh)](#物件儲存gfeh)。
-22. **檢測版本變更** —— 將執行中容器的映象 SHA（`/proc/1/cgroup` → `podman inspect`）與 `<btrfsPath>/town-os-version` 比較。為 reconcile 設定 `versionChanged`。
+22. **檢測版本變更** —— 將執行中容器的鏡像 SHA（`/proc/1/cgroup` → `podman inspect`）與 `<btrfsPath>/town-os-version` 比較。為 reconcile 設定 `versionChanged`。
 23. **Reconcile** —— 遍歷所有已安裝的包並恢復執行時狀態：
     - 建立根 btrfs 子卷（`installed`、`uninstalled`、`archives`、`pages`、`vm-images`、`user`、`tls`、`gfeh`）。
     - 對每個已安裝的包（每個 repo/name 取最新版本）：載入 YAML，用儲存的應答編譯，建立帶配額的 btrfs 卷，從歸檔/git/proton 播種空卷，應用檔案模板，簽發該包的 TLS 葉子證書，寫出網路狀態檔案（含解析後的 `fqdn`），生成並安裝 systemd 單元（service + NC + socket），啟動服務。
     - 若 `versionChanged`：重啟內容發生變化的單元（先 NC，再依賴，最後服務），然後執行 `post_update` 命令。
     - Reconcile pages：確保子卷、符號連結與頁面內容就位。
-    隨後把當前映象 SHA 持久化到 `<btrfsPath>/town-os-version`。
-24. **Reconcile DNS 與網路** —— 撥號 rolodex 的 gRPC socket（最多重試 30 秒）。`RebuildDNS` 清空並從零重建 rolodex，從而丟棄上一次崩潰執行留下的漂移；`RebuildNetworkDNS` 為非預設網路的包重新註冊面向區域網的全域性記錄（以及 DANE pin）。隨後 `ReconcileNetworks` 將 home 網路的 TLD 與 `dns_tld` 對齊，並拉起每一個已啟用網路的 WireGuard 介面，同時傳入 rolodex 客戶端，使每個網路的 TLD 作用域都被認領——包括僅 DNS 的 home 作用域。全部非致命。之後物件儲存會被**第二次** reconcile（冪等），這樣本步驟拉起的網路無需等待重啟即可獲得自己的分割槽。
+    隨後把當前鏡像 SHA 持久化到 `<btrfsPath>/town-os-version`。
+24. **Reconcile DNS 與網路** —— 撥號 rolodex 的 gRPC socket（最多重試 30 秒）。`RebuildDNS` 清空並從零重建 rolodex，從而丟棄上一次崩潰執行留下的漂移；`RebuildNetworkDNS` 為非預設網路的包重新註冊面向區域網的全域記錄（以及 DANE pin）。隨後 `ReconcileNetworks` 將 home 網路的 TLD 與 `dns_tld` 對齊，並拉起每一個已啟用網路的 WireGuard 介面，同時傳入 rolodex 客戶端，使每個網路的 TLD 作用域都被認領——包括僅 DNS 的 home 作用域。全部非致命。之後物件儲存會被**第二次** reconcile（冪等），這樣本步驟拉起的網路無需等待重啟即可獲得自己的分割槽。
 25. **編排 ingress** **(非致命)** —— 等待就緒，撥號其 gRPC socket，`RebuildIngress` 以宣告式方式推送完整路由集（HTTP 包 + pages + 物件儲存的檢視與索引），與 `RebuildDNS` 是同一模型。它還會在同一遍中，從構建這些路由所用的同一站點集合渲染每個分割槽的索引頁——路由不能在它所服務的位元組存在之前就被編排（[The partition index](#分割槽索引頁)）。
 26. **啟動 UI 容器** **(非致命)** —— `town-os-system--ui.service`；當 `UI_IMAGE` 被顯式置空時跳過（開發模式，此時由 bun 提供 UI）。
 27. **階段 `restart_packages`：新鮮度階段** —— 若上一個程序留下了重新整理標記，則序列重啟每一個已安裝的包單元，併為每個包發出一條進度事件，讓 UI 各渲染一行。崩潰遺留的陳舊標記是無害的。
-28. **建立 HTTP 處理器** —— 把所有 manager 接入 `ServerConfig`，啟動後臺輪詢器（每小時的外部 IP、DNS 漂移修復、過期 peer 回收），並配置 Echo 路由器的 CORS、失敗即拒的 grant 白名單、鑑權與審計中介軟體。
+28. **建立 HTTP 處理器** —— 把所有 manager 接入 `ServerConfig`，啟動後台輪詢器（每小時的外部 IP、DNS 漂移修復、過期 peer 回收），並配置 Echo 路由器的 CORS、失敗即拒的 grant 白名單、鑑權與審計中介軟體。
 29. **階段 `ready`：切換根處理器** —— 在已經繫結的監聽套接字上，把啟動樁原子地替換為完整的 Echo 路由器，因此不會出現埠抖動，進行中的 `/boot-status` SSE 訂閱者也能安然跨過這次交接。隨後 `BootStatus.Done()` 關閉該事件流。**系統至此就緒。**
-30. **釋出物件儲存的名稱** **(非致命，後臺)** —— `publishGfehNames` 等待至少一個分割槽的管理 socket 有應答，然後重新執行 DNS 與 ingress 重建，使每個分割槽 `/v1/names` 的輸出變成 A 記錄、TLSA pin、葉子證書 SAN 與 ingress vhost。它在切換**之後**、且以非同步方式執行，因為 gfehd 在認證之前會輪詢 `/status/ping`——而後者在第 29 步之前一直返回 503——所以在此處同步等待會讓它所等待的這次啟動自我死鎖。若屆時沒有任何分割槽就緒，這些名稱會由下一次 reconcile 釋出。
-31. **優雅關閉** —— 收到 SIGINT 時：取消 context，以 30 秒超時關閉 HTTP 伺服器。所有後臺 goroutine 通過 context 取消退出。
+30. **釋出物件儲存的名稱** **(非致命，後台)** —— `publishGfehNames` 等待至少一個分割槽的管理 socket 有應答，然後重新執行 DNS 與 ingress 重建，使每個分割槽 `/v1/names` 的輸出變成 A 記錄、TLSA pin、葉子證書 SAN 與 ingress vhost。它在切換**之後**、且以非同步方式執行，因為 gfehd 在認證之前會輪詢 `/status/ping`——而後者在第 29 步之前一直返回 503——所以在此處同步等待會讓它所等待的這次啟動自我死鎖。若屆時沒有任何分割槽就緒，這些名稱會由下一次 reconcile 釋出。
+31. **優雅關閉** —— 收到 SIGINT 時：取消 context，以 30 秒超時關閉 HTTP 伺服器。所有後台 goroutine 通過 context 取消退出。
 
 # Town OS 功能規格說明
 
-Town OS 是面向家庭使用者的自託管雲平臺。它完全從 U 盤在記憶體中執行，把系統的全部儲存用於使用者資料。打包、儲存與網路是完全一體化的。一個 Web UI 為非技術使用者提供管理介面。
+Town OS 是面向家庭使用者的自託管雲平台。它完全從 U 盤在記憶體中執行，把系統的全部儲存用於使用者資料。打包、儲存與網路是完全一體化的。一個 Web UI 為非技術使用者提供管理介面。
 
 ## Git 庫
 
@@ -147,10 +148,10 @@ Town OS 是面向家庭使用者的自託管雲平臺。它完全從 U 盤在記
 
 包以 YAML 定義，結構如下：
 
-- `image` —— 容器映象引用（與 `vm` 互斥）。
+- `image` —— 容器鏡像引用（與 `vm` 互斥）。
 - `vm` —— 虛擬機器配置（與 `image` 互斥）。見下文 **VM 配置**。
 - `proton` —— 用於 Windows 執行檔的 Proton/Wine 執行器配置（與 `vm` 和 `command` 互斥）。見下文 **Proton 配置**。
-- `entrypoint` —— 字串列表，在 podman run 時替換映象內建的 `ENTRYPOINT`。以 `podman run --entrypoint='["..."]'` 形式發出（JSON 陣列，用單引號包裹，使 systemd 原樣轉發）。對於上游 ENTRYPOINT 是一個拒絕任意命令引數的包裝指令碼的映象，這是必需的（例如 `matrixdotorg/synapse` 的 `/start.py` 把第一個引數解釋為 "mode"，遇到任何未知值就報錯——因此想用 `command: [sh, -c, "…"]` 的包必須同時設定 `entrypoint: [sh, -c]`，讓 podman 徹底替換掉 `/start.py`）。僅限容器執行時；對 VM 包會被拒絕（`ErrEntrypointVMNotSupported`），對 Proton 包也會被拒絕（Proton 會自動生成自己的命令）。
+- `entrypoint` —— 字串列表，在 podman run 時替換鏡像內建的 `ENTRYPOINT`。以 `podman run --entrypoint='["..."]'` 形式發出（JSON 陣列，用單引號包裹，使 systemd 原樣轉發）。對於上游 ENTRYPOINT 是一個拒絕任意命令引數的包裝指令碼的鏡像，這是必需的（例如 `matrixdotorg/synapse` 的 `/start.py` 把第一個引數解釋為 "mode"，遇到任何未知值就報錯——因此想用 `command: [sh, -c, "…"]` 的包必須同時設定 `entrypoint: [sh, -c]`，讓 podman 徹底替換掉 `/start.py`）。僅限容器執行時；對 VM 包會被拒絕（`ErrEntrypointVMNotSupported`），對 Proton 包也會被拒絕（Proton 會自動生成自己的命令）。
 - `command` —— 字串列表，成為容器的 CMD（在 entrypoint **之後**傳入的 argv）。僅限容器執行時；與 `proton` 互斥。包含空白或 shell 元字元的多詞引數會在生成的單元檔案中用單引號包裹，使 systemd 的 ExecStart 分詞器把它們作為單個 argv 元素轉發——一個串聯的 `"a && exec b"` 字串仍是一個引數，其中的 `&&` 會被轉發給 `sh -c`（當 entrypoint 為 `[sh, -c]` 時），而不是被 systemd 拆開。
 - `environment` —— 鍵值形式的環境變數（支援模板替換；僅限容器執行時）。
 - `network` —— 外部與內部埠對映（支援模板替換）。
@@ -159,19 +160,19 @@ Town OS 是面向家庭使用者的自託管雲平臺。它完全從 U 盤在記
 - `notes` —— 帶型別的後設資料（URL、電話、郵箱），安裝後展示。型別在編譯期校驗：URL 必須能解析為合法 URL，郵箱必須匹配 `user@domain.tld` 格式，電話號碼必須是數字加可選的格式化字元。
 - `description` —— 人類可讀的包描述。
 - `supplies` —— 該包提供的能力列表。
-- `archives` —— 安裝時用於填充卷的容器映象歸檔列表（僅限容器執行時）。
+- `archives` —— 安裝時用於填充卷的容器鏡像歸檔列表（僅限容器執行時）。
 - `templates` —— 具名檔案模板，通過 Go text/template 渲染進卷中。每個模板指定目標卷、檔案路徑與模板內容。
-- `post_update` —— 在 reconcile 期間檢測到映象 SHA 變化後，於執行中的容器內執行的 shell 命令列表（僅限容器執行時；VM 包不支援）。見下文 **更新後命令**。
+- `post_update` —— 在 reconcile 期間檢測到鏡像 SHA 變化後，於執行中的容器內執行的 shell 命令列表（僅限容器執行時；VM 包不支援）。見下文 **更新後命令**。
 
 ### 執行時型別
 
-每個包都有執行時型別：`container`（預設）或 `vm`。執行時由出現的頂層欄位決定：`image`（或 `proton`）選擇容器執行時（podman），`vm` 選擇 VM 執行時（QEMU）。一個包必須恰好指定 `image`/`proton` 與 `vm` 之一；兩者都指定或都不指定都是校驗錯誤。Proton 包是容器包的一種特化形式——它們使用容器執行時，但會自動生成命令，並從另一個容器映象中提取 Windows 應用檔案。
+每個包都有執行時型別：`container`（預設）或 `vm`。執行時由出現的頂層欄位決定：`image`（或 `proton`）選擇容器執行時（podman），`vm` 選擇 VM 執行時（QEMU）。一個包必須恰好指定 `image`/`proton` 與 `vm` 之一；兩者都指定或都不指定都是校驗錯誤。Proton 包是容器包的一種特化形式——它們使用容器執行時，但會自動生成命令，並從另一個容器鏡像中提取 Windows 應用檔案。
 
 ### VM 配置
 
-`vm` 段配置一臺 QEMU 虛擬機器：
+`vm` 段配置一台 QEMU 虛擬機器：
 
-- `image` —— VM 磁碟映象 URL 或本地檔名（必填）。可以是指向遠端映象的 HTTP/HTTPS URL，也可以是引用 `vm-images` 子卷中已快取映象的檔名。支援 `@variable@` 模板替換。
+- `image` —— VM 磁碟鏡像 URL 或本地檔名（必填）。可以是指向遠端鏡像的 HTTP/HTTPS URL，也可以是引用 `vm-images` 子卷中已快取鏡像的檔名。支援 `@variable@` 模板替換。
 - `memory` —— VM 記憶體，人類可讀的位元組字串（例如 `2gb`、`512mb`）。預設 `1gb`。支援 `@variable@` 模板替換。
 - `cpus` —— 虛擬 CPU 數量。預設 `1`。必須為非負數。
 
@@ -179,17 +180,17 @@ Town OS 是面向家庭使用者的自託管雲平臺。它完全從 U 盤在記
 
 `proton` 段配置一個通過 Proton/Wine 相容層執行的 Windows 應用：
 
-- `app_image` —— 包含 Windows 應用檔案的容器映象引用（必填）。編譯期會被規範化。支援 `@variable@` 模板替換。
+- `app_image` —— 包含 Windows 應用檔案的容器鏡像引用（必填）。編譯期會被規範化。支援 `@variable@` 模板替換。
 - `app_directory` —— 容器內應用安裝位置的絕對路徑（必填，例如 `/app`）。支援 `@variable@` 模板替換。
 - `volume` —— 應用檔案將被提取到的、已定義的包卷名稱（必填）。支援 `@variable@` 模板替換。
 - `exe` —— 要執行的 Windows 執行檔路徑（必填，例如 `/app/myapp.exe`）。支援 `@variable@` 模板替換。
 - `args` —— 傳給執行檔的可選命令列引數。每個元素都支援 `@variable@` 模板替換。
 
-安裝時，系統拉取 `app_image`，把 `app_directory` 提取到指定卷中，並自動生成容器命令 `proton run <exe> [args]`。用於執行該應用的容器映象取自系統級的 `proton_image` 設定（預設 `quay.io/town/proton:latest`），可通過設定 `image` 按包覆蓋。在 reconcile 期間，僅當目標卷為空時才會重複執行應用提取。
+安裝時，系統拉取 `app_image`，把 `app_directory` 提取到指定卷中，並自動生成容器命令 `proton run <exe> [args]`。用於執行該應用的容器鏡像取自系統級的 `proton_image` 設定（預設 `quay.io/town/proton:latest`），可通過設定 `image` 按包覆蓋。在 reconcile 期間，僅當目標卷為空時才會重複執行應用提取。
 
 ### 模板變數
 
-模板替換使用 `@variable_name@` 語法。變數在包編譯期被替換為問題的應答。替換適用於：環境變數值、網路埠名稱與目標、卷掛載點、卷配額、卷歸檔引用、卷 git URL、VM 映象 URL，以及 VM 記憶體值。另有兩個內建變數可用：`@LOCAL_EXTERNAL_HOST@` 與 `@LOCAL_INTERNAL_HOST@`。
+模板替換使用 `@variable_name@` 語法。變數在包編譯期被替換為問題的應答。替換適用於：環境變數值、網路埠名稱與目標、卷掛載點、卷配額、卷歸檔引用、卷 git URL、VM 鏡像 URL，以及 VM 記憶體值。另有兩個內建變數可用：`@LOCAL_EXTERNAL_HOST@` 與 `@LOCAL_INTERNAL_HOST@`。
 
 `@@` 序列是字面量 `@` 的轉義。若要產生一個字面 `@` 緊跟一個模板變數，使用三個 `@`：`@@@variable@`。例如 `ssh://git@@@PACKAGE_DNS@:@sshport@` 解析為 `ssh://git@gitea.default.home:2222`。單獨的 `@@` 解析為 `@`（例如 `admin@@example.com` → `admin@example.com`）。
 
@@ -218,7 +219,7 @@ Town OS 是面向家庭使用者的自託管雲平臺。它完全從 U 盤在記
 
 #### OAuth 問題
 
-有些應用需要一個只有其供應商才能簽發的憑據——Plex 賬戶令牌、GitHub 個人令牌——而獲取它的唯一辦法一直是手工執行一個 shell 指令碼，再把它列印的內容貼上過來。`oauth` 問題改為直接在對話方塊中執行該流程。
+有些應用需要一個只有其供應商才能簽發的憑據——Plex 帳戶令牌、GitHub 個人令牌——而獲取它的唯一辦法一直是手工執行一個 shell 指令碼，再把它列印的內容貼上過來。`oauth` 問題改為直接在對話方塊中執行該流程。
 
 **不存在供應商登錄檔**。問題自帶一個 `oauth:` 塊，其中寫明供應商自己的 URL，因此任何提供裝置式流程的供應商都可以被包使用，而無需改動 Town OS：
 
@@ -239,9 +240,9 @@ questions:
 
 `start` 開啟流程；`extract` 指定要從其響應中提取的 JSON 欄位；`approve` 是瀏覽器開啟的 URL；`poll` 會被反覆執行，直到由 `token` 指定的 JSON 欄位不再缺失或為 null——在協議層面，這恰恰就是"使用者尚未授權"的樣子。`{{...}}` 佔位符針對提取出的值以及 `{{client_id}}` 解析，後者是控制器在每一步都發送的、每次流程隨機生成的識別符號（Plex 會把 pin 與它繫結）。提取出的 JSON 數字會被渲染為數字串，而不是 `1.234567e+06`——浮點格式化的 pin id 會讓輪詢 URL 返回 404，並永遠卡在 "pending"。
 
-該流程的實現位於 `src/packages/oauth.go`（模式定義與校驗）與 `src/svc/systemcontroller/controller_oauth.go`（執行）。`POST /packages/oauth/start` 執行 start 步驟並返回 `{flow_id, approve_url, user_code, interval_ms}`；`POST /packages/oauth/poll` 執行一次輪詢並返回 `pending`、帶令牌的 `approved`，或 `expired`。兩者都需要管理員許可權。伺服器只在令牌被兌取之前保留該流程——令牌被交給瀏覽器，瀏覽器再像其他任何應答一樣把它作為該問題的答案提交，因此在服務端保留副本只會多出一處洩露點。
+該流程的實現位於 `src/packages/oauth.go`（模式定義與校驗）與 `src/svc/systemcontroller/controller_oauth.go`（執行）。`POST /packages/oauth/start` 執行 start 步驟並返回 `{flow_id, approve_url, user_code, interval_ms}`；`POST /packages/oauth/poll` 執行一次輪詢並返回 `pending`、帶令牌的 `approved`，或 `expired`。兩者都需要管理員權限。伺服器只在令牌被兌取之前保留該流程——令牌被交給瀏覽器，瀏覽器再像其他任何應答一樣把它作為該問題的答案提交，因此在服務端保留副本只會多出一處洩露點。
 
-校驗分為兩半，把它們混為一談就是缺陷。`ValidateOAuthSpec` 檢查流程的*形狀*（必填欄位、可解析的時長、URL 的 host 中不含模板），這是安裝包時 `Compile` 所執行的。`ValidateOAuthFlow` 是它再加上下面的地址策略，只在流程即將被*執行*時執行。安裝發生在流程執行很久之後，而且發生在一臺 `Compile` 無法看到其 `OAuthAllowPrivate` 設定的主機上——所以在編譯期套用地址策略，會拒絕掉一個其自身流程剛剛成功過的安裝。
+校驗分為兩半，把它們混為一談就是缺陷。`ValidateOAuthSpec` 檢查流程的*形狀*（必填欄位、可解析的時長、URL 的 host 中不含模板），這是安裝包時 `Compile` 所執行的。`ValidateOAuthFlow` 是它再加上下面的地址策略，只在流程即將被*執行*時執行。安裝發生在流程執行很久之後，而且發生在一台 `Compile` 無法看到其 `OAuthAllowPrivate` 設定的主機上——所以在編譯期套用地址策略，會拒絕掉一個其自身流程剛剛成功過的安裝。
 
 **地址守衛是關鍵的承重結構。** 包指定任意 URL，而是*控制器*去撥號它們，因此沒有守衛的話，一個包就能把它指向宿主機自己的網路。`packages.CheckOAuthAddr` 執行在 HTTP 客戶端的 `DialContext` 中（每次重定向也會執行），拒絕環回、私有、鏈路本地、組播、未指定與 CGNAT 地址；URL 必須是 `https`。在撥號時而非解析時檢查，正是它能防住 DNS 重繫結的原因。`ServerConfig.OAuthAllowPrivate` 放寬這一限制，它的存在僅僅是為了讓測試能把流程指向 127.0.0.1 上的 `httptest` 伺服器。
 
@@ -265,11 +266,11 @@ questions:
 
 ### 編譯
 
-編譯會校驗所有應答、施加型別相關的校驗、替換所有模板變數、規範化容器映象 URL，併產出一個已解析的 `Package` 結構體。對於 VM 包，記憶體字串會被解析為位元組數，並應用 CPU 預設值。更新後命令會被去除首尾空白。校驗錯誤會被收集起來一併返回。
+編譯會校驗所有應答、施加型別相關的校驗、替換所有模板變數、規範化容器鏡像 URL，併產出一個已解析的 `Package` 結構體。對於 VM 包，記憶體字串會被解析為位元組數，並應用 CPU 預設值。更新後命令會被去除首尾空白。校驗錯誤會被收集起來一併返回。
 
 ### 更新後命令（Post-Update Commands）
 
-`post_update` 欄位是一組 shell 命令字串，在 system controller 於 reconcile 期間檢測到映象 SHA 變化之後，於執行中的容器內執行。這使自動化遷移任務成為可能（例如 PostgreSQL 容器更新後執行 `pg_upgrade`）。
+`post_update` 欄位是一組 shell 命令字串，在 system controller 於 reconcile 期間檢測到鏡像 SHA 變化之後，於執行中的容器內執行。這使自動化遷移任務成為可能（例如 PostgreSQL 容器更新後執行 `pg_upgrade`）。
 
 - **僅限容器** —— 對 VM 包，`post_update` 在校驗期被拒絕（`ErrPostUpdateVMNotSupported`）。
 - **模板替換** —— 每條命令都支援來自問題應答的 `@variable@` 替換，與環境變數和網路欄位一致。
@@ -306,9 +307,9 @@ post_update:
 
 校驗強制要求：模板名稱遵循卷命名約定（字母數字加點、短橫線與下劃線），路徑必須是相對路徑且不含目錄穿越，`volume` 必須引用一個已定義的包卷（除非該欄位中含有模板變數），並且 `content` 必須能解析為合法的 Go `text/template`。
 
-### 映象規範化
+### 鏡像規範化
 
-容器映象引用在編譯期被規範化：
+容器鏡像引用在編譯期被規範化：
 - 單一名稱（`nginx`）變為 `docker.io/library/nginx:latest`。
 - 兩段式（`user/app`）變為 `docker.io/user/app:latest`。
 - 完整引用被保留；若不含標籤則追加 `:latest`。
@@ -381,7 +382,7 @@ post_update:
 - `import_from_version` —— 從指定的先前版本匯入卷。
 - `skip_response_reuse` —— 不從先前安裝自動填充答案。
 
-安裝過程會：從倉庫中的包檔案建立硬連結到 installed 目錄，持久化應答，建立帶配額與可選 UID/GID 的卷，從歸檔與 git 播種卷（僅限容器執行時），應用檔案模板，生成 systemd 單元檔案，寫出網路狀態檔案，安裝並啟動 systemd 單元，並在成功後清除 last 應答。last 應答在安裝前儲存，以便解除安裝時恢復。對於 VM 包，VM 磁碟映象會在生成單元之前被下載並轉換為 raw 格式（若為遠端 URL）；卷播種（歸檔、git 克隆）則被跳過。
+安裝過程會：從倉庫中的包檔案建立硬連結到 installed 目錄，持久化應答，建立帶配額與可選 UID/GID 的卷，從歸檔與 git 播種卷（僅限容器執行時），應用檔案模板，生成 systemd 單元檔案，寫出網路狀態檔案，安裝並啟動 systemd 單元，並在成功後清除 last 應答。last 應答在安裝前儲存，以便解除安裝時恢復。對於 VM 包，VM 磁碟鏡像會在生成單元之前被下載並轉換為 raw 格式（若為遠端 URL）；卷播種（歸檔、git 克隆）則被跳過。
 
 #### 解除安裝 API
 
@@ -397,7 +398,7 @@ post_update:
 
 `POST /packages/installed/info`（需要鑑權）返回某個已安裝包的問題、應答、編譯後的 notes 與 note 型別。
 
-**非管理員只拿得到 notes，別無其他。** 該路由保持 `requireAuth`，因為儀表盤會為每個賬戶渲染每個已安裝服務的 notes——那正是 notes 的用途——但 `type: secret` 的問題的答案是生成的憑據，`type: oauth` 的答案是供應商令牌，因此把完整的應答 map 返回給任何有登入權的人，就等於把每個包的憑據都交出去。問題本身也被扣下：一個問題的 `query` 無害，但把它與一份被塗黑的應答 map 配對，只會告訴對方有什麼東西被藏起來了；而唯一渲染問題的介面是僅限管理員的安裝對話方塊。僅僅丟掉這個 map 還不夠——note 正是由這些答案編譯出來的，因此 `redactSecretsInNotes` 會掩碼任何被 note 引用到的 secret 或 oauth 答案，且按值匹配，這樣從不引用它們的 note 會被完整保留。短於六個字元的答案不作處理：兩個字元的 secret 並不是任何人選擇的憑據，而掩碼它的每一次出現只會把無關的 note 文本撕得粉碎。
+**非管理員只拿得到 notes，別無其他。** 該路由保持 `requireAuth`，因為儀表盤會為每個帳戶渲染每個已安裝服務的 notes——那正是 notes 的用途——但 `type: secret` 的問題的答案是生成的憑據，`type: oauth` 的答案是供應商令牌，因此把完整的應答 map 返回給任何有登入權的人，就等於把每個包的憑據都交出去。問題本身也被扣下：一個問題的 `query` 無害，但把它與一份被塗黑的應答 map 配對，只會告訴對方有什麼東西被藏起來了；而唯一渲染問題的介面是僅限管理員的安裝對話方塊。僅僅丟掉這個 map 還不夠——note 正是由這些答案編譯出來的，因此 `redactSecretsInNotes` 會掩碼任何被 note 引用到的 secret 或 oauth 答案，且按值匹配，這樣從不引用它們的 note 會被完整保留。短於六個字元的答案不作處理：兩個字元的 secret 並不是任何人選擇的憑據，而掩碼它的每一次出現只會把無關的 note 文本撕得粉碎。
 
 #### 包版本
 
@@ -416,7 +417,7 @@ UI 維護一份常見 IANA 時區名稱的靜態副本，並提供 `getTimezoneO
 
 ### 安裝預覽
 
-- `POST /packages/install-preview`（需要鑑權）—— 預覽安裝某個包會建立些什麼。接受 repo、name 與 version。返回 repo、name、version、description、image、卷、埠、升級資訊、執行時型別，以及該包是否含有問題。對於 VM 包，預覽還包含 VM 配置（映象 URL、人類可讀的記憶體量與 CPU 數）。
+- `POST /packages/install-preview`（需要鑑權）—— 預覽安裝某個包會建立些什麼。接受 repo、name 與 version。返回 repo、name、version、description、image、卷、埠、升級資訊、執行時型別，以及該包是否含有問題。對於 VM 包，預覽還包含 VM 配置（鏡像 URL、人類可讀的記憶體量與 CPU 數）。
 
 ### 子包
 
@@ -453,15 +454,15 @@ UI 維護一份常見 IANA 時區名稱的靜態副本，並提供 `getTimezoneO
 
 `src/storage` 建立、調整大小、重新命名、快照和刪除 btrfs 子卷，並報告磁碟使用情況。這就是它的全部職責。它絕不能知道什麼是物件、桶（bucket）、鍵、檔案控制代碼、內容識別符號（CID）、ACL、共享或協議檢視。對儲存層而言，子卷就是一片帶配額的、不透明的位元組場地。
 
-gfeh（`gitea.com/town-os/gfeh`，一個以 `town-os-system--gfeh` 形式釋出的 Rust 系統服務）擁有這條線以上的一切：物件名稱空間、每個檔案的後設資料與許可權、分層的使用者/ACL 資料庫、共享、按檔案的 HTTP 暴露、向外部服務的聯邦，以及每一種協議檢視（S3、IPFS、Google Drive、純 HTTP；SMB/CIFS 在 gfehd 中存在，但 [Town OS 不提供該服務](#不提供-smb-檢視)）。它使用儲存層，純粹是為了給自己分割槽所在的子卷做置備與擴容，之後便在繫結掛載的子樹上自行進行直接 I/O。
+gfeh（`gitea.com/town-os/gfeh`，一個以 `town-os-system--gfeh` 形式釋出的 Rust 系統服務）擁有這條線以上的一切：物件名稱空間、每個檔案的後設資料與權限、分層的使用者/ACL 資料庫、共享、按檔案的 HTTP 暴露、向外部服務的聯邦，以及每一種協議檢視（S3、IPFS、Google Drive、純 HTTP；SMB/CIFS 在 gfehd 中存在，但 [Town OS 不提供該服務](#不提供-smb-檢視)）。它使用儲存層，純粹是為了給自己分割槽所在的子卷做置備與擴容，之後便在繫結掛載的子樹上自行進行直接 I/O。
 
 改動任何一側時都必須遵守的後果：
 
 - **不要**向 `src/storage` 或 `/storage/*` API 新增物件、blob、鍵值或按檔案的端點。若某個功能需要定址單個檔案，它屬於 gfeh。既有的 `upload-archive`/`download-archive` 端點是用於卷播種的 tar 傳輸通道，不是物件 API，也不得朝那個方向生長。
-- **不要**讓 `storage.Storage` 或 `storage.Controller` 知道使用者、許可權或協議。配額是儲存層強制的唯一策略。
+- **不要**讓 `storage.Storage` 或 `storage.Controller` 知道使用者、權限或協議。配額是儲存層強制的唯一策略。
 - gfeh 分割槽位於保留的 `gfeh/` 子卷字首之下。它們是**在程序內**通過 `storage.Storage` 的 `CreateFilesystem`/`ModifyFilesystem` 置備的，而不是通過 `/storage/*` HTTP API：`createFilesystem` 會無條件地把每一個提交的名稱改寫為 `user/<name>`（`controller_storage.go`），因此那條路由不可能產出任何其他字首下的卷。分割槽置備因此需要自己的 `/gfeh/partitions/*` 處理器，這也把保留字首的強制、配額策略與審計日誌集中在一處，而不是在 gfeh 中重複一遍。
 
-- **gfeh 依賴一份成文的契約，而這裡的改動可能破壞它。** gfeh 倉庫中的 `TOWNOS_CONTRACT.md` 列出了 gfeh 依賴 Town OS 的每一條路由、行為與不變數——`user/` 改寫、保留字首規則、`/gfeh/partitions/*` 的狀態碼、無法區分的鑑權失敗，以及空 `Account.Networks` 的失敗即拒含義——並鎖定了它據以驗證的 Town OS 版本。gfeh 模擬該契約，使其測試無需 root、systemd、podman 或 btrfs 即可執行。
+- **gfeh 依賴一份成文的契約，而這裡的改動可能破壞它。** gfeh 倉庫中的 `TOWNOS_CONTRACT.md` 列出了 gfeh 依賴 Town OS 的每一條路由、行為與不變量——`user/` 改寫、保留字首規則、`/gfeh/partitions/*` 的狀態碼、無法區分的鑑權失敗，以及空 `Account.Networks` 的失敗即拒含義——並鎖定了它據以驗證的 Town OS 版本。gfeh 模擬該契約，使其測試無需 root、systemd、podman 或 btrfs 即可執行。
 
   **改動 `src/storage`、`src/account` 或 system controller 的路由時，請在 gfeh 檢出目錄中重新執行 `make check-townos-sync`。** 漂移的模擬器會讓 gfeh 拿到一份全綠的測試套件和一個壞掉的部署。模擬器與契約文件要一起對齊；絕不能只改其一。
 
@@ -499,12 +500,12 @@ gfeh（`gitea.com/town-os/gfeh`，一個以 `town-os-system--gfeh` 形式釋出�
 - **已安裝包卷** —— `installed/<repo>/<name>/<version>/<volname>`。
 - **已解除安裝包卷** —— `uninstalled/<repo>/<name>/<version>/<volname>`。
 - **歸檔儲存** —— `archives/` 字首（系統管理）。
-- **VM 映象** —— `vm-images/` 子卷（系統管理）。存放快取的 raw 格式 VM 磁碟映象。
+- **VM 鏡像** —— `vm-images/` 子卷（系統管理）。存放快取的 raw 格式 VM 磁碟鏡像。
 - **物件儲存分割槽** —— `gfeh/<network>`，每個 Town OS 網路一個，屬主為 uid/gid 2000。屬保留區：`/storage/create` 無法產出它（該路由把每個名稱都改寫為 `user/<name>`），因此它們通過 [`/gfeh/partitions/*`](#協議一分割槽置備gfehpartitions) 置備。
 
 所有字首根名稱（`installed`、`uninstalled`、`archives`、`pages`、`vm-images`、`user`、`gfeh`）都是保留的，使用者不能直接建立、修改或刪除它們。歸檔的上傳與下載在遇到不帶內部字首的子卷名稱時，會通過新增 `user/` 字首來解析。
 
-**除非字首之後的名稱無法爬回上層，否則字首不構成邊界。** `filepath.Join` 會摺疊 `..`，因此提交給一個會新增 `user/` 字首的處理器的 `../gfeh/home`，會變成 `user/../gfeh/home`，從而定址到另一個網路的物件儲存分割槽——而且它也能溜過保留名稱檢查，因為該檢查匹配的是一個此時穿越尚未產生的前導字首。因此 `storage.ValidateFilesystemName`（不允許前導斜槓、不允許空位元組、不允許空的或 `.`/`..` 的路徑分量，並限制字元集）在 `ModifyFilesystem` 中被施加於**兩個**名稱——只校驗重新命名目標，會讓呼叫方把別人的子卷挪進自己的名稱空間——同時也施加於 `RemoveFilesystem`，後者過去完全不做校驗，而它偏偏是破壞性的那一個。`/storage/*` 的處理器在新增 `user/` 字首**之前**校驗提交的名稱，這正是保留名稱檢查名副其實的原因。這些路由是 `requireAuth` 而非 `requireAdmin`，因此這個問題此前對機器上任何普通賬戶都是可達的。
+**除非字首之後的名稱無法爬回上層，否則字首不構成邊界。** `filepath.Join` 會摺疊 `..`，因此提交給一個會新增 `user/` 字首的處理器的 `../gfeh/home`，會變成 `user/../gfeh/home`，從而定址到另一個網路的物件儲存分割槽——而且它也能溜過保留名稱檢查，因為該檢查匹配的是一個此時穿越尚未產生的前導字首。因此 `storage.ValidateFilesystemName`（不允許前導斜槓、不允許空位元組、不允許空的或 `.`/`..` 的路徑分量，並限制字元集）在 `ModifyFilesystem` 中被施加於**兩個**名稱——只校驗重新命名目標，會讓呼叫方把別人的子卷挪進自己的名稱空間——同時也施加於 `RemoveFilesystem`，後者過去完全不做校驗，而它偏偏是破壞性的那一個。`/storage/*` 的處理器在新增 `user/` 字首**之前**校驗提交的名稱，這正是保留名稱檢查名副其實的原因。這些路由是 `requireAuth` 而非 `requireAdmin`，因此這個問題此前對機器上任何普通帳戶都是可達的。
 
 **list** 的字首被刻意豁免：`nest/` 是呼叫方索取 `nest` 之下全部內容的方式，沒有任何東西會把它拼接進檔案系統路徑（儲存層從自身基準目錄列舉，並把它當作字串過濾器使用），而 `user/` 是無條件新增的，因此帶穿越的字首只會匹配不到任何東西，而不是夠到任何東西。
 
@@ -545,9 +546,9 @@ gfeh（`gitea.com/town-os/gfeh`，一個以 `town-os-system--gfeh` 形式釋出�
 
 返回所請求格式的流式歸檔。壓縮分別使用 `pigz`、`lbzip2` 或 `xz`。Content-Type 與 Content-Disposition 的 filename 頭會與所選格式和自定義檔名保持一致。提供 `paths` 時只包含匹配的路徑。
 
-### 從容器映象自動歸檔
+### 從容器鏡像自動歸檔
 
-包定義中可以包含引用容器映象的 `archives` 段。在安裝與 reconcile 期間，空卷會通過拉取映象、建立臨時容器並把指定目錄複製進卷的方式來填充。
+包定義中可以包含引用容器鏡像的 `archives` 段。在安裝與 reconcile 期間，空卷會通過拉取鏡像、建立臨時容器並把指定目錄複製進卷的方式來填充。
 
 ### Git 卷播種
 
@@ -557,13 +558,13 @@ gfeh（`gitea.com/town-os/gfeh`，一個以 `town-os-system--gfeh` 形式釋出�
 
 `POST /packages/rebuild-git`（需要管理員）更新某個已安裝包的 git 播種卷。它通過 go-git 為每個 git 卷拉取最新改動，然後重啟依賴它的服務。需要包的 repo、name 與 version。重建前會針對已儲存的應答重新求值模板變數。
 
-### VM 映象管理
+### VM 鏡像管理
 
-VM 包需要 raw 格式的磁碟映象。遠端映象會被下載並用 `qemu-img convert -O raw` 轉換；轉換後的 `.raw` 檔案快取在 `vm-images` 子卷中。後續安裝複用該快取映象。本地映象引用直接從 `vm-images` 子卷解析。
+VM 包需要 raw 格式的磁碟鏡像。遠端鏡像會被下載並用 `qemu-img convert -O raw` 轉換；轉換後的 `.raw` 檔案快取在 `vm-images` 子卷中。後續安裝複用該快取鏡像。本地鏡像引用直接從 `vm-images` 子卷解析。
 
-- `GET /vm-images`（需要鑑權）—— 列出已快取的 VM 磁碟映象。為每個映象返回名稱與檔案大小。
-- `POST /vm-images/upload`（需要管理員）—— 從 URL 下載 VM 映象並轉換為 raw 格式。接受一個 URL 與可選名稱。名稱預設取 URL 的檔名並加 `.raw` 副檔名。下載超時為 30 分鐘。轉換後的映象存入 `vm-images` 子卷。
-- `POST /vm-images/delete`（需要管理員）—— 按名稱移除已快取的 VM 映象。
+- `GET /vm-images`（需要鑑權）—— 列出已快取的 VM 磁碟鏡像。為每個鏡像返回名稱與檔案大小。
+- `POST /vm-images/upload`（需要管理員）—— 從 URL 下載 VM 鏡像並轉換為 raw 格式。接受一個 URL 與可選名稱。名稱預設取 URL 的檔名並加 `.raw` 副檔名。下載超時為 30 分鐘。轉換後的鏡像存入 `vm-images` 子卷。
+- `POST /vm-images/delete`（需要管理員）—— 按名稱移除已快取的 VM 鏡像。
 
 ### 展示名稱剝離
 
@@ -585,11 +586,11 @@ VM 包需要 raw 格式的磁碟映象。遠端映象會被下載並用 `qemu-im
 
 ## Pages
 
-Pages 是靜態站點託管功能，支援三種內容來源型別：歸檔上傳、容器映象與 git 倉庫。使用者指定一個域名或子域名，系統通過一個 Caddy 容器提供內容服務。更新通過重建或重新上傳手動觸發。
+Pages 是靜態站點託管功能，支援三種內容來源型別：歸檔上傳、容器鏡像與 git 倉庫。使用者指定一個域名或子域名，系統通過一個 Caddy 容器提供內容服務。更新通過重建或重新上傳手動觸發。
 
 ### 資料模型
 
-每個 page 站點包含：唯一名稱（主鍵）、來源型別（`archive`、`container_image` 或 `git`；預設 `archive`）、倉庫 URL（git 必填）、分支（預設 `main`）、容器映象引用（container_image 必填）、映象目錄（container_image 必填）、域名（預設取 page 名稱）、狀態（`pending`、`active` 或 `error`）、一個**網路**，以及建立/更新時間戳。Pages 儲存在一張 SQLite 表中。
+每個 page 站點包含：唯一名稱（主鍵）、來源型別（`archive`、`container_image` 或 `git`；預設 `archive`）、倉庫 URL（git 必填）、分支（預設 `main`）、容器鏡像引用（container_image 必填）、鏡像目錄（container_image 必填）、域名（預設取 page 名稱）、狀態（`pending`、`active` 或 `error`）、一個**網路**，以及建立/更新時間戳。Pages 儲存在一張 SQLite 表中。
 
 `Network` 是該 page 的釋出網路，與包的安裝網路完全一致：它決定 page 的主機名、葉子證書 SAN、DANE TLSA 屬主與 ingress vhost 都在哪個 TLD 之下命名，也決定誰能解析這個 page。為空——即零值與資料庫預設值——表示預設/home 網路，與包的 `Installer.LoadNetwork` 是同一約定。參見 [Pages are network-scoped too](#pages-同樣是按網路限定作用域的)。它在建立時被接受，也是部分更新欄位之一。
 
@@ -599,26 +600,26 @@ Pages 內容儲存在 `pages/` 字首下的 btrfs 子卷中。每個 page 獲得
 
 所有變更端點都需要管理員鑑權；列表端點需要普通鑑權。
 
-- `POST /pages/create`（需要管理員）—— 建立新 page。接受名稱、來源型別、倉庫 URL、分支、域名、容器映象與映象目錄。來源型別預設為 `archive`。校驗隨來源型別而變：git 需要倉庫 URL；container image 需要映象與映象目錄兩者。會建立 btrfs 子卷與 webroot 符號連結。git 與 container image 型別的 page 以非同步方式置備（克隆或映象提取）；狀態在成功時從 `pending` 轉為 `active`，失敗時轉為 `error`。archive 型別的 page 會保持 `pending` 狀態，直到通過 `/pages/upload` 上傳內容。未提供域名時預設取 page 名稱。
+- `POST /pages/create`（需要管理員）—— 建立新 page。接受名稱、來源型別、倉庫 URL、分支、域名、容器鏡像與鏡像目錄。來源型別預設為 `archive`。校驗隨來源型別而變：git 需要倉庫 URL；container image 需要鏡像與鏡像目錄兩者。會建立 btrfs 子卷與 webroot 符號連結。git 與 container image 型別的 page 以非同步方式置備（克隆或鏡像提取）；狀態在成功時從 `pending` 轉為 `active`，失敗時轉為 `error`。archive 型別的 page 會保持 `pending` 狀態，直到通過 `/pages/upload` 上傳內容。未提供域名時預設取 page 名稱。
 - `POST /pages/upload`（需要管理員）—— 為 archive 型別的 page 上傳內容。接受含 `name` 與 `archive` 檔案的 multipart 表單。僅對來源型別為 `archive` 的 page 有效；其他來源型別返回 400。使用與儲存歸檔上傳相同的魔數格式檢測、副檔名校驗與流校驗。直接解包進該 page 的 btrfs 子卷。成功時狀態置為 `active`，失敗時置為 `error`。
-- `POST /pages/update`（需要管理員）—— 對 page 的倉庫 URL、分支、域名、來源型別、容器映象或映象目錄做部分更新。只有提供了的欄位才會被修改。
+- `POST /pages/update`（需要管理員）—— 對 page 的倉庫 URL、分支、域名、來源型別、容器鏡像或鏡像目錄做部分更新。只有提供了的欄位才會被修改。
 - `POST /pages/remove`（需要管理員）—— 從資料庫中刪除 page，移除 webroot 符號連結，並刪除 btrfs 子卷。
-- `POST /pages/rebuild`（需要管理員）—— 行為隨來源型別而變：git 型別拉取最新改動（若缺少 `.git` 則重新克隆）；container image 型別通過 podman 從映象重新提取；archive 型別返回 400（請改用 `/pages/upload` 重新上傳）。
+- `POST /pages/rebuild`（需要管理員）—— 行為隨來源型別而變：git 型別拉取最新改動（若缺少 `.git` 則重新克隆）；container image 型別通過 podman 從鏡像重新提取；archive 型別返回 400（請改用 `/pages/upload` 重新上傳）。
 - `GET /pages`（需要鑑權）—— 列出所有 page，支援排序、搜尋與分頁。可按名稱、倉庫 URL、分支、域名、來源型別、狀態與時間戳排序。
 
 ### Pages UI
 
 Pages 管理介面展示一個可分頁、可排序、可搜尋的資料表，列包括名稱、域名、來源型別、倉庫 URL、分支與狀態。來源型別以徽標展示。狀態以帶顏色的徽標展示（active 為預設色，error 為紅色，pending 為次要色並帶旋轉的載入圖示與 "Provisioning..." 文字）。
 
-建立對話方塊頂部有一個來源型別下拉框（Archive Upload / Container Image / Git Repository，預設 Archive Upload）。欄位隨所選來源型別動態變化：git 顯示倉庫 URL 與分支；container image 顯示映象引用與映象目錄；archive 顯示一個可選的檔案上傳輸入。對於 git 與 container image 型別的 page，提交表單會觸發置備：所有輸入被停用，提交按鈕顯示帶 "Provisioning..." 文字的載入動畫，且對話方塊不能被關閉。UI 每 2 秒輪詢一次 page 狀態，最多輪詢 60 秒。對於選擇了檔案的 archive 型別 page，上傳在建立之後同步進行。
+建立對話方塊頂部有一個來源型別下拉框（Archive Upload / Container Image / Git Repository，預設 Archive Upload）。欄位隨所選來源型別動態變化：git 顯示倉庫 URL 與分支；container image 顯示鏡像引用與鏡像目錄；archive 顯示一個可選的檔案上傳輸入。對於 git 與 container image 型別的 page，提交表單會觸發置備：所有輸入被停用，提交按鈕顯示帶 "Provisioning..." 文字的載入動畫，且對話方塊不能被關閉。UI 每 2 秒輪詢一次 page 狀態，最多輪詢 60 秒。對於選擇了檔案的 archive 型別 page，上傳在建立之後同步進行。
 
 每行的操作隨來源型別而變：archive 型別顯示 Upload 按鈕；git 與 container image 型別顯示 Rebuild 按鈕（帶確認）。所有 page 都有 Edit 與 Delete 操作。編輯對話方塊顯示與該 page 來源型別相符的欄位。
 
 ## 物件儲存（gfeh）
 
-gfeh 是 [關注點分離](#關注點分離卷-vs-物件儲存) 中所述分工的物件儲存那一半：`src/storage` 擁有 btrfs 子卷與配額，gfeh 擁有物件、按檔案的許可權、使用者/ACL 森林、共享，以及每一種協議檢視。本節講的是這條邊界在 Town OS 一側的內容——守護程序如何部署，以及跨越這條邊界的每一種協議。
+gfeh 是 [關注點分離](#關注點分離卷-vs-物件儲存) 中所述分工的物件儲存那一半：`src/storage` 擁有 btrfs 子卷與配額，gfeh 擁有物件、按檔案的權限、使用者/ACL 森林、共享，以及每一種協議檢視。本節講的是這條邊界在 Town OS 一側的內容——守護程序如何部署，以及跨越這條邊界的每一種協議。
 
-`gfehd` 是一個釋出到 crates.io 的 Rust 二進位制，在此打包為 `quay.io/town/gfeh`（`Containerfile.gfeh`），因為 gfeh 自己的倉庫並不提供映象。它是**每個分割槽一個程序**，而不是單一的多租戶守護程序。
+`gfehd` 是一個釋出到 crates.io 的 Rust 二進位制，在此打包為 `quay.io/town/gfeh`（`Containerfile.gfeh`），因為 gfeh 自己的倉庫並不提供鏡像。它是**每個分割槽一個程序**，而不是單一的多租戶守護程序。
 
 ### 部署形態：每個網路一個分割槽
 
@@ -657,11 +658,11 @@ socket 位於 btrfs 上，因為那是 gfehd 容器與 systemcontroller 容器�
 
 gfeh 客戶端會據以分支的狀態碼：**409** 已存在（它的置備邏輯是"建立或擴容"，並靠這個狀態碼區分二者——否則，一個除首次啟動外每次啟動時分割槽都已存在的守護程序，就只能成功啟動那一次），**404** 不存在，**400** 名稱非法，**403** 非管理員。含路徑分隔符的名稱在這條邊界上被拒絕，因為 gfehd 在它自己那側也會拒絕；對"什麼是合法分割槽名"意見不一，會讓 `../user/something` 定址到物件儲存根目錄之外的卷。
 
-處理器在程序內呼叫 `storage.Storage`，絕不走 `/storage/*`，因此保留字首的強制、配額策略與審計日誌都留在同一處。這些路由**不在** `grantRoutes` 中——置備一棵許可權樹的根不是某項授權所能買到的東西，因此持有授權的賬戶會在任何處理器執行之前就被全域性白名單拒絕。
+處理器在程序內呼叫 `storage.Storage`，絕不走 `/storage/*`，因此保留字首的強制、配額策略與審計日誌都留在同一處。這些路由**不在** `grantRoutes` 中——置備一棵權限樹的根不是某項授權所能買到的東西，因此持有授權的帳戶會在任何處理器執行之前就被全域白名單拒絕。
 
 ### 協議二：管理 socket（`/v1/*`）
 
-每個守護程序的管理介面都是**僅在 Unix socket 上**的 JSON-over-HTTP——絕不使用埠。沒有令牌，也沒有認證：socket 上的檔案系統許可權就是訪問控制，因此能夠訪問它就已經意味著在這臺機器上擁有 root。`src/gfeh/client.go`（`UnixClient`）是 Go 側實現；它把 `DialContext` 固定到該 socket，並使用一個假的 `http://gfeh` 權威名。
+每個守護程序的管理介面都是**僅在 Unix socket 上**的 JSON-over-HTTP——絕不使用埠。沒有令牌，也沒有認證：socket 上的檔案系統權限就是訪問控制，因此能夠訪問它就已經意味著在這台機器上擁有 root。`src/gfeh/client.go`（`UnixClient`）是 Go 側實現；它把 `DialContext` 固定到該 socket，並使用一個假的 `http://gfeh` 權威名。
 
 | 呼叫 | 方法 + 路徑 | 用途 |
 |---|---|---|
@@ -673,19 +674,19 @@ gfeh 客戶端會據以分支的狀態碼：**409** 已存在（它的置備邏�
 
 gfehd 把內部錯誤對映到 HTTP 狀態碼（404/409/400），而 `StatusError.Unwrap` 再把它們映射回 Go 的哨兵錯誤，因此 `errors.Is` 可用。
 
-新增使用者是 `POST /v1/principals {name, parent, ceiling}`——**沒有密碼**，這正是 UI 從不索要密碼的原因。ceiling 遵循 gfeh 的投影規則：Town OS 管理員為 `all`，其他為讀/寫。授權會被 gfehd 收斂到該主體的 ceiling 之內，因此 UI 展示的是*返回回來*的許可權，而不是傳送出去的許可權：管理員必須能看到一項授權被收窄了。
+新增使用者是 `POST /v1/principals {name, parent, ceiling}`——**沒有密碼**，這正是 UI 從不索要密碼的原因。ceiling 遵循 gfeh 的投影規則：Town OS 管理員為 `all`，其他為讀/寫。授權會被 gfehd 收斂到該主體的 ceiling 之內，因此 UI 展示的是*返回回來*的權限，而不是傳送出去的權限：管理員必須能看到一項授權被收窄了。
 
 ### 協議三：名稱——gfeh 回答，Town OS 組裝
 
 **gfeh 從不註冊 DNS 記錄或 ingress 路由。** `RebuildDNS` 呼叫 `TeardownTLD`，`RebuildIngress` 用完整的推導集合呼叫 `SetRoutes`——兩者都會摧毀外來狀態——因此 gfeh 直接註冊的任何東西，都只能存活到下一次 reconcile。取而代之的是，`GET /v1/names` 返回帶檢視與埠的**標籤**（`s3.<partition>`），由 Town OS 組裝出區域。因此這些名稱是在每次重建時被*詢問*的，而不是被推送一次。
 
-`gfehFQDN(label, tld)`（`gfeh_tls.go`）把標籤在網路的 TLD 之下限定，並且是 A 記錄、葉子證書 SAN、DANE TLSA 屬主與 ingress vhost 都必須一致同意的那一個字串——與 `packageFQDN` 和 `pageFQDN` 所維護的是同一條不變數。它**總是**限定：它不查詢 `isPublicFQDN`，因為每個 gfeh 標籤本身就含有一個點（`s3.gfeh`），而那個判定會把任何這樣的名稱讀作公共 FQDN，結果會讓每個名稱都不被限定，併為一個無人擁有的域名申請 ACME 證書。
+`gfehFQDN(label, tld)`（`gfeh_tls.go`）把標籤在網路的 TLD 之下限定，並且是 A 記錄、葉子證書 SAN、DANE TLSA 屬主與 ingress vhost 都必須一致同意的那一個字串——與 `packageFQDN` 和 `pageFQDN` 所維護的是同一條不變量。它**總是**限定：它不查詢 `isPublicFQDN`，因為每個 gfeh 標籤本身就含有一個點（`s3.gfeh`），而那個判定會把任何這樣的名稱讀作公共 FQDN，結果會讓每個名稱都不被限定，併為一個無人擁有的域名申請 ACME 證書。
 
 **它同時也是標籤從一根線上的字串變成 vhost、DNS 記錄和檔案系統路徑的那個咽喉點**，因此 `gfeh.ValidateLabel` 只在這裡施加，別無他處。ingress 的 vhost 被寫作 `https://<hostname> {` 且不加引號，因此一個攜帶換行與花括號的標籤會閉合這個塊並另開一個——而 Caddy 不會只拒絕那一個壞 vhost，它會拒絕整份配置，並把機器上的每一個名稱一起拖下水。校驗不通過的標籤產出空字串，而每個呼叫方本來就會丟棄空的 FQDN，因此畸形的名稱貢獻的是"沒有記錄、沒有路由、沒有證書、沒有目錄"，而不是一個壞掉的。長度（`gfeh.NameMaxLen`）是在**組裝後**的名稱上檢查的，而非只檢查標籤：在限長之內的標籤，在很長的 TLD 之下限定後仍可能超限，而 DNS 承載不了的名稱，證書與 vhost 同樣不該聲稱擁有。
 
 釋出方式與包和 pages 完全一致：
 
-- **雙棲 DNS** —— 非預設網路的分割槽會獲得一條位於本機 overlay IP 的作用域 A 記錄（服務於該網路的 WireGuard peer），*以及*一條位於區域網 IP 的全域性 A 記錄，二者分別由 `RebuildDNS` 與 `RebuildNetworkDNS` 中的合併邏輯寫入。DANE TLSA 在兩側都會被固定。
+- **雙棲 DNS** —— 非預設網路的分割槽會獲得一條位於本機 overlay IP 的作用域 A 記錄（服務於該網路的 WireGuard peer），*以及*一條位於區域網 IP 的全域 A 記錄，二者分別由 `RebuildDNS` 與 `RebuildNetworkDNS` 中的合併邏輯寫入。DANE TLSA 在兩側都會被固定。
 - **TLS** —— 每個名稱一張本地 CA 簽發的葉子證書，並把本機在該網路上的 overlay IP 作為 SAN 帶上，使 peer 能夠直接用 WireGuard 裸地址撥號。
 - **Ingress** —— 每個 HTTP 檢視一個 vhost，後端為共享的 `town-os-ingress` podman 網路上的 `<container>:<port>`。`dedupeIngressRoutes` 以"先到先得"的方式守護路由集合，因為 Caddy 會因為一個重複的 vhost 而拒絕整份配置。
 
@@ -700,7 +701,7 @@ gfeh 提供的每一個檢視都應答某種**協議**，沒有一個應答瀏�
 - **它由 `collectGfehSites` 作為一個普通的 `GfehSite` 貢獻出來**，這正是要點所在：它從為檢視推導全部六項內容的同一段程式碼那裡繼承 A 與 AAAA 記錄、作用域 overlay 記錄、DANE pin、葉子證書 SAN 與 ingress 路由，因此 vhost 與證書不可能由不同的字串拼出。只有當該分割槽至少有一個由 ingress 承載的檢視時才會新增它——一個什麼都不可瀏覽的分割槽的索引頁，只會是一個名稱、一張證書和一條路由，只為渲染一句"這裡沒什麼可看"。
 - **它由 pages 容器提供服務，而不是 gfehd。** 靜態 HTML 不需要自己的伺服器，而把它作為 Caddy 的 `respond` 響應體內聯發出，會把生成的標記放進配置檔案裡，那裡一個轉義錯誤就會讓 Caddy 拒絕一切。
 - **內容位於它自己的 `gfeh-index/` 根之下**，與 `gfeh/` 平級，理由和 `gfeh-control/` 相同：`pages/` 之下的一切都是一個 page，由一行記錄擁有，並被 pages 的 reconcile 清掃。webroot 是兩者唯一共享的東西，因為那是容器實際提供服務的目錄。`ViewIndex` 刻意**不在** `HTTPViews` 中，因此 `IsHTTPView` 不接受它——那個判定回答的是"這是否是 gfehd 上報的、ingress 可以承載的檢視"，而索引頁既非 gfehd 上報，也非它提供服務。
-- **`pruneStalePageSymlinks` 合併了 `gfehIndexHostnames`。** 索引頁不是 page，因此若無此舉，第一次 `reconcilePages` 就會刪除每一個索引連結——而一臺有物件儲存卻沒有 pages 的機器，每一輪都會撞上這種最激進的情況。有效集合僅從**網路集合**推導，絕不去詢問守護程序，這樣僅僅是啟動較慢的分割槽不會被剪掉自己的索引：可以刪除什麼，必須能由 Town OS 自己擁有的狀態判定。
+- **`pruneStalePageSymlinks` 合併了 `gfehIndexHostnames`。** 索引頁不是 page，因此若無此舉，第一次 `reconcilePages` 就會刪除每一個索引連結——而一台有物件儲存卻沒有 pages 的機器，每一輪都會撞上這種最激進的情況。有效集合僅從**網路集合**推導，絕不去詢問守護程序，這樣僅僅是啟動較慢的分割槽不會被剪掉自己的索引：可以刪除什麼，必須能由 Town OS 自己擁有的狀態判定。
 - **索引頁由 `reconcileGfehIndexes` 渲染，呼叫點在 `RebuildIngress`**，而不是 `ReconcileGfeh`。這個位置是承重的：ingress 重建會在啟動時、每小時的 reconcile 中、包與 page 的增刪改時執行，尤其是在 `publishGfehNames` 中——那是冷啟動時第一次真正有守護程序在應答的時機，因為 gfehd 會輪詢 `/status/ping`，而後者在處理器切換之前一直是 503。從 gfeh 的 reconcile 中寫出的索引頁，會在守護程序還說不出自己提供什麼之前就被寫出，並一直陳舊到下一個小時。
 
 索引頁**只**承載檢視，而它們本來就在 DNS 中。不含暴露、主體、授權或配額：它在沒有任何認證的情況下提供服務，而每一個已釋出的 `/f/<token>` 連結都是一個持有即用的憑據——恰恰是無認證頁面絕不能列舉的東西。
@@ -721,29 +722,29 @@ gfeh 提供的每一個檢視都應答某種**協議**，沒有一個應答瀏�
 
 四個 `GET` 不計入審計；五個變更操作帶有審計鍵。在未配置任何分割槽時，`GET /gfeh` 會報告"物件儲存未配置"，而不是報錯。
 
-**其中每一條——包括讀操作——都由 `requireNetworkScope` 限制在呼叫者自己的網路內**，因為"哪個網路"存在於只有處理器才解析過的請求體或查詢引數裡。一個受限賬戶列出另一個網路的主體或已釋出連結，恰恰就是作用域機制要防止的洩露；而讀操作是 `requireAuth`，因此上游沒有任何東西會阻止它。`GET /gfeh` 不指定網路（它就是要列舉網路），因此它改為過濾行——依據同一個 `Restricted()` 判定，因為拿一個普通賬戶去和它空的作用域做過濾，會讓每個分割槽對每個普通賬戶都不可見，而不是限制住任何人。
+**其中每一條——包括讀操作——都由 `requireNetworkScope` 限制在呼叫者自己的網路內**，因為"哪個網路"存在於只有處理器才解析過的請求體或查詢引數裡。一個受限帳戶列出另一個網路的主體或已釋出連結，恰恰就是作用域機制要防止的洩露；而讀操作是 `requireAuth`，因此上游沒有任何東西會阻止它。`GET /gfeh` 不指定網路（它就是要列舉網路），因此它改為過濾行——依據同一個 `Restricted()` 判定，因為拿一個普通帳戶去和它空的作用域做過濾，會讓每個分割槽對每個普通帳戶都不可見，而不是限制住任何人。
 
-**`gfehClientFor` 內部的順序是承重的：先形狀，再許可權，最後存在性。** 空網路對所有人都是 400（打字錯誤不是許可權問題）；越界的網路在任何分割槽查詢**之前**就返回 403；只有在這之後，缺失的登錄檔才配得上 503，未知網路才配得上 404。若把查詢放在前面，一個本就無權詢問的呼叫者就能得知那個分割槽是否存在、其守護程序是否在執行，而且得到的是另一種形式的*成功*拒絕——於是沒有任何記錄表明一個受限賬戶曾伸手到自己作用域之外。
+**`gfehClientFor` 內部的順序是承重的：先形狀，再權限，最後存在性。** 空網路對所有人都是 400（打字錯誤不是權限問題）；越界的網路在任何分割槽查詢**之前**就返回 403；只有在這之後，缺失的登錄檔才配得上 503，未知網路才配得上 404。若把查詢放在前面，一個本就無權詢問的呼叫者就能得知那個分割槽是否存在、其守護程序是否在執行，而且得到的是另一種形式的*成功*拒絕——於是沒有任何記錄表明一個受限帳戶曾伸手到自己作用域之外。
 
-### 沒有服務賬戶
+### 沒有服務帳戶
 
-早先的版本建立了一個專用的管理員賬戶 `gfeh`，其密碼存放在 `gfeh_service_password` 設定中，以便守護程序能向控制平面認證。**那已經沒有了。** Town OS 在守護程序啟動之前就自行置備每個分割槽的子卷與配額，並通過管理 socket 建立主體，因此那份憑據什麼也沒買到——代價卻是一個*無人建立的、處於啟用狀態的管理員賬戶*，堂而皇之地出現在每臺機器的使用者列表裡，許可權足以解除安裝一切，並且讓每一個"這臺機器有管理員嗎"的問題都被迫變成"有*人類*管理員嗎"。
+早先的版本建立了一個專用的管理員帳戶 `gfeh`，其密碼存放在 `gfeh_service_password` 設定中，以便守護程序能向控制平面認證。**那已經沒有了。** Town OS 在守護程序啟動之前就自行置備每個分割槽的子卷與配額，並通過管理 socket 建立主體，因此那份憑據什麼也沒買到——代價卻是一個*無人建立的、處於啟用狀態的管理員帳戶*，堂而皇之地出現在每台機器的使用者列表裡，權限足以解除安裝一切，並且讓每一個"這台機器有管理員嗎"的問題都被迫變成"有*人類*管理員嗎"。
 
-`hasEnabledAdmin`（`src/svc/systemcontroller/admin_presence.go`）現在就是那個樸素的問題，由 `/status/ping` 中的初始化標誌與 `POST /account/create` 的引導分支共享，因此兩者永遠不會各執一詞——一臺機器如果一處說"已初始化"而另一處不這麼說，那就是一臺誰也進不去的機器。
+`hasEnabledAdmin`（`src/svc/systemcontroller/admin_presence.go`）現在就是那個樸素的問題，由 `/status/ping` 中的初始化標誌與 `POST /account/create` 的引導分支共享，因此兩者永遠不會各執一詞——一台機器如果一處說"已初始化"而另一處不這麼說，那就是一台誰也進不去的機器。
 
-`account.PurgeLegacyServiceAccounts` 在升級後的首次啟動時刪除該行與儲存的密碼，並報告它是否真的刪除了什麼，這樣機器只會說一次，而不是每次啟動都記一條日誌。它刻意使用原始 SQL：`Manager` 沒有 `Delete`，而"刪除賬戶"這項能力不該作為一次清理的副作用被引入。
+`account.PurgeLegacyServiceAccounts` 在升級後的首次啟動時刪除該行與儲存的密碼，並報告它是否真的刪除了什麼，這樣機器只會說一次，而不是每次啟動都記一條日誌。它刻意使用原始 SQL：`Manager` 沒有 `Delete`，而"刪除帳戶"這項能力不該作為一次清理的副作用被引入。
 
-`gfehd.yaml` 中留下的是 `credentials:` 與 `drive.tokens:`——那是**終端使用者向 gfeh 的各檢視認證**用的，絕不是 Town OS 的登入憑據。`town_os:` 塊仍然存在於配置模式中（gfehd 的 YAML 被精確映象），但 Town OS 不會向其中渲染任何賬戶。
+`gfehd.yaml` 中留下的是 `credentials:` 與 `drive.tokens:`——那是**終端使用者向 gfeh 的各檢視認證**用的，絕不是 Town OS 的登入憑據。`town_os:` 塊仍然存在於配置模式中（gfehd 的 YAML 被精確鏡像），但 Town OS 不會向其中渲染任何帳戶。
 
 ### 不提供 SMB 檢視
 
-SMB **不提供服務**。它是唯一無法置於 ingress 之後的檢視，也是唯一需要自己那份憑據的：一個 NT 雜湊（`MD4(UTF16LE(password))`），它無法從儲存的密碼雜湊推匯出來，因此每個想要共享的使用者都得額外背一個密碼。Town OS 的賬戶沒有這樣的密碼，因此 gfehd 無人可認證——而在區域網上開一個無認證的共享，不是可以退而求其次的選項。
+SMB **不提供服務**。它是唯一無法置於 ingress 之後的檢視，也是唯一需要自己那份憑據的：一個 NT 雜湊（`MD4(UTF16LE(password))`），它無法從儲存的密碼雜湊推匯出來，因此每個想要共享的使用者都得額外背一個密碼。Town OS 的帳戶沒有這樣的密碼，因此 gfehd 無人可認證——而在區域網上開一個無認證的共享，不是可以退而求其次的選項。
 
 後果：沒有任何分割槽宣告 `smb:` 塊，也不為它分配宿主機埠（保留 `SMBPortBase` 僅僅是為了讓測試框架的 `GFEH_SMB_PORT_BASE` 保持接線狀態），`Account.SMBNTHash` 與 `src/account/smb_credential.go` 已被移除，`smb_nt_hash` 列由 `migrateLegacyAccountColumns` 丟棄——NT 雜湊不加鹽、沒有工作因子，對任何仍在講 NTLM 的東西而言等價於密碼明文，因此為一個無人提供服務的檢視把它靜置在磁碟上，是兩頭最壞的組合。其餘四個檢視不受影響。
 
 ### 配置檔案
 
-`src/gfeh/config.go` **精確**映象 gfehd 的 YAML。gfehd 的每一個配置結構體都是 `#[serde(deny_unknown_fields)]`，因此多出來的鍵不會被忽略——它是一個硬性的啟動失敗。頂層欄位：`data_dir`、`partition`、`network`（一個**指標**：缺失表示預設分割槽，而空字串是另一種、非法的請求）、`admin_socket`、五個可選的檢視塊、`credentials` 與 `town_os`。Town OS 渲染五個檢視中的四個，既不渲染 `smb:` 塊，也不渲染 `town_os:` 賬戶。檔案以 `0640` 寫入 `<btrfsBase>/gfeh-control/<network>/` 之下，並對 gfeh 的 gid 組可讀，因為守護程序以 uid 2000 執行且必須讀取它。
+`src/gfeh/config.go` **精確**鏡像 gfehd 的 YAML。gfehd 的每一個配置結構體都是 `#[serde(deny_unknown_fields)]`，因此多出來的鍵不會被忽略——它是一個硬性的啟動失敗。頂層欄位：`data_dir`、`partition`、`network`（一個**指標**：缺失表示預設分割槽，而空字串是另一種、非法的請求）、`admin_socket`、五個可選的檢視塊、`credentials` 與 `town_os`。Town OS 渲染五個檢視中的四個，既不渲染 `smb:` 塊，也不渲染 `town_os:` 帳戶。檔案以 `0640` 寫入 `<btrfsBase>/gfeh-control/<network>/` 之下，並對 gfeh 的 gid 組可讀，因為守護程序以 uid 2000 執行且必須讀取它。
 
 ### 啟動與 reconcile
 
@@ -751,17 +752,17 @@ SMB **不提供服務**。它是唯一無法置於 ingress 之後的檢視，也
 
 對每個網路，它確保子卷存在（帶 UID/GID）、渲染配置，並**僅在渲染內容發生變化時**才安裝並重啟單元（即 reconcile 已在使用的 `ReadUnit` 差異慣用法）。`pruneGfehPartitions` 移除已不存在網路所對應的單元。
 
-**按分割槽的等待已經取消，而它的缺席是承重的。** `reconcileGfehPartition` 啟動單元后就到此為止；某個守護程序是否在應答，由 `GfehReadyNetworks` 和名稱收集器分別去問，而這兩者本來就把沉默的分割槽當作"什麼也沒貢獻"，而不是當作失敗。那個等待過去位於迴圈內部，每個分割槽一次——包括它其實什麼也沒做的那些分割槽，因為除 home 之外的任何網路，`ensureFirstUserPrincipal` 在第一行就返回了。在一個帶截止時間的 context 上，這不只是慢：第一個永遠不應答的守護程序會在 `WaitForReady` 中耗盡全部剩餘預算，於是它之後的每個分割槽都在一個已過期的 context 上嘗試 `Start`，而 `pruneGfehPartitions` 根本沒機會執行。一個死掉的守護程序按網路名的排序順序，把物件儲存的其餘部分一起拖垮了。
+**按分割槽的等待已經取消，而它的缺席是承重的。** `reconcileGfehPartition` 啟動單元後就到此為止；某個守護程序是否在應答，由 `GfehReadyNetworks` 和名稱收集器分別去問，而這兩者本來就把沉默的分割槽當作"什麼也沒貢獻"，而不是當作失敗。那個等待過去位於迴圈內部，每個分割槽一次——包括它其實什麼也沒做的那些分割槽，因為除 home 之外的任何網路，`ensureFirstUserPrincipal` 在第一行就返回了。在一個帶截止時間的 context 上，這不只是慢：第一個永遠不應答的守護程序會在 `WaitForReady` 中耗盡全部剩餘預算，於是它之後的每個分割槽都在一個已過期的 context 上嘗試 `Start`，而 `pruneGfehPartitions` 根本沒機會執行。一個死掉的守護程序按網路名的排序順序，把物件儲存的其餘部分一起拖垮了。
 
-唯一保留下來的等待是 reconcile 最末尾的 `seatGfehFounder`：它只等待 **home** 分割槽，上限為 `gfehFounderWaitBudget`（10 秒，測試中可按配置覆蓋），隨後為機器安置第一個賬戶。因為它在最後，超時只會拖延已經完成的工作；仍在冷啟動的守護程序會在下一輪被安置，而啟動流程緊接著 `ReconcileNetworks` 就會跑下一輪。出於同樣的理由，`GfehReadyNetworks` 通過 `context.WithoutCancel` 為每次健康探測給出各自的預算，而不是去消耗呼叫方剩下的那點時間——否則一個已耗盡的截止時間會讓所有分割槽同時顯得已經死亡。取消仍然被遵守；那屬於關機。
+唯一保留下來的等待是 reconcile 最末尾的 `seatGfehFounder`：它只等待 **home** 分割槽，上限為 `gfehFounderWaitBudget`（10 秒，測試中可按配置覆蓋），隨後為機器安置第一個帳戶。因為它在最後，超時只會拖延已經完成的工作；仍在冷啟動的守護程序會在下一輪被安置，而啟動流程緊接著 `ReconcileNetworks` 就會跑下一輪。出於同樣的理由，`GfehReadyNetworks` 通過 `context.WithoutCancel` 為每次健康探測給出各自的預算，而不是去消耗呼叫方剩下的那點時間——否則一個已耗盡的截止時間會讓所有分割槽同時顯得已經死亡。取消仍然被遵守；那屬於關機。
 
-**物件儲存沒有開關設定。** 存檔案正是這臺機器存在的目的，所以它像 DNS 和 ingress 一樣執行——作為 Town OS 之所以是 Town OS 的一部分，而不是一個需要被啟用的功能。一個開關只會帶來"某人正在排查檔案去哪了，卻發現它處在關閉位置"的機會；想讓守護程序停下的管理員，可以像對待其他任何系統服務一樣，在服務面板裡停止它們。升級後的機器設定表中若殘留 `object_storage_enabled` 行，沒有任何東西會讀取它。
+**物件儲存沒有開關設定。** 存檔案正是這台機器存在的目的，所以它像 DNS 和 ingress 一樣執行——作為 Town OS 之所以是 Town OS 的一部分，而不是一個需要被啟用的功能。一個開關只會帶來"某人正在排查檔案去哪了，卻發現它處在關閉位置"的機會；想讓守護程序停下的管理員，可以像對待其他任何系統服務一樣，在服務面板裡停止它們。升級後的機器設定表中若殘留 `object_storage_enabled` 行，沒有任何東西會讀取它。
 
 餘下的逃生艙口關乎*構建*，而非策略：它以 ingress 為前提（當 `INGRESS_IMAGE` 為空時，四個 HTTP 檢視對任何人都不可達，因此啟動分割槽只會釋出無人提供服務的名稱），而顯式置空的 `GFEH_IMAGE` 會完全跳過物件儲存（開發模式）——與 `UI_IMAGE` 和 `INGRESS_IMAGE` 使用同樣的 `LookupEnv` 約定，因為 `Getenv` 會讓空值意味著"使用預設值"，從而根本沒有關閉開關。
 
-**第一個賬戶被安置在 home 分割槽中。** `ensureFirstUserPrincipal` 以本機最早建立的賬戶命名建立一個主體（按 `CreatedAt`，以使用者名稱作為平局裁決，這樣創始賬戶不會因 map 迭代順序而在兩次 reconcile 之間發生變化），並使用 `gfeh.CeilingForAccount(admin)`。森林為空的分割槽誰也服務不了：操作者開啟 Users 標籤頁，什麼也看不到，還得自己琢磨出"我自己的賬戶不在裡面"。**僅限 home**——每臺機器都有這個分割槽，而後來新增的網路屬於被授予其上許可權的人，把創始賬戶安置進去等於把別人建立的名稱空間交給他。冪等性由 gfehd 保證，它對已存在的主體返回 409。
+**第一個帳戶被安置在 home 分割槽中。** `ensureFirstUserPrincipal` 以本機最早建立的帳戶命名建立一個主體（按 `CreatedAt`，以使用者名稱作為平局裁決，這樣創始帳戶不會因 map 迭代順序而在兩次 reconcile 之間發生變化），並使用 `gfeh.CeilingForAccount(admin)`。森林為空的分割槽誰也服務不了：操作者開啟 Users 標籤頁，什麼也看不到，還得自己琢磨出"我自己的帳戶不在裡面"。**僅限 home**——每台機器都有這個分割槽，而後來新增的網路屬於被授予其上權限的人，把創始帳戶安置進去等於把別人建立的名稱空間交給他。冪等性由 gfehd 保證，它對已存在的主體返回 409。
 
-**名稱在處理器切換之後才釋出。** `publishGfehNames` 在後臺執行：gfehd 輪詢 `/status/ping`，而後者**在完整路由器就位之前一直返回 503**（[Boot Status](#啟動狀態與重新整理)），因此分割槽在啟動基本完成之前無法完成自己的啟動。在此處同步等待會讓它所等待的這次啟動自我死鎖。若屆時沒有任何分割槽就緒，這些名稱就交由下一次 reconcile 釋出。
+**名稱在處理器切換之後才釋出。** `publishGfehNames` 在後台執行：gfehd 輪詢 `/status/ping`，而後者**在完整路由器就位之前一直返回 503**（[Boot Status](#啟動狀態與重新整理)），因此分割槽在啟動基本完成之前無法完成自己的啟動。在此處同步等待會讓它所等待的這次啟動自我死鎖。若屆時沒有任何分割槽就緒，這些名稱就交由下一次 reconcile 釋出。
 
 分割槽會在 `collectSystemServices()` 中註冊，因此 `POST /system-services/refresh` 會重新拉取並重啟它們——正是這一處遺漏曾讓 ingress 悄悄停留在舊版本上。
 
@@ -769,16 +770,16 @@ SMB **不提供服務**。它是唯一無法置於 ingress 之後的檢視，也
 
 **Town OS 固定的是 gfehd 的下限，而這是下限而非偏好。** `Containerfile.gfeh` 依據 `GFEH_VERSION` 從 crates.io 構建（可覆蓋，或將 `GFEH_LATEST` 置為非空以採用 crates.io 當前的最新版——與 install 倉庫中的 `TTYFORCE_LATEST` 是同一形狀）。當前下限是 **0.1.2**。
 
-這兩種失敗對 `make test` 都不可見——單元測試與整合測試套件都用一個**假的 gfehd** 頂替，因此把版本固定到下限之下換來的是一套全綠的測試和一臺物件儲存悄然死亡的機器。當 Town OS 開始依賴守護程序的新行為時，請提高這個固定版本，並讓映象構建在該版本尚未釋出時大聲失敗。
+這兩種失敗對 `make test` 都不可見——單元測試與整合測試套件都用一個**假的 gfehd** 頂替，因此把版本固定到下限之下換來的是一套全綠的測試和一台物件儲存悄然死亡的機器。當 Town OS 開始依賴守護程序的新行為時，請提高這個固定版本，並讓鏡像構建在該版本尚未釋出時大聲失敗。
 
 ### UI
 
-`/dashboard/objects`（導航項 `nav.objects`，"Object Storage"）。頂部是網路選擇器，其下是 `?tab=` 子標籤頁，每個對應 `ui/src/routes/objects/` 下的一個檔案：**Overview**（按分割槽的狀態、配額，以及已釋出的名稱，並標明每個名稱是經由 ingress 訪問還是直接撥號）、**Users**（主體與 ceiling；新增時會投影一個 Town OS 賬戶）、**Grants**，以及 **Links**（暴露，可撤回）。讀操作是 `requireAuth`，因此該標籤頁不限管理員；變更控制元件需要管理員或 `gfeh` 授權，並且無論哪種都只限於呼叫者自己的網路。
+`/dashboard/objects`（導航項 `nav.objects`，"Object Storage"）。頂部是網路選擇器，其下是 `?tab=` 子標籤頁，每個對應 `ui/src/routes/objects/` 下的一個檔案：**Overview**（按分割槽的狀態、配額，以及已釋出的名稱，並標明每個名稱是經由 ingress 訪問還是直接撥號）、**Users**（主體與 ceiling；新增時會投影一個 Town OS 帳戶）、**Grants**，以及 **Links**（暴露，可撤回）。讀操作是 `requireAuth`，因此該標籤頁不限管理員；變更控制元件需要管理員或 `gfeh` 授權，並且無論哪種都只限於呼叫者自己的網路。
 
 該介面上有兩個細節，其存在是為了防止讀者據一個用不了的數字或令牌採取行動：
 
 - **對 HTTP 檢視，Overview 的 Port 列是空的。** gfehd 為這類檢視上報的埠是 ingress 代理到的*容器側後端埠*，從讀者所在的任何位置都不可達——在 "Ingress (HTTPS)" 旁邊印出 `9000`，只會招致有人去撥 `s3.gfeh.home:9000`，然後斷定這個功能壞了。SMB 保留它的數字，因為那本會是一個真實的宿主機埠。
-- **Links 標籤頁渲染的是完整 URL，且由服務端組裝。** `GfehExposureView.URL` 由 `gfehPublishedLinkBase` 構建——`https://<http-view-fqdn>/f/`——它來自為 ingress vhost 與葉子證書 SAN 命名的同一個收集器，因此已釋出的連結在構造上就是 ingress 會路由、證書也覆蓋的名稱。它不在瀏覽器裡組裝，是因為 UI 將不得不知道四件伺服器早已掌握的事實：提供服務的名稱是 *http 檢視的*，而不是分割槽的或本機的；它是在該分割槽自己網路的 TLD 之下限定的，而非全域性 TLD；路由是 `/f/<token>`；以及上報的埠絕不能出現。當分割槽不提供任何 HTTP 檢視時該欄位為空——這是誠實的答案，因為那時確實沒有任何東西在服務那個令牌——而被停用的暴露渲染為純文本，而不是一個可點選的 404。
+- **Links 標籤頁渲染的是完整 URL，且由服務端組裝。** `GfehExposureView.URL` 由 `gfehPublishedLinkBase` 構建——`https://<http-view-fqdn>/f/`——它來自為 ingress vhost 與葉子證書 SAN 命名的同一個收集器，因此已釋出的連結在構造上就是 ingress 會路由、證書也覆蓋的名稱。它不在瀏覽器裡組裝，是因為 UI 將不得不知道四件伺服器早已掌握的事實：提供服務的名稱是 *http 檢視的*，而不是分割槽的或本機的；它是在該分割槽自己網路的 TLD 之下限定的，而非全域 TLD；路由是 `/f/<token>`；以及上報的埠絕不能出現。當分割槽不提供任何 HTTP 檢視時該欄位為空——這是誠實的答案，因為那時確實沒有任何東西在服務那個令牌——而被停用的暴露渲染為純文本，而不是一個可點選的 404。
 
 **這個介面是管理物件儲存的唯一場所。** 服務介面上沒有物件儲存專區：一個分割槽**就是**一個系統服務——各自一個 `town-os-system--gfeh-<network>` 單元——因此它本來就是該介面 System Services 表中的一行，`Object Storage (<network>)`，帶有與其他系統服務相同的狀態徽標和相同的啟動/停止/重啟/日誌操作。此前旁邊那塊面板重複了這一行，並且獨立於它輪詢，於是同一個單元在兩個層級上有兩套可能互相矛盾的控制元件；它還會無條件渲染，而表格卻要等自己的輪詢返回後才顯示，這就使得首次繪製時物件儲存孤零零地排在介面頂部，片刻之後系統服務才插進它上方。服務介面上的 `?expand=objects` 會展開 System Services，那一行就在那裡。
 
@@ -804,7 +805,7 @@ systemd 服務單元依據包的執行時型別以不同方式生成。
 - `-smp {cpus}` —— 虛擬 CPU 數量。
 - `-nographic` —— 無頭執行（無顯示輸出）。
 - `-enable-kvm` —— KVM 硬體加速。
-- `-drive file={image},format=raw,if=virtio` —— 以 virtio 塊裝置形式掛載 raw 磁碟映象。
+- `-drive file={image},format=raw,if=virtio` —— 以 virtio 塊裝置形式掛載 raw 磁碟鏡像。
 - `-netdev user,id=net0`，併為每個埠對映帶上 `hostfwd=tcp::{external}-:{internal}` —— QEMU 使用者態網路加宿主機到客戶機的埠轉發。
 - `-device virtio-net-pci,netdev=net0` —— 半虛擬化網路裝置。
 
@@ -863,15 +864,15 @@ VM 單元還會在啟動前與停止後的鉤子中通過 `firewall-cmd` 管理�
 - `GET /systemd/logs/tail`（localhost 或需要管理員）—— 返回一頁 JSON 格式的日誌條目。支援引數：`unit`、`lines`（預設 100）、`before`/`after`（游標分頁）、`grep`（不區分大小寫的搜尋）、`since`/`until`（Unix 時間戳）與 `priority`（syslog 嚴重級別過濾，0 表示不過濾）。
 - `GET /systemd/logs/tree` 與 `GET /systemd/logs/tree/tail`（localhost 或需要管理員）—— 按樹限定的對應端點。它們不接受 `unit`，而是接受 `repo`、`name` 與 `version`（全部必填），並覆蓋該包依賴樹中的**每一個** systemd 單元，因此父包的日誌與其依賴的日誌會在同一個檢視中交織。除此之外，重放與分頁語義與 `/systemd/logs` 和 `/systemd/logs/tail` 一致。
 
-## 賬戶管理
+## 帳戶管理
 
-### 賬戶模型
+### 帳戶模型
 
-每個賬戶包含：使用者名稱（主鍵）、密碼雜湊（絕不在 JSON 中暴露）、郵箱、電話、真實姓名、管理員標誌、停用標誌、一個**授權集合**、一個網路作用域，以及建立/更新時間戳。賬戶儲存在一張 SQLite 表中。
+每個帳戶包含：使用者名稱（主鍵）、密碼雜湊（絕不在 JSON 中暴露）、郵箱、電話、真實姓名、管理員標誌、停用標誌、一個**授權集合**、一個網路作用域，以及建立/更新時間戳。帳戶儲存在一張 SQLite 表中。
 
-**不存在賬戶"種類"這一概念**。一個賬戶要麼是管理員（在每個網路上持有全部授權），要麼不是；而非管理員持有的就是那些被開啟的授權。`Account.Restricted()`——即持有至少一項授權的非管理員——是推匯出來的，從不儲存。
+**不存在帳戶"種類"這一概念**。一個帳戶要麼是管理員（在每個網路上持有全部授權），要麼不是；而非管理員持有的就是那些被開啟的授權。`Account.Restricted()`——即持有至少一項授權的非管理員——是推匯出來的，從不儲存。
 
-**不存在服務賬戶。** 早先的版本給物件儲存守護程序配了自己的管理員賬戶；它已經沒有了，`account.PurgeLegacyServiceAccounts` 會在升級後的首次啟動時刪除它（及其儲存的密碼）。參見 [No service accounts](#沒有服務賬戶)。
+**不存在服務帳戶。** 早先的版本給物件儲存守護程序配了自己的管理員帳戶；它已經沒有了，`account.PurgeLegacyServiceAccounts` 會在升級後的首次啟動時刪除它（及其儲存的密碼）。參見 [No service accounts](#沒有服務帳戶)。
 
 ### 校驗規則
 
@@ -879,27 +880,27 @@ VM 單元還會在啟動前與停止後的鉤子中通過 `firewall-cmd` 管理�
 - **郵箱** —— 標準郵箱格式（`user@domain.tld`）。
 - **電話** —— 數字加可選的格式化字元（`+`、空格、短橫線、圓括號）。
 - **聯絡資訊** —— 郵箱、電話與真實姓名全部必填（非空）。
-- **授權** —— 每個名稱都必須在 `account.AllGrants` 中（`ErrInvalidGrant`）；管理員不得顯式持有任何授權（`ErrGrantsAdmin`——它本來就全部持有，因此儲存的子集只可能與之矛盾）；持有任何授權的賬戶必須至少限定到一個網路（`ErrGrantsNoNetworks`）。
+- **授權** —— 每個名稱都必須在 `account.AllGrants` 中（`ErrInvalidGrant`）；管理員不得顯式持有任何授權（`ErrGrantsAdmin`——它本來就全部持有，因此儲存的子集只可能與之矛盾）；持有任何授權的帳戶必須至少限定到一個網路（`ErrGrantsNoNetworks`）。
 - **網路作用域** —— 每一項都必須是合法的網路名（`ErrInvalidNetworkName`）。空列表絕不會被讀作"任意網路"。
 
 ### 授權（Grants）
 
-**授權**是非管理員賬戶可以持有的具名能力。目前有兩個：
+**授權**是非管理員帳戶可以持有的具名能力。目前有兩個：
 
 | 授權 | 常量 | 可換來 |
 |---|---|---|
-| `wireguard` | `account.GrantWireGuard` | 在該賬戶的網路上登記與重新整理 WireGuard peer |
+| `wireguard` | `account.GrantWireGuard` | 在該帳戶的網路上登記與重新整理 WireGuard peer |
 | `gfeh` | `account.GrantGfeh` | 管理這些網路所擁有的物件儲存——主體、它們的授權、已釋出的連結 |
 
-`account.AllGrants` 就是登錄檔：不在其中的授權無法被儲存，這正是阻止 API 請求中的一個拼寫錯誤變成一項永遠悄悄匹配不到任何東西的許可權的機制。新增一項能力就是在那裡加一條，再加上它在 `grantRoutes` 中的路由——不需要新列、不需要新遷移、不需要新的 `UpdateFields` 指標。UI 從映象檔案 `ui/src/lib/grants.js` 渲染核取方塊，因此新增授權也不需要新的標記程式碼。
+`account.AllGrants` 就是登錄檔：不在其中的授權無法被儲存，這正是阻止 API 請求中的一個拼寫錯誤變成一項永遠悄悄匹配不到任何東西的權限的機制。新增一項能力就是在那裡加一條，再加上它在 `grantRoutes` 中的路由——不需要新列、不需要新遷移、不需要新的 `UpdateFields` 指標。UI 從鏡像檔案 `ui/src/lib/grants.js` 渲染核取方塊，因此新增授權也不需要新的標記程式碼。
 
-兩者是**獨立的**。持有 `wireguard` 在物件儲存中什麼也換不到，持有 `gfeh` 也換不到 peer 登記能力；一個賬戶可以兩者兼有。`Account.HasGrant` 回答"這個呼叫者到底能不能做這件事"，而 `Account.MayAdministerNetwork` 回答"在哪個網路上"——二者絕不互相替代。
+兩者是**獨立的**。持有 `wireguard` 在物件儲存中什麼也換不到，持有 `gfeh` 也換不到 peer 登記能力；一個帳戶可以兩者兼有。`Account.HasGrant` 回答"這個呼叫者到底能不能做這件事"，而 `Account.MayAdministerNetwork` 回答"在哪個網路上"——二者絕不互相替代。
 
 #### 強制分三層，而分層組合正是要點
 
-1. **`grantAllowlist`** 是一個*全域性的*、失敗即拒的中介軟體。明天新增的路由，在有人把它列入 `grantRoutes`（`src/svc/systemcontroller/controller_auth.go`，以 `"METHOD PATH"` 為鍵）之前，對受限賬戶預設是拒絕的。沒有有效令牌的請求、來自管理員的請求，以及來自不持有任何授權的普通賬戶的請求，都會直接穿過它交給路由自身的鑑權——授權是給那些為行使它而存在的賬戶*疊加的*許可權，因此這一層只約束這類賬戶。
+1. **`grantAllowlist`** 是一個*全域的*、失敗即拒的中介軟體。明天新增的路由，在有人把它列入 `grantRoutes`（`src/svc/systemcontroller/controller_auth.go`，以 `"METHOD PATH"` 為鍵）之前，對受限帳戶預設是拒絕的。沒有有效令牌的請求、來自管理員的請求，以及來自不持有任何授權的普通帳戶的請求，都會直接穿過它交給路由自身的鑑權——授權是給那些為行使它而存在的帳戶*疊加的*權限，因此這一層只約束這類帳戶。
 2. **路由自身的中介軟體** —— `requirePeerEnroll`（`wireguard` 授權）與 `requireObjectStorage`（`gfeh` 授權），兩者都由 `requireGrant` 構建，後者放行管理員，因為管理員持有全部授權。讀操作仍是 `requireAuth`。
-3. **`requireNetworkScope`**，位於處理器內部，因為網路存在於請求體或查詢引數中，只有處理器才解析過它。它做的是**限制**，而不是授予；並且它只限制 `Restricted()` 賬戶——普通賬戶不持有任何授權，因此也沒有作用域，而空作用域會拒絕一切網路，所以把它施加於普通賬戶會讓那些刻意保持 `requireAuth` 的路由上的每一次讀操作都變成 403。
+3. **`requireNetworkScope`**，位於處理器內部，因為網路存在於請求體或查詢引數中，只有處理器才解析過它。它做的是**限制**，而不是授予；並且它只限制 `Restricted()` 帳戶——普通帳戶不持有任何授權，因此也沒有作用域，而空作用域會拒絕一切網路，所以把它施加於普通帳戶會讓那些刻意保持 `requireAuth` 的路由上的每一次讀操作都變成 403。
 
 `grantRoutes` 就是授權所能換來的全部：
 
@@ -911,13 +912,13 @@ gfeh:      GET  /gfeh             GET  /gfeh/principals      POST /gfeh/principa
            POST /gfeh/exposures/withdraw
 ```
 
-外加 `grantCommonRoutes`，任何持有授權的賬戶無論持有哪一項都可訪問：`POST /account/authenticate`、`GET /account/me`、`GET /networks`、`GET /dns/services`、`GET /tls/ca.crt` 與 `GET /status/ping`。沒有它們，任何授權都無法使用——你不先登入就無法行使任何授權——因此它們是共用的，而不是被複制進每一項授權。
+外加 `grantCommonRoutes`，任何持有授權的帳戶無論持有哪一項都可訪問：`POST /account/authenticate`、`GET /account/me`、`GET /networks`、`GET /dns/services`、`GET /tls/ca.crt` 與 `GET /status/ping`。沒有它們，任何授權都無法使用——你不先登入就無法行使任何授權——因此它們是共用的，而不是被複制進每一項授權。
 
-`GET /status/ping` 出現在那個列表上還有第二個理由：它是**公開的**，註冊時完全沒有鑑權中介軟體，因此匿名的陌生人也能拿到 200。由於白名單是全域性且失敗即拒的，遺漏它就意味著一個有效令牌會把那個 200 變成 403——認證反而讓呼叫者嚴格地比什麼都不出示更糟。它同時還是儀表盤 60 秒一次的會話心跳，以及整個狀態面板的資料來源，因此持有 `gfeh` 的賬戶本可以訪問每一條 `/gfeh` 路由，卻仍然得不到一個可用的頁面。同時再授予 `wireguard` 也無濟於事：ping 不與任何一項授權掛鉤。
+`GET /status/ping` 出現在那個列表上還有第二個理由：它是**公開的**，註冊時完全沒有鑑權中介軟體，因此匿名的陌生人也能拿到 200。由於白名單是全域且失敗即拒的，遺漏它就意味著一個有效令牌會把那個 200 變成 403——認證反而讓呼叫者嚴格地比什麼都不出示更糟。它同時還是儀表盤 60 秒一次的會話心跳，以及整個狀態面板的資料來源，因此持有 `gfeh` 的帳戶本可以訪問每一條 `/gfeh` 路由，卻仍然得不到一個可用的頁面。同時再授予 `wireguard` 也無濟於事：ping 不與任何一項授權掛鉤。
 
-請注意刻意**缺席**的內容：`/gfeh/partitions/*` 保持 `requireAdmin`（置備一個分割槽就是建立一棵許可權樹的根並分配一個 btrfs 子卷；`TOWNOS_CONTRACT.md` 把它保留給管理員，而 gfeh 的客戶端會依據 403 分支），以及 `GET /networks/peers/connected`，它聚合了所有網路上每個賬戶的 peer 與觀測到的源地址。
+請注意刻意**缺席**的內容：`/gfeh/partitions/*` 保持 `requireAdmin`（置備一個分割槽就是建立一棵權限樹的根並分配一個 btrfs 子卷；`TOWNOS_CONTRACT.md` 把它保留給管理員，而 gfeh 的客戶端會依據 403 分支），以及 `GET /networks/peers/connected`，它聚合了所有網路上每個帳戶的 peer 與觀測到的源地址。
 
-與建立後不可變的 `Admin` 不同，授權是可變的；而 `account.Manager.CreateGranted` 是獨立於 `Create` 的方法，這樣那些不變數（持有授權者絕不是管理員，且始終有非空作用域）就在建立時於一處被強制，而不是從一個被加寬的位置引數簽名裡拼湊出來。
+與建立後不可變的 `Admin` 不同，授權是可變的；而 `account.Manager.CreateGranted` 是獨立於 `Create` 的方法，這樣那些不變量（持有授權者絕不是管理員，且始終有非空作用域）就在建立時於一處被強制，而不是從一個被加寬的位置引數簽名裡拼湊出來。
 
 #### 從舊列遷移
 
@@ -929,53 +930,53 @@ gfeh:      GET  /gfeh             GET  /gfeh/principals      POST /gfeh/principa
 | `object_storage` | `gfeh` |
 | `network_only`（一個把兩者合成一個標誌的中間態模式） | 兩者 |
 
-**一列，一項授權。** 原本能登記 peer 的賬戶仍然能，原本不能的也不會悄悄獲得這項能力——在升級過程中擴大許可權是不可撤回的方向，因為賬戶保留著它的密碼，而介面上沒有任何東西會說它的許可權變大了。`smb_nt_hash` 被直接丟棄（參見 [No SMB view](#不提供-smb-檢視)）。
+**一列，一項授權。** 原本能登記 peer 的帳戶仍然能，原本不能的也不會悄悄獲得這項能力——在升級過程中擴大權限是不可撤回的方向，因為帳戶保留著它的密碼，而介面上沒有任何東西會說它的權限變大了。`smb_nt_hash` 被直接丟棄（參見 [No SMB view](#不提供-smb-檢視)）。
 
-### 每個賬戶都屬於 home 網路
+### 每個帳戶都屬於 home 網路
 
-`Manager.Create`——**第一個**賬戶與每個普通賬戶所走的路徑——寫入 `networks: ["home"]`。`CreateGranted` 不會把它並進去：在那條路徑上，管理員選定的作用域恰恰就是該賬戶可以觸及的網路，把 `home` 摺進去會擴大一個本應限定在 `office` 的門戶賬戶的範圍。
+`Manager.Create`——**第一個**帳戶與每個普通帳戶所走的路徑——寫入 `networks: ["home"]`。`CreateGranted` 不會把它並進去：在那條路徑上，管理員選定的作用域恰恰就是該帳戶可以觸及的網路，把 `home` 摺進去會擴大一個本應限定在 `office` 的門戶帳戶的範圍。
 
-這樣做是安全的，因為對於不持有授權的賬戶，作用域是**成員身份，而非限制**：`Restricted()` 為假，因此上面各層都不會去查詢它。而且它絕不可能指向一個不存在的網路——參見 [The home network always exists](#home-網路始終存在)。
+這樣做是安全的，因為對於不持有授權的帳戶，作用域是**成員身份，而非限制**：`Restricted()` 為假，因此上面各層都不會去查詢它。而且它絕不可能指向一個不存在的網路——參見 [The home network always exists](#home-網路始終存在)。
 
-### 賬戶 API
+### 帳戶 API
 
-- `POST /account/create` —— 建立新賬戶。在引導模式下（不存在處於啟用狀態的管理員賬戶）允許未認證訪問；否則需要管理員認證。非空的 `grants` 陣列會轉由 `CreateGranted` 處理並使用所提供的 `networks`；否則賬戶通過 `Create` 建立並加入 home 網路。使用者名稱重複的錯誤會返回通用失敗資訊，以防使用者列舉。
-- `POST /account` —— 按使用者名稱獲取賬戶（需要鑑權）。
-- `GET /account` —— 列出所有賬戶，支援分頁與搜尋（需要鑑權）。
-- `POST /account/update` —— 更新賬戶欄位（需要鑑權）。被更新的使用者名稱來自**請求體**，因此編輯他人賬戶僅限管理員：沒有這項檢查，任何已認證賬戶都能 POST `{"username":"admin","fields":{"password":"..."}}` 從而接管這臺機器——控制器驅動著宿主機的 podman socket，所以那就是 root。普通賬戶仍可編輯自己的聯絡方式與密碼，這正是該路由沒有直接設為 `requireAdmin` 的原因。管理員身份在賬戶建立後不可更改；授權與網路作用域可以更改，但**只能由管理員更改，即便是改你自己的賬戶也一樣**——否則普通使用者就能給自己授予 `gfeh` 從而闖進某個分割槽，或授予 `wireguard` 從而在 overlay 上登記一個 peer。`networks` 為 nil 時保持已儲存的作用域不變；非 nil 時整體替換。`validateGrantResult` 檢查更新*之後*該行的狀態，因此給管理員授予授權、把持有授權者提升為管理員，以及把作用域從授權之下清空，這三種情況都會被捕獲。
-- `POST /account/disable` —— 停用賬戶，阻止其認證（需要管理員）。同時撤銷該賬戶的活動會話。讓停用生效的並不是這一步——`SessionManager.Validate` 本身就會拒絕被停用賬戶的令牌，因此這項保證並不依賴撤銷是否成功——它的作用是：若該賬戶日後被重新啟用，停用之前簽發的令牌不會重新生效，而那並不是管理員在撤銷某人訪問權之後所說的"啟用"的含義。
-- `POST /account/enable` —— 重新啟用被停用的賬戶（需要管理員）。
+- `POST /account/create` —— 建立新帳戶。在引導模式下（不存在處於啟用狀態的管理員帳戶）允許未認證訪問；否則需要管理員認證。非空的 `grants` 陣列會轉由 `CreateGranted` 處理並使用所提供的 `networks`；否則帳戶通過 `Create` 建立並加入 home 網路。使用者名稱重複的錯誤會返回通用失敗資訊，以防使用者列舉。
+- `POST /account` —— 按使用者名稱獲取帳戶（需要鑑權）。
+- `GET /account` —— 列出所有帳戶，支援分頁與搜尋（需要鑑權）。
+- `POST /account/update` —— 更新帳戶欄位（需要鑑權）。被更新的使用者名稱來自**請求體**，因此編輯他人帳戶僅限管理員：沒有這項檢查，任何已認證帳戶都能 POST `{"username":"admin","fields":{"password":"..."}}` 從而接管這台機器——控制器驅動著宿主機的 podman socket，所以那就是 root。普通帳戶仍可編輯自己的聯絡方式與密碼，這正是該路由沒有直接設為 `requireAdmin` 的原因。管理員身份在帳戶建立後不可更改；授權與網路作用域可以更改，但**只能由管理員更改，即便是改你自己的帳戶也一樣**——否則普通使用者就能給自己授予 `gfeh` 從而闖進某個分割槽，或授予 `wireguard` 從而在 overlay 上登記一個 peer。`networks` 為 nil 時保持已儲存的作用域不變；非 nil 時整體替換。`validateGrantResult` 檢查更新*之後*該行的狀態，因此給管理員授予授權、把持有授權者提升為管理員，以及把作用域從授權之下清空，這三種情況都會被捕獲。
+- `POST /account/disable` —— 停用帳戶，阻止其認證（需要管理員）。同時撤銷該帳戶的活動會話。讓停用生效的並不是這一步——`SessionManager.Validate` 本身就會拒絕被停用帳戶的令牌，因此這項保證並不依賴撤銷是否成功——它的作用是：若該帳戶日後被重新啟用，停用之前簽發的令牌不會重新生效，而那並不是管理員在撤銷某人訪問權之後所說的"啟用"的含義。
+- `POST /account/enable` —— 重新啟用被停用的帳戶（需要管理員）。
 
-### 賬戶管理 UI
+### 帳戶管理 UI
 
-使用者管理介面（`/dashboard/users`）展示一個可分頁、可排序、可搜尋的賬戶資料表。每行顯示使用者名稱、郵箱、電話、真實姓名、管理員/使用者角色徽標與啟用/停用狀態。每行的操作包括一個 Edit 按鈕（開啟對話方塊以更新密碼、郵箱、電話、真實姓名、**授權核取方塊**與網路作用域選擇器）以及一個帶確認的啟用/停用開關。有一個連結可跳轉到專門的建立使用者頁面（`/dashboard/users/create`），其登錄檔單帶有同樣的控制元件。兩個表單都從 `ui/src/lib/grants.js` 渲染核取方塊，並拒絕在未選擇任何網路的情況下授予任何許可權。
+使用者管理介面（`/dashboard/users`）展示一個可分頁、可排序、可搜尋的帳戶資料表。每行顯示使用者名稱、郵箱、電話、真實姓名、管理員/使用者角色徽標與啟用/停用狀態。每行的操作包括一個 Edit 按鈕（開啟對話方塊以更新密碼、郵箱、電話、真實姓名、**授權核取方塊**與網路作用域選擇器）以及一個帶確認的啟用/停用開關。有一個連結可跳轉到專門的建立使用者頁面（`/dashboard/users/create`），其登錄檔單帶有同樣的控制元件。兩個表單都從 `ui/src/lib/grants.js` 渲染核取方塊，並拒絕在未選擇任何網路的情況下授予任何權限。
 
 ### 會話管理
 
-會話使用 JWT 令牌（HS256），claim 包含會話 ID（UUID）、使用者名稱與簽發時間戳。簽名金鑰是臨時的：每次服務啟動時通過 `crypto/rand` 生成 32 位元組隨機數，絕不落盤。`InitSessionManager` 在啟動時執行，會清除所有已存在的會話（`DELETE FROM sessions`），因為舊令牌在新金鑰下無效。`TOWN_OS_SIGNING_KEY` 環境變數可覆蓋生成的金鑰。會話在最後一次使用後 7 天過期。一個後臺清理任務定期移除過期會話。
+會話使用 JWT 令牌（HS256），claim 包含會話 ID（UUID）、使用者名稱與簽發時間戳。簽名金鑰是臨時的：每次服務啟動時通過 `crypto/rand` 生成 32 位元組隨機數，絕不落盤。`InitSessionManager` 在啟動時執行，會清除所有已存在的會話（`DELETE FROM sessions`），因為舊令牌在新金鑰下無效。`TOWN_OS_SIGNING_KEY` 環境變數可覆蓋生成的金鑰。會話在最後一次使用後 7 天過期。一個後台清理任務定期移除過期會話。
 
-**被停用賬戶的令牌一到就是死的。** `Validate` 檢查 `Disabled` 並拒絕，因為登入之後的每一個請求都僅由該函式授權：沒有這項檢查，停用一個賬戶只是阻止它*再次*登入，而它已經持有的令牌在整個會話生命週期內仍然有效，並且會因被使用而自我續期。
+**被停用帳戶的令牌一到就是死的。** `Validate` 檢查 `Disabled` 並拒絕，因為登入之後的每一個請求都僅由該函式授權：沒有這項檢查，停用一個帳戶只是阻止它*再次*登入，而它已經持有的令牌在整個會話生命週期內仍然有效，並且會因被使用而自我續期。
 
 `SessionManager` 介面提供：`Create`、`Validate`、`Revoke`、`RevokeAllForUser`、`Cleanup`、`List`、`GetUsername`、`HasActiveAdminSessions` 與 `StartCleanup`。
 
 會話 API 端點：
 
-- `POST /account/authenticate` —— 使用者名稱/密碼登入（公開）。返回 JWT 令牌與賬戶物件。所有認證失敗（密碼錯誤、使用者不存在、賬戶被停用）都返回同一個通用的 "invalid credentials" 錯誤，以防使用者列舉。
+- `POST /account/authenticate` —— 使用者名稱/密碼登入（公開）。返回 JWT 令牌與帳戶物件。所有認證失敗（密碼錯誤、使用者不存在、帳戶被停用）都返回同一個通用的 "invalid credentials" 錯誤，以防使用者列舉。
 - `GET /account/sessions` —— 列出當前已認證使用者的會話（需要鑑權）。
 - `GET /account/me` —— 獲取當前已認證使用者的使用者名稱（需要鑑權）。
 - `POST /account/session/revoke` —— 按 ID 撤銷特定會話（需要鑑權）。
 
 ### 審計日誌
 
-所有管理操作都被記入審計日誌。每條記錄包含：自增 ID、賬戶（使用者名稱）、動作描述、請求路徑、經過清洗的詳情（憑據被掩碼）、成功標誌、錯誤資訊與建立時間戳。
+所有管理操作都被記入審計日誌。每條記錄包含：自增 ID、帳戶（使用者名稱）、動作描述、請求路徑、經過清洗的詳情（憑據被掩碼）、成功標誌、錯誤資訊與建立時間戳。
 
-**清洗器做的是掩碼而非刪除**，它把憑據的值替換為 `[REDACTED]` 並保留鍵名。審計的閱讀者應當能夠看出某個欄位存在過但被扣下了，而不是根本無法把它與一個從未攜帶該欄位的請求區分開。它以不區分大小寫的方式，把 `auditRedactedKeys` 與整個鍵名、以及鍵名最後一個下劃線之後的字尾做匹配，因此 `smtp_password` 會被捕獲，而不需要一條同樣會吞掉無害名稱的子串規則；它還會同時遞迴進陣列與 map。包安裝的 `responses` map 被視為**不透明**並整體掩碼：它的鍵屬於包作者，因此沒有可供匹配的詞彙表，而它的值恰恰就是生成的 `type: secret` 與 `type: oauth` 答案——日誌絕不能變成它們的副本。裸的 `key` 刻意**不在**列表上——否則字尾規則會捕獲 `public_key`，而 `POST /networks/peers/add` 正攜帶該欄位，且 WireGuard 公鑰在構造上就是公開的，同時它又是唯一能說明"登記的是哪臺裝置"的欄位。
+**清洗器做的是掩碼而非刪除**，它把憑據的值替換為 `[REDACTED]` 並保留鍵名。審計的閱讀者應當能夠看出某個欄位存在過但被扣下了，而不是根本無法把它與一個從未攜帶該欄位的請求區分開。它以不區分大小寫的方式，把 `auditRedactedKeys` 與整個鍵名、以及鍵名最後一個下劃線之後的字尾做匹配，因此 `smtp_password` 會被捕獲，而不需要一條同樣會吞掉無害名稱的子串規則；它還會同時遞迴進陣列與 map。包安裝的 `responses` map 被視為**不透明**並整體掩碼：它的鍵屬於包作者，因此沒有可供匹配的詞彙表，而它的值恰恰就是生成的 `type: secret` 與 `type: oauth` 答案——日誌絕不能變成它們的副本。裸的 `key` 刻意**不在**列表上——否則字尾規則會捕獲 `public_key`，而 `POST /networks/peers/add` 正攜帶該欄位，且 WireGuard 公鑰在構造上就是公開的，同時它又是唯一能說明"登記的是哪台裝置"的欄位。
 
-被跟蹤的動作包括：建立/修改/移除檔案系統，新增/移除/移動/重新整理倉庫，安裝/解除安裝包，清除卷，停用/啟用包，設定單元狀態，建立/更新/停用賬戶，認證，撤銷會話，更新設定，忽略升級提示，上傳/下載歸檔，建立/更新/移除/重建 page，上傳/刪除 VM 映象。
+被跟蹤的動作包括：建立/修改/移除檔案系統，新增/移除/移動/重新整理倉庫，安裝/解除安裝包，清除卷，停用/啟用包，設定單元狀態，建立/更新/停用帳戶，認證，撤銷會話，更新設定，忽略升級提示，上傳/下載歸檔，建立/更新/移除/重建 page，上傳/刪除 VM 鏡像。
 
 只讀端點被明確排除在審計日誌之外。被排除的路徑包括根路徑（`/`）、所有 GET 列表/查詢端點、資訊端點（`/packages/installed/info`）、應答獲取（`/packages/last-responses`、`/packages/responses`）、安裝預覽（`/packages/install-preview`）、版本/問題查詢、時區列表、pages 列表端點、狀態 ping、系統服務列表（`/system-services`）、審計日誌查詢、設定讀取，以及日誌流式端點。
 
-- `POST /audit/log`（localhost 或需要管理員）—— 查詢審計日誌，支援基於游標或偏移的分頁、按賬戶過濾、排序與搜尋。
+- `POST /audit/log`（localhost 或需要管理員）—— 查詢審計日誌，支援基於游標或偏移的分頁、按帳戶過濾、排序與搜尋。
 
 ### 設定管理
 
@@ -992,8 +993,8 @@ gfeh:      GET  /gfeh             GET  /gfeh/principals      POST /gfeh/principa
 - **Default Volume Quota** —— 可按 GB、MB 或位元組配置。設為零時顯示 "0 (no quota)"。
 - **Max Archive Size** —— 可按 GB、MB 或位元組配置。控制歸檔上傳所允許的最大檔案大小。
 - **Archive Unpack Timeout** —— 可按秒、分鐘或小時配置。控制解包上傳歸檔所允許的最長時間。
-- **Language** —— 一個下拉框，以母語文字顯示常用語言。可展開區域會顯示擴充套件語言環境。未填充的語言環境帶星號顯示並被停用。
-- **Proton Image** —— 一個可編輯文本輸入框，用於填寫 Proton 執行器容器映象引用（例如 `quay.io/town/proton:latest`）。
+- **Language** —— 一個下拉框，以母語文字顯示常用語言。可展開區域會顯示擴充語言環境。未填充的語言環境帶星號顯示並被停用。
+- **Proton Image** —— 一個可編輯文本輸入框，用於填寫 Proton 執行器容器鏡像引用（例如 `quay.io/town/proton:latest`）。
 - **Local DNS Forwarders** —— 一個由 `dns_local_forwarders` 支撐的開關。其下方顯示 rolodex *實際*正在轉發到的地址，這些地址讀自 `GET /dns/status` 而非由設定推斷；當發現過程沒有找到任何可用地址時，面板會說明仍在使用公共轉發器，而那正是"開關顯示為開、卻什麼也沒變"的那唯一一種情形。參見 [Local forwarders](#本地轉發器)。
 
 當前值會被分解為最合適的單位來顯示（例如 1073741824 位元組顯示為 "1 GB"，120 秒顯示為 "2 minutes"）。輸入校驗會拒絕負數與非數字值。
@@ -1029,7 +1030,7 @@ gfeh:      GET  /gfeh             GET  /gfeh/principals      POST /gfeh/principa
 
 包的依賴共享父包的 podman 網路。這讓同一依賴樹中的容器可以直接通過容器名互相通訊（藉助共享網路上 podman 內建的 DNS），而不必經由宿主機埠轉發。
 
-- **冪等的網路建立** —— 無論是否存在網路控制器（NC），每個服務單元都包含 `ExecStartPre=-/usr/bin/podman network create {network}`。這是一道啟動順序上的安全網：若 NC 尚未建立該網路（例如映象未構建、systemd 競態），服務仍然能啟動。NC 也會建立該網路——誰先到誰生效，另一個成為空操作。
+- **冪等的網路建立** —— 無論是否存在網路控制器（NC），每個服務單元都包含 `ExecStartPre=-/usr/bin/podman network create {network}`。這是一道啟動順序上的安全網：若 NC 尚未建立該網路（例如鏡像未構建、systemd 競態），服務仍然能啟動。NC 也會建立該網路——誰先到誰生效，另一個成為空操作。
 - **網路歸屬** —— 父包擁有該 podman 網路（`town-os-net--{repo}-{name}-{version}`）。NC 在 `ExecStartPre` 中建立它，並在 `ExecStopPost` 中移除它（`podman network rm -f`）。
 - **依賴加入父網路** —— 依賴的服務單元使用 `--net {parent-network}` 而不是建立自己的網路。它們在 `ExecStartPre` 中冪等地建立該網路（以防它們先於父包啟動），但從不移除它。
 - **沒有埠的獨立包**沿用原有模式：在 `ExecStartPre` 中先 `podman network rm -f` 再 `podman network create`，並在 `ExecStopPost` 中 `podman network rm -f`。只有既沒有 NC 也沒有父 NC 的獨立包才會在 `create` 之前執行 `rm -f`。
@@ -1166,13 +1167,13 @@ dependencies:
 
 **模板路徑替換。** `expose.<volname>.path` 與 `consume[].path` 與普通卷掛載點一樣參與 `@question@` 替換。`consume.from` 與 `consume.volume`（以及 `expose` 的 map 鍵）是識別符號而非資料，不會被替換。
 
-**許可權注意事項——繫結掛載會透傳 UID/GID。** 依賴在宿主機上的 btrfs 子卷，屬主是依賴容器建立它時所用的那個 uid:gid。若依賴以 1000:1000 執行（linuxserver/* 的預設值），而消費方的父包或同級以不同的 uid 執行，消費方在讀或寫時會得到 EACCES。修復之道在包的 YAML 中，而不在平臺裡：讓共享卷的各包之間的 `PUID`/`PGID` 問題預設值保持一致。`HostVolumeMount.UID`/`GID` 的 chown 行刻意不遞迴，並且只在依賴作者在可寫掛載上顯式設定了它們時才生效；共享卷解析器從不自動 chown。
+**權限注意事項——繫結掛載會透傳 UID/GID。** 依賴在宿主機上的 btrfs 子卷，屬主是依賴容器建立它時所用的那個 uid:gid。若依賴以 1000:1000 執行（linuxserver/* 的預設值），而消費方的父包或同級以不同的 uid 執行，消費方在讀或寫時會得到 EACCES。修復之道在包的 YAML 中，而不在平台裡：讓共享卷的各包之間的 `PUID`/`PGID` 問題預設值保持一致。`HostVolumeMount.UID`/`GID` 的 chown 行刻意不遞迴，並且只在依賴作者在可寫掛載上顯式設定了它們時才生效；共享卷解析器從不自動 chown。
 
 **模板名稱空間。** 依賴的可共享卷也會在檔案模板的 `.Dep` 名稱空間中以 `.Dep.<key>.Volumes.<volname>` 暴露（其值是該卷在依賴容器內的掛載點）。這與 `.Dep.<key>.Ports` 是平行的。非共享卷被刻意排除在該 map 之外，因此檔案模板無法觸及依賴作者未選擇暴露的資料。
 
 **解除安裝順序。** 既有的 `Before=`/`PartOf=` 指令已經保證父包先於依賴停止、依賴先於其生產方停止，因此當父包被解除安裝（級聯解除安裝其依賴）時，消費方的容器在生產方的卷被觸碰之前就已經消失。不需要新的解除安裝邏輯。
 
-**範圍之外。** 一個依賴恰好屬於一個父包（既有不變數）；共享卷並不會讓依賴變成多租戶的。反方向共享（父包的卷 → 依賴）在 v1 中不支援；若將來確有需要，模式仍是可擴充套件的。系統服務（`town-os-system--*`）不具備此功能——`GenerateSystemServiceUnit` 不查詢 `expose`/`consume`。
+**範圍之外。** 一個依賴恰好屬於一個父包（既有不變量）；共享卷並不會讓依賴變成多租戶的。反方向共享（父包的卷 → 依賴）在 v1 中不支援；若將來確有需要，模式仍是可擴充的。系統服務（`town-os-system--*`）不具備此功能——`GenerateSystemServiceUnit` 不查詢 `expose`/`consume`。
 
 ### 具名埠
 
@@ -1229,9 +1230,9 @@ dependencies:
 
 ### home 網路始終存在
 
-`DefaultNetworkName` 是 `home`，它由 **`account.InitNetworkManager` 播種**，與建表同時進行——而不是由啟動時的 reconcile 播種。因此從資料庫存在的那一刻起它就在：在控制器啟動之前、在每一個測試伺服器中，以及在這臺機器服務的第一個請求時。`account.DefaultNetwork()` 是那一行的規範定義。
+`DefaultNetworkName` 是 `home`，它由 **`account.InitNetworkManager` 播種**，與建表同時進行——而不是由啟動時的 reconcile 播種。因此從資料庫存在的那一刻起它就在：在控制器啟動之前、在每一個測試伺服器中，以及在這台機器服務的第一個請求時。`account.DefaultNetwork()` 是那一行的規範定義。
 
-這很重要，因為下游的一切都是假定它存在而寫的：第一個賬戶被限定到它（[每個賬戶都屬於 home 網路](#每個賬戶都屬於-home-網路)），預設 TLD 就是它的 TLD，而 gfeh 會給它一個分割槽並把創始賬戶安置在那裡。如果它需要先被建立，就會存在一個視窗期，其間上述一切都不成立——這正是過去物件儲存在首次啟動時一直死著、直到後來某次重啟碰巧發現網路已經存在的原因。
+這很重要，因為下游的一切都是假定它存在而寫的：第一個帳戶被限定到它（[每個帳戶都屬於 home 網路](#每個帳戶都屬於-home-網路)），預設 TLD 就是它的 TLD，而 gfeh 會給它一個分割槽並把創始帳戶安置在那裡。如果它需要先被建立，就會存在一個視窗期，其間上述一切都不成立——這正是過去物件儲存在首次啟動時一直死著、直到後來某次重啟碰巧發現網路已經存在的原因。
 
 它**不能被移除**（`ErrNetworkProtected`，且 `POST /networks/remove` 會拒絕），也不能被建立第二次——對 `home` 呼叫 `POST /networks/create` 會因 TLD 衝突檢查而得到 409。
 
@@ -1241,17 +1242,17 @@ dependencies:
 
 ### 編址與介面
 
-- **子網** —— `wireguard.SubnetForNetwork(seed, name)` 從一個機器身份種子與網路名推匯出確定性的 `/24`。以機器身份為鍵意味著兩臺都對外提供 peer 服務的 Town OS 機器會選出不同的子網，因此同時加入兩者的裝置永遠不會遇到衝突。子網取自 `10.64.0.0/10`，以避開消費級路由器常發的 `10.0`/`10.1` 段。種子是 `networkIPAMSeed()`：systemd machine-id，其次是主機名，再次是一個常量，因此推導永不失敗——並把例項鹽折入其中。
+- **子網** —— `wireguard.SubnetForNetwork(seed, name)` 從一個機器身份種子與網路名推匯出確定性的 `/24`。以機器身份為鍵意味著兩台都對外提供 peer 服務的 Town OS 機器會選出不同的子網，因此同時加入兩者的裝置永遠不會遇到衝突。子網取自 `10.64.0.0/10`，以避開消費級路由器常發的 `10.0`/`10.1` 段。種子是 `networkIPAMSeed()`：systemd machine-id，其次是主機名，再次是一個常量，因此推導永不失敗——並把實例鹽折入其中。
 - **介面名** —— `wireguard.InterfaceName(salt, name)` 是 `"town"` 加上加鹽網路名 SHA-256 的 4 位十六進位制：與建立順序無關、與網路數量無關，並且在核心 15 字元的限制之內。wg-quick 從配置檔名推導介面名，因此配置被寫作 `<InterfaceName>.conf`。`systemcontroller.NetworkInterfaceName(name)` 是整合測試所使用的、已應用鹽值的形式，這樣測試就絕不會去斷言一個根本沒被建立的裝置。
 - **監聽埠** —— `wireguard.ListenPortForName(salt, name)` 以加鹽名稱的雜湊為偏移，從 `DefaultListenPortBase`（51820）起算，並在遇到另一個網路已佔用的埠時向前探測。
 
-#### 例項鹽
+#### 實例鹽
 
-WireGuard 的介面名、它的 UDP 監聽埠與它的 overlay 子網都是**名稱空間全域性的**，而測試容器與開發容器都以 `--net host` 執行（這是刻意的——橋接網路的 DNS 在強制門戶網路下會失效）。沒有鹽值時，一臺 `make test-full` 的機器與一臺 `make dev` 的機器會為同一個網路名推匯出*相同*的介面名與監聽埠：後啟動的那個無法建立自己的裝置，它的 overlay 直接是死的。兩個併發的測試工作樹也會以同樣方式衝突——IRON RULE。
+WireGuard 的介面名、它的 UDP 監聽埠與它的 overlay 子網都是**名稱空間全域的**，而測試容器與開發容器都以 `--net host` 執行（這是刻意的——橋接網路的 DNS 在強制門戶網路下會失效）。沒有鹽值時，一台 `make test-full` 的機器與一台 `make dev` 的機器會為同一個網路名推匯出*相同*的介面名與監聽埠：後啟動的那個無法建立自己的裝置，它的 overlay 直接是死的。兩個併發的測試工作樹也會以同樣方式衝突——IRON RULE。
 
 `TOWN_OS_WG_SALT`（`EnvWireGuardSalt`）被讀取一次到 `wireGuardSalt` 中。測試框架通過 `make/lib.sh` 中的 `wireguard_salt` 把它設為 `<role>-<INSTANCE_ID>`——role 在同一個檢出中區分測試機與開發機，`INSTANCE_ID` 區分不同檢出，兩部分缺一不可。對於給定的 role 與檢出它是穩定的，這一點對開發模式很重要，因為開發模式的資料庫跨執行留存，否則其中儲存的子網會指向以上一次鹽值命名的裝置。**真實機器不設定任何值，並保持歷史上不加鹽的名稱**；空鹽值會讓每一次推導原樣返回。
 
-**podman 的預設子網池必須避開 `10.64.0.0/10`。** 執行時映象寫出的 `/etc/containers/containers.conf` 中含 `default_subnet_pools = [{"base" = "172.16.0.0/12", "size" = 24}]`，正是因為 podman 的預設值（10.89/16、10.90/15、10.96/11 等）全都落在 overlay 範圍之內：範圍內的 `/24` 會因與 overlay 路由衝突而被跳過，池子在負載下耗盡並報 "could not find free subnet from subnet pools"，包的容器網路隨之停止工作。不要刪除該檔案，也不要把池子重新擴回 `10.64.0.0/10`。
+**podman 的預設子網池必須避開 `10.64.0.0/10`。** 執行時鏡像寫出的 `/etc/containers/containers.conf` 中含 `default_subnet_pools = [{"base" = "172.16.0.0/12", "size" = 24}]`，正是因為 podman 的預設值（10.89/16、10.90/15、10.96/11 等）全都落在 overlay 範圍之內：範圍內的 `/24` 會因與 overlay 路由衝突而被跳過，池子在負載下耗盡並報 "could not find free subnet from subnet pools"，包的容器網路隨之停止工作。不要刪除該檔案，也不要把池子重新擴回 `10.64.0.0/10`。
 
 `wireguard` 包**自身不做任何介面控制**。它生成金鑰對並渲染 wg-quick 風格的配置；由 systemcontroller 把渲染好的配置寫入與宿主機共享的網路狀態目錄，再由一個生成的 systemd 單元拉起或關閉核心介面。這正是讓 systemcontroller 容器免於依賴宿主機網路名稱空間的原因。
 
@@ -1262,24 +1263,24 @@ WireGuard 的介面名、它的 UDP 監聽埠與它的 overlay 子網都是**名
 `account.NetworkPeer` 攜帶 `Network`、`PublicKey`、`Name`、`AllowedIP`、`Endpoint`、`Rolodex`、`CreatedBy`、`ExpiresAt` 與 `CreatedAt`。
 
 - **`Rolodex`** 標記那些在其 overlay 地址上執行 rolodex DNS 伺服器的 peer。本機隨後把該地址註冊為按 TLD 的轉發器，於是共享 TLD 之下、在該 peer 上具有權威性的名稱便可跨 overlay 解析。手機與筆記型電腦保持它為 false。
-- **`CreatedBy`** 是歸屬鍵：持有 `wireguard` 授權的賬戶只能重新整理自己建立的 peer，因此受限賬戶無法讓別人的 peer 一直存活。
+- **`CreatedBy`** 是歸屬鍵：持有 `wireguard` 授權的帳戶只能重新整理自己建立的 peer，因此受限帳戶無法讓別人的 peer 一直存活。
 - **`Endpoint`** 取自**登記客戶端所撥打的地址**（其 `peers/add` 請求的 `Host` 頭），而不是取自本機對自身的認知。本機的公網 IP（來自 ipinfo.io）或區域網地址在 NAT、埠轉發或中繼之後是不可達的——同一 Wi-Fi 上的手機無法迴環到公網 IP，更完全無法路由到私有區域網地址，於是該 peer 會向著虛空握手，而在使用者看來這就像 DNS 壞了。被撥打的地址在構造上就是可達的：請求正是經由它到達的。若沒有可撥打的地址（例如環回登記），則**省略** endpoint，而不是設成一個不可能工作的值。
 
 ### Peer 登記的 TTL 與回收器
 
 登記不會永久有效。`peer_ttl` 設定（單位秒，預設 `7200`）決定一次登記的有效時長。長期存活的客戶端會在其到期前通過 `POST /networks/peers/refresh` 重新整理自己的 peer；被棄用裝置的 peer 則自行過期，因此只增不減的 `peers/add` 端點不會悄悄堆積死 peer 並燒掉 overlay 地址。`ExpiresAt` 為 nil 表示該 peer 永不過期——例如 rolodex 伺服器與運維手動新增的裝置這類永久 peer。
 
-過期時間始終由**服務端計算**為 `now + peer_ttl`；呼叫方從不選擇它。一個後臺回收 goroutine 呼叫 `ReapExpiredPeers`，隨後為每個受影響的網路重新渲染一次傳輸配置，使執行中的 WireGuard 裝置與 rolodex 轉發器丟棄被回收的 peer。它是盡力而為且冪等的：持久化的 peer 集合才是事實來源，一次失敗的重新渲染會由下一次滴答或啟動時的 reconcile 修復。`peerReapInterval` 是 TTL 的四分之一，並被約束在 `[1m, 15m]`，因此失效的 peer 最多在過期後殘留約 TTL/4，而過小或過大的 TTL 都不會導致病態的掃描頻率。
+過期時間始終由**服務端計算**為 `now + peer_ttl`；呼叫方從不選擇它。一個後台回收 goroutine 呼叫 `ReapExpiredPeers`，隨後為每個受影響的網路重新渲染一次傳輸配置，使執行中的 WireGuard 裝置與 rolodex 轉發器丟棄被回收的 peer。它是盡力而為且冪等的：持久化的 peer 集合才是事實來源，一次失敗的重新渲染會由下一次滴答或啟動時的 reconcile 修復。`peerReapInterval` 是 TTL 的四分之一，並被約束在 `[1m, 15m]`，因此失效的 peer 最多在過期後殘留約 TTL/4，而過小或過大的 TTL 都不會導致病態的掃描頻率。
 
 ### 已連線 Peer
 
-`GET /networks/peers/connected` 把持久化的行與每條隧道的即時核心狀態聯接起來。持久化的那一半（名稱、賬戶、overlay 地址、過期時間）回答"誰被允許接入"；`wg show <iface> dump` 的那一半（握手、觀測到的 endpoint、傳輸量）回答"此刻誰真的線上"——任何一半單獨都不是完整的問題，這正是存在 `ConnectedPeerView` 而不是複用 `account.NetworkPeer` 的原因。
+`GET /networks/peers/connected` 把持久化的行與每條隧道的即時核心狀態聯接起來。持久化的那一半（名稱、帳戶、overlay 地址、過期時間）回答"誰被允許接入"；`wg show <iface> dump` 的那一半（握手、觀測到的 endpoint、傳輸量）回答"此刻誰真的線上"——任何一半單獨都不是完整的問題，這正是存在 `ConnectedPeerView` 而不是複用 `account.NetworkPeer` 的原因。
 
 解析邏輯位於純函式 `wireguard.ParseDump` 中。dump 的**第一行**描述的是介面本身，會被刻意跳過；把它當作 peer 會憑空造出一個持有介面自身金鑰的幽靈。`wg` 的 `(none)` 與 `off` 佔位符會被解碼，而不是作為字面字串原樣透傳。
 
-**連線與否，取決於握手是否落在 WireGuard 180 秒的 `REJECT_AFTER_TIME` 視窗內**（`HandshakeStaleAfter`）——那是該協議所能提供的唯一存活性訊號。協議沒有會話拆除，因此走開的 peer 與僅僅空閒的 peer 在其握手過期之前無法區分。*從未*握手過的 peer 保留 nil 時間戳而不是紀元時間，因為"從未建立"與"離線一天"是關於一臺裝置的兩個不同事實。
+**連線與否，取決於握手是否落在 WireGuard 180 秒的 `REJECT_AFTER_TIME` 視窗內**（`HandshakeStaleAfter`）——那是該協議所能提供的唯一存活性訊號。協議沒有會話拆除，因此走開的 peer 與僅僅空閒的 peer 在其握手過期之前無法區分。*從未*握手過的 peer 保留 nil 時間戳而不是紀元時間，因為"從未建立"與"離線一天"是關於一台裝置的兩個不同事實。
 
-systemcontroller 以 `--net host` 執行，因此它本來就與 wg-quick 建立裝置的名稱空間相同；執行時映象僅為 `wg` 這一個二進位制而附帶 `wireguard-tools`（wg-quick 仍在宿主機上、由生成的單元執行）。介面不存在不是錯誤——被停用的網路，或傳輸尚未拉起的網路，本來就沒有活躍 peer，而它持久化的行仍然必須渲染出來——而 dump 失敗會退化為只顯示持久化的行，而不是把面板整個清空。`home` 網路被完全排除：它沒有傳輸層，把它包含進來只會在一個講"誰通過隧道接入"的面板裡放一行永遠斷連的記錄。
+systemcontroller 以 `--net host` 執行，因此它本來就與 wg-quick 建立裝置的名稱空間相同；執行時鏡像僅為 `wg` 這一個二進位制而附帶 `wireguard-tools`（wg-quick 仍在宿主機上、由生成的單元執行）。介面不存在不是錯誤——被停用的網路，或傳輸尚未拉起的網路，本來就沒有活躍 peer，而它持久化的行仍然必須渲染出來——而 dump 失敗會退化為只顯示持久化的行，而不是把面板整個清空。`home` 網路被完全排除：它沒有傳輸層，把它包含進來只會在一個講"誰通過隧道接入"的面板裡放一行永遠斷連的記錄。
 
 **斷開連線複用 `POST /networks/peers/remove`**，而不是新增端點。WireGuard 沒有可以殺掉的會話，因此移除該 peer 就是唯一存在的強制終止手段。
 
@@ -1289,7 +1290,7 @@ systemcontroller 以 `--net host` 執行，因此它本來就與 wg-quick 建立
 - `POST /networks/create`（需要管理員）—— 建立網路。接受名稱與可選 TLD（預設取名稱）。推導子網、生成金鑰對、分配監聽埠，並返回創建出的網路。名稱或 TLD 已被佔用時返回 409——包括始終存在的 `home`。
 - `POST /networks/remove`（需要管理員）—— 按名稱刪除網路。home 網路不能被移除。
 - `POST /networks/enable` / `POST /networks/disable`（需要管理員）—— 拉起或關閉 overlay 介面。
-- `GET /networks/peers?network=<name>`（需要鑑權，並受 `requireNetworkScope` 限制）—— 列出某個網路上已登記的 peer。該路由在 `wireguard` 授權的白名單上，因此受限賬戶可以訪問它；而 peer 列表會指明裝置、登記它們的賬戶以及它們的 overlay 地址——授權是對呼叫者自己網路的許可權，而讀操作恰恰是最容易忘記這一點的地方。
+- `GET /networks/peers?network=<name>`（需要鑑權，並受 `requireNetworkScope` 限制）—— 列出某個網路上已登記的 peer。該路由在 `wireguard` 授權的白名單上，因此受限帳戶可以訪問它；而 peer 列表會指明裝置、登記它們的帳戶以及它們的 overlay 地址——授權是對呼叫者自己網路的權限，而讀操作恰恰是最容易忘記這一點的地方。
 - `GET /networks/peers/connected`（**需要管理員**）—— 所有 WireGuard 網路上的每一個 peer，聯接即時隧道狀態。它刻意比 `requireAuth` 的同類更嚴，並且不在 `grantRoutes` 中。
 - `POST /networks/peers/add`（`requirePeerEnroll`：管理員或 `wireguard` 授權，且限定在呼叫者的網路內）—— 登記一個 peer。當 `public_key` 為空時，伺服器生成金鑰對並返回私鑰以及一份可直接匯入的裝置配置。接受可選的 `endpoint` 與一個 `rolodex` 標誌。
 - `POST /networks/peers/refresh`（`requirePeerEnroll`，且只能針對呼叫者自己登記的 peer）—— 把某個 peer 的 TTL 延長 `peer_ttl` 並返回新的過期時間，使客戶端能在 TTL 到期之前從容安排下一次心跳。
@@ -1297,15 +1298,15 @@ systemcontroller 以 `--net host` 執行，因此它本來就與 wg-quick 建立
 
 ### 網路 UI
 
-`/dashboard/networks` 列出各網路，並提供建立/移除/啟用/停用操作以及按網路的 peer 登記功能。第二塊 **Connected Peers** 面板逐項列出所有 WireGuard 網路上的每一個 peer——裝置、登記它的賬戶、它的 overlay 地址、它正在撥打的 endpoint、即時握手與傳輸狀態，以及它的登記過期時間——併為每一行提供 Disconnect 操作。
+`/dashboard/networks` 列出各網路，並提供建立/移除/啟用/停用操作以及按網路的 peer 登記功能。第二塊 **Connected Peers** 面板逐項列出所有 WireGuard 網路上的每一個 peer——裝置、登記它的帳戶、它的 overlay 地址、它正在撥打的 endpoint、即時握手與傳輸狀態，以及它的登記過期時間——併為每一行提供 Disconnect 操作。
 
 ## TLS 與本地 CA
 
 Town OS 執行自己的 X.509 證書頒發機構，因此包與 page 的流量可以按名稱經 HTTPS 提供服務，在區域網上既不需要公共 CA，也不依賴 ACME。
 
-- **CA**（`src/tls/ca.go`）是位於 btrfs `tls` 子卷下的一對 ECDSA P-256 金鑰（`ca.crt`、`ca.key`），有效期 10 年，因此可以跨重啟存活。`EnsureCA` 載入已有 CA，或按需生成一個；證書全域性可讀，而私鑰僅屬主可讀且絕不能被提供出去。CA 失敗是非致命的——系統會在沒有 HTTPS 的情況下啟動，而不是乾脆不啟動。
+- **CA**（`src/tls/ca.go`）是位於 btrfs `tls` 子卷下的一對 ECDSA P-256 金鑰（`ca.crt`、`ca.key`），有效期 10 年，因此可以跨重啟存活。`EnsureCA` 載入已有 CA，或按需生成一個；證書全域可讀，而私鑰僅屬主可讀且絕不能被提供出去。CA 失敗是非致命的——系統會在沒有 HTTPS 的情況下啟動，而不是乾脆不啟動。
 - **葉子證書**（`src/tls/leaf.go`）按包、按 page 簽發，寫作同一目錄中的 `cert.pem`/`key.pem`，因此消費方只需要一條掛載路徑。`IssueLeaf` 是**冪等的**：當已有證書恰好覆蓋所請求的 SAN 集合且仍然有效時，它不碰磁碟直接返回，這正是讓 reconcile 每次啟動都呼叫它而不會攪動證書檔案的原因。主機名可以是 DNS 名或 IP 字面量；任何能解析為 IP 的進入 `IPAddresses`，其餘進入 `DNSNames`。
-- **`GET /tls/ca.crt`** 是**公開的**（並位於 `grantCommonRoutes` 中），因此任何客戶端——瀏覽器，或通過 overlay 加入的手機——都能取得根證書並信任這臺機器。
+- **`GET /tls/ca.crt`** 是**公開的**（並位於 `grantCommonRoutes` 中），因此任何客戶端——瀏覽器，或通過 overlay 加入的手機——都能取得根證書並信任這台機器。
 
 包的葉子證書 SAN 集合與它的 A 記錄、DANE TLSA 屬主和 ingress vhost 由同一個 FQDN 推導；參見 [The package FQDN is one string](#包的-fqdn-是同一個字串--a-記錄葉子證書-santlsa-屬主ingress-vhost)。葉子證書還會帶上本機在安裝網路上的 overlay IP，因此 peer 可以用 WireGuard 裸地址訪問該包，而不只是靠名稱。
 
@@ -1324,7 +1325,7 @@ ingress 是共享的 Host 路由器：一個 sidecar，監管一個 Caddy 子程
 
 ### 渲染
 
-輸出**按主機名排序**，因此跨多次 reconcile 渲染出的位元組是確定性的——這正是讓監管程序對內容未變的過載做空操作的前提。全域性配置為 `auto_https off`（證書由 Town OS 管理）與 `protocols h1 h2`（ingress 只發布 TCP，因此基於 UDP 的 H3/QUIC 不可達）。Caddy 的管理 API 被刻意**保持啟用**在其預設的容器本地 `localhost:2019` 上：監管程序用 `caddy reload` 編排新路由，而該命令正是與那個端點通訊，因此 `admin off` 會讓首次啟動之後的每一次路由更新都失效。
+輸出**按主機名排序**，因此跨多次 reconcile 渲染出的位元組是確定性的——這正是讓監管程序對內容未變的過載做空操作的前提。全域配置為 `auto_https off`（證書由 Town OS 管理）與 `protocols h1 h2`（ingress 只發布 TCP，因此基於 UDP 的 H3/QUIC 不可達）。Caddy 的管理 API 被刻意**保持啟用**在其預設的容器本地 `localhost:2019` 上：監管程序用 `caddy reload` 編排新路由，而該命令正是與那個端點通訊，因此 `admin off` 會讓首次啟動之後的每一次路由更新都失效。
 
 ingress 是**與網路介面無關的**：它以 `-p 443:443` / `-p 80:80` 釋出且不指定宿主機 IP，其 Caddyfile 中**沒有 `bind` 指令**，因此 Caddy 在所有介面上監聽，並純粹依據 SNI/Host 選擇 vhost。區域網客戶端與 overlay peer 命中同一個監聽器、SNI 選中同一個 vhost、拿到同一張本地 CA 葉子證書，並被代理到同一個容器。不要新增 `bind` 指令，也不要新增按網路的監聽器。
 
@@ -1364,7 +1365,7 @@ ingress 是**與網路介面無關的**：它以 `-p 443:443` / `-p 80:80` 釋�
 
 `/boot-status` 因同樣的理由被排除在審計日誌之外：跨越處理器切換而保持流開啟的 UI，其下一個請求會落到完整路由器上並得到 404。那是這條流預期中的結束，而不是一次運維操作——審計它會在每一次成功的重新整理中記下一行失敗動作，並把儀表盤上那顆紅色的失敗計數徽標撐大。
 
-`POST /system-services/refresh`（管理員）按依賴順序拉取每個系統服務映象——先是 systemcontroller 映象（版本錨點，這樣它在最後自我重啟時，剛拉取的映象已經在本地），然後是 rolodex（本機的 DNS，其餘拉取可能需要它來解析各自的 registry），最後是其餘映象並行拉取（最多 3 個併發）——並留下一個標記，供下一個程序的新鮮度階段消費以重啟已安裝的包。
+`POST /system-services/refresh`（管理員）按依賴順序拉取每個系統服務鏡像——先是 systemcontroller 鏡像（版本錨點，這樣它在最後自我重啟時，剛拉取的鏡像已經在本地），然後是 rolodex（本機的 DNS，其餘拉取可能需要它來解析各自的 registry），最後是其餘鏡像並行拉取（最多 3 個併發）——並留下一個標記，供下一個程序的新鮮度階段消費以重啟已安裝的包。
 
 ## DNS 管理（Rolodex）
 
@@ -1375,11 +1376,11 @@ Town OS 內建一個由 `rolodex-dns` 容器驅動的本地 DNS 解析器。rolo
 rolodex 本身是由 systemd 安裝與監管的啟動服務——systemcontroller 不在容器層面安裝、啟動、停止或重啟它。取而代之，`rolodex.Manager` 負責：
 
 - **`WriteConfig`** —— 把 `rolodex.yml` 寫入 `DataDir`。冪等：當該檔案存在、比 systemcontroller 二進位制更新、且內容已與預期一致時跳過寫入。返回一個布林值表示檔案是否被寫入（以便呼叫方決定是否重啟 systemd 單元）。
-- **`WaitForDNSReady`** —— 通過 TCP 輪詢 `DNSLoopback:{port}`，直到它接受連線或超過 30 秒截止時間。在啟動時、任何依賴 DNS 的操作（例如映象拉取）之前呼叫。
-- **`SystemServices`** —— 返回 rolodex 系統服務的後設資料（key、顯示名、映象、埠、單元名），使它與其他系統服務一同出現在狀態響應與 UI 中。
+- **`WaitForDNSReady`** —— 通過 TCP 輪詢 `DNSLoopback:{port}`，直到它接受連線或超過 30 秒截止時間。在啟動時、任何依賴 DNS 的操作（例如鏡像拉取）之前呼叫。
+- **`SystemServices`** —— 返回 rolodex 系統服務的後設資料（key、顯示名、鏡像、埠、單元名），使它與其他系統服務一同出現在狀態響應與 UI 中。
 - **`Status`** —— 查詢 systemd 單元狀態以報告 rolodex 是否在執行。
 
-rolodex 容器以 `--net host` 執行，並把 DNS 繫結到 `DNSLoopback`（`127.0.0.2`）的配置埠上（預設 `53`，測試中可通過 `DNSPort` 覆蓋）。映象標籤由 system controller 的釋出標籤推導（`quay.io/town/rolodex:<tag>`），可通過 `ROLODEX_IMAGE` 環境變數覆蓋。
+rolodex 容器以 `--net host` 執行，並把 DNS 繫結到 `DNSLoopback`（`127.0.0.2`）的配置埠上（預設 `53`，測試中可通過 `DNSPort` 覆蓋）。鏡像標籤由 system controller 的釋出標籤推導（`quay.io/town/rolodex:<tag>`），可通過 `ROLODEX_IMAGE` 環境變數覆蓋。
 
 **解析模式。** `rolodex.yml` 通過 `Config.ResolutionMode` 顯式固定 `resolution.mode`，預設為 **`auto`**（`DefaultResolutionMode`）——即 rolodex 自己的分層回退鏈：先從根伺服器迭代，然後 DoH/DoT，然後 `forwarders:` 列表，最後是 :53 上的公共解析器，並粘住最後一次成功的那一層。該模式被顯式寫出而不是留給 rolodex 的預設值，這樣當上遊改變其預設值時 Town OS 的行為不會隨之移動。轉發相關的整合測試會主動選用 `ResolutionModeForward`，並把 forwarders 指向一個本地樁。
 
@@ -1403,7 +1404,7 @@ Town OS 預設寫出的 `forwarders:` 列表是 `DefaultForwarders`——公共�
 
 `GET /dns/status` **同時**報告 `local_forwarders`（運維要求的）與 `forwarders`（`rolodex.yml` 實際持有的）。它們只在一種情況下不一致——發現沒有找到任何可用地址、於是保留了公共預設值——而那正是"開關顯示為開、卻什麼也沒變"的那唯一一種情形，因此只顯示標誌的 UI 會展示一項並未生效的設定。設定介面正因如此才渲染生效中的列表，並在它為空時明確說明。
 
-**測試與開發中 rolodex 映象按架構拉取** —— make 測試框架拉取宿主機對應架構的 rc 標籤 `quay.io/town/rolodex:rc.latest-<arch>`（其中 `<arch>` 是 `uname -m` 的原始形式 `x86_64`/`aarch64`），而**不是**不帶架構字尾的普通 `rc.latest`。Town OS 內部的映象拉取預設走 rc 通道，因此測試框架、開發環境與執行時都跟蹤 `rc.latest-<arch>`。rolodex 從每臺主機本機推送按架構的標籤（rolodex-dns 倉庫中的 `make push-rc` / `make push-release`），因此任何架構的測試主機都不需要多架構 manifest 組裝；*普通的* `rc.latest`（無架構字尾）是單架構 manifest，在另一種架構上會以 `exec format error` 崩潰重啟——只有帶字尾的 `rc.latest-<arch>` 可以安全地直接拉取。Makefile 計算 `HOST_ARCH`（規範化為 `x86_64`/`aarch64`）並把 `ROLODEX_IMAGE_TAG` 預設設為 `rc.latest-$(HOST_ARCH)`；`ROLODEX_IMAGE` 由它推導，並經由環境變數注入測試/開發容器。可用 `make ROLODEX_IMAGE_TAG=<tag> ...`（例如用 `latest-$(HOST_ARCH)` 取已釋出的 rolodex）或 `ROLODEX_IMAGE` 環境變數覆蓋。生產/執行時行為與之一致——除非設定了 `ROLODEX_IMAGE`，否則 systemcontroller 從自己的釋出標籤推導（並通過 `defaultVersionTag()` 回退到 `rc.latest-<arch>`）；測試與開發框架總是會設定它。開發容器中烘焙的 rolodex 單元（`integration/testdata/town-os-system--rolodex.service`）使用 `@ROLODEX_IMAGE@` 佔位符，在映象構建時經由 `integration/testdata/Containerfile.dev` 中的 `ROLODEX_IMAGE` 構建引數替換（該引數為空時構建失敗），因此烘焙的單元始終與測試框架載入的映象一致。
+**測試與開發中 rolodex 鏡像按架構拉取** —— make 測試框架拉取宿主機對應架構的 rc 標籤 `quay.io/town/rolodex:rc.latest-<arch>`（其中 `<arch>` 是 `uname -m` 的原始形式 `x86_64`/`aarch64`），而**不是**不帶架構字尾的普通 `rc.latest`。Town OS 內部的鏡像拉取預設走 rc 通道，因此測試框架、開發環境與執行時都跟蹤 `rc.latest-<arch>`。rolodex 從每台主機本機推送按架構的標籤（rolodex-dns 倉庫中的 `make push-rc` / `make push-release`），因此任何架構的測試主機都不需要多架構 manifest 組裝；*普通的* `rc.latest`（無架構字尾）是單架構 manifest，在另一種架構上會以 `exec format error` 崩潰重啟——只有帶字尾的 `rc.latest-<arch>` 可以安全地直接拉取。Makefile 計算 `HOST_ARCH`（規範化為 `x86_64`/`aarch64`）並把 `ROLODEX_IMAGE_TAG` 預設設為 `rc.latest-$(HOST_ARCH)`；`ROLODEX_IMAGE` 由它推導，並經由環境變數注入測試/開發容器。可用 `make ROLODEX_IMAGE_TAG=<tag> ...`（例如用 `latest-$(HOST_ARCH)` 取已釋出的 rolodex）或 `ROLODEX_IMAGE` 環境變數覆蓋。生產/執行時行為與之一致——除非設定了 `ROLODEX_IMAGE`，否則 systemcontroller 從自己的釋出標籤推導（並通過 `defaultVersionTag()` 回退到 `rc.latest-<arch>`）；測試與開發框架總是會設定它。開發容器中烘焙的 rolodex 單元（`integration/testdata/town-os-system--rolodex.service`）使用 `@ROLODEX_IMAGE@` 佔位符，在鏡像構建時經由 `integration/testdata/Containerfile.dev` 中的 `ROLODEX_IMAGE` 構建引數替換（該引數為空時構建失敗），因此烘焙的單元始終與測試框架載入的鏡像一致。
 
 ### 網路 TLD、雙棲與分離視界解析
 
@@ -1421,27 +1422,27 @@ WireGuard peer 都隱藏，同時在區域網上完全可解析。
 
 - 一條位於本機 **overlay IP** 的、該網路 TLD 之下的**作用域** A 記錄——按源 IP 提供給
   WireGuard overlay peer（`AddScopedRecord`）；以及
-- 同一個 FQDN 位於本機 **區域網 IP** 的一條**全域性** A 記錄
+- 同一個 FQDN 位於本機 **區域網 IP** 的一條**全域** A 記錄
   （`RegisterPackageDNS`）——提供給環回/區域網客戶端。
 
-每一側都得到一個它真正能路由到的地址。該網路 TLD 不會發布全域性權威區域：裸的全域性 A
+每一側都得到一個它真正能路由到的地址。該網路 TLD 不會發布全域權威區域：裸的全域 A
 記錄在區域網上無需區域即可解析，而 rolodex 的 **區域網→歸屬作用域回退**（rolodex-dns
 解析步驟 5）會把作用域所擁有的 TLD 視為對區域網來源具有權威性——因此該網路 TLD 之下
 未匹配到的名稱會從區域網側得到一個權威 NXDOMAIN，而不是把這個私有 TLD 洩漏到上游。
-預設網路的包只留在全域性 home 區域中（`registerPackageDNS`）；非預設網路的包絕不能出現
+預設網路的包只留在全域 home 區域中（`registerPackageDNS`）；非預設網路的包絕不能出現
 在那裡（這正是最初那個"解析成 `.home`"的缺陷）。
 
 **分離視界小結。** 區域網客戶端（無 WireGuard）能解析**每一個**網路的 TLD（`.home`，
 以及每個 WireGuard 網路的 TLD）加上公共網際網路。加入某一個網路的 WireGuard peer **只能**
 解析那個網路的 TLD 加上公共網際網路——同級網路的 TLD 與 `.home` 都返回 NXDOMAIN。區域網
 檢視從不被劃分；被劃分的只有 overlay peer。`RebuildNetworkDNS`（`reconcile.go`，啟動時
-呼叫）為每個非預設網路的包重新註冊面向區域網的全域性記錄，因此已安裝的包在重啟之後仍能
+呼叫）為每個非預設網路的包重新註冊面向區域網的全域記錄，因此已安裝的包在重啟之後仍能
 在區域網上解析；作用域記錄則在 rolodex 中獨立留存。啟動時的網路 reconcile 會被傳入
 rolodex 客戶端，因此即便是冷啟動，home 作用域（以及每個網路作用域）也會被建立起來。
 
 ### 包的 FQDN 是同一個字串 —— A 記錄、葉子證書 SAN、TLSA 屬主、ingress vhost
 
-**包的 DNS 名稱始終由其*安裝網路的* TLD 推導，絕不來自全域性 `dns_tld` 設定。**
+**包的 DNS 名稱始終由其*安裝網路的* TLD 推導，絕不來自全域 `dns_tld` 設定。**
 `packageFQDN(repo, name, tld)`（`src/svc/systemcontroller/controller_tls.go`）是唯一的
 事實來源，而 TLD 來自 `networkTLDValue(nm, settingsMgr, network)`（它只在預設網路時才
 回退到 `dns_tld`）。有四樣東西必須以完全相同的方式為一個包命名，其中任何一處不一致都
@@ -1458,7 +1459,7 @@ rolodex 客戶端，因此即便是冷啟動，home 作用域（以及每個網�
 那樣做過去是一個真實的缺陷：每次啟動都會以 SAN `<pkg>.<repo>.home` 重新簽發一個
 `fart` 網路包的葉子證書，覆蓋掉正確的 `.fart` SAN，同時 ingress 渲染出一個無人撥打的
 `<pkg>.<repo>.home` vhost——於是該包在區域網上可以解析，卻從未被真正提供服務。空的
-`fqdn`（升級前的狀態檔案，或非 HTTP 的包）會回退到全域性 TLD，並在下一次 reconcile 時自愈。
+`fqdn`（升級前的狀態檔案，或非 HTTP 的包）會回退到全域 TLD，並在下一次 reconcile 時自愈。
 
 **ingress 與網路介面無關，也不需要按網路繫結。** 它以 `-p 443:443` / `-p 80:80` 釋出且
 不指定宿主機 IP（即 `0.0.0.0`，因此區域網 + WireGuard + 環回都能到達），其 Caddyfile 中
@@ -1474,17 +1475,17 @@ rolodex 客戶端，因此即便是冷啟動，home 作用域（以及每個網�
 （`https://10.65.0.1`），而不只是靠名稱。對預設網路（它沒有 WireGuard 傳輸層）該值為空，
 這使得預設網路的葉子證書不會在每次 reconcile 時被攪動。
 
-網路包的 DANE TLSA 與其 A 記錄一樣是**雙棲的**：`RebuildNetworkDNS` 註冊一個全域性 pin
+網路包的 DANE TLSA 與其 A 記錄一樣是**雙棲的**：`RebuildNetworkDNS` 註冊一個全域 pin
 （經由區域網→歸屬作用域回退提供給區域網來源）*以及*一個作用域 pin（提供給 overlay
-peer，它們的查詢永遠看不到全域性記錄）。僅靠安裝流程只會寫出作用域那一半，而且跨重啟時
+peer，它們的查詢永遠看不到全域記錄）。僅靠安裝流程只會寫出作用域那一半，而且跨重啟時
 兩半都不會被重新發布。
 
 ### Pages 同樣是按網路限定作用域的
 
 page 攜帶一個 `network`（`PageSite.Network` 列；`""` 表示預設/home 網路，與包的
 `Installer.LoadNetwork` 是同一約定），並獲得**與包完全相同的待遇**：它的名稱來自該網路
-的 TLD，它是雙棲的（作用域 overlay 記錄 + 全域性區域網記錄），它的葉子證書攜帶該網路的
-FQDN 加上本機的 overlay IP，它的 DANE TLSA 在該網路 TLD 之下被固定（全域性 + 作用域），
+的 TLD，它是雙棲的（作用域 overlay 記錄 + 全域區域網記錄），它的葉子證書攜帶該網路的
+FQDN 加上本機的 overlay IP，它的 DANE TLSA 在該網路 TLD 之下被固定（全域 + 作用域），
 並且它對*其他每一個*網路的 peer 都是隱藏的。`pageFQDN`（`pages_tls.go`）是
 `packageFQDN` 在 page 一側的孿生體，`pageNetworkTLD` 則對應 `networkTLDValue`。
 
@@ -1498,7 +1499,7 @@ page 特有的一處曲折：page 的 FQDN **同時還命名著它在磁碟上�
 - 改變 page 的**網路**會重新命名它的子卷/符號連結（`migratePageDir`），這與 `dns_tld`
   變更對預設網路 page 所做的完全一樣。
 - `migratePageDirsForTLD`（`dns_tld` 變更的處理器）**跳過非預設網路的 page**——它們並非
-  在全域性 TLD 之下命名，因此重新命名它們會弄壞一個本來正常工作的 page。
+  在全域 TLD 之下命名，因此重新命名它們會弄壞一個本來正常工作的 page。
 
 pages 仍由 ingress 之後那個唯一共享的 `town-os-system--pages` 容器提供服務；網路只是
 命名/DNS/證書層面的關切，不涉及按網路的容器或 podman 管路。
@@ -1512,7 +1513,7 @@ pages 仍由 ingress 之後那個唯一共享的 `town-os-system--pages` 容器�
 - `GET /dns/tld`（需要鑑權）—— 獲取當前頂級域。
 - `POST /dns/tld`（需要管理員）—— 設定 TLD。更改現有 TLD 並重新註冊所有已安裝的包。
 - `POST /dns/setup`（需要管理員）—— 初始化 DNS 並註冊所有已安裝的包。
-- `GET /dns/rbl`（需要鑑權）—— 獲取 RBL（Realtime Blackhole List，反向 IP）配置：全域性啟用標誌、各提供方區域及其**已解析為實際生效值**的拒絕碼、列表級的 `refusal_cooldown_secs`，以及 `rotated_out`（當前因拒絕查詢而被輪換出去的提供方，附帶拒絕碼與剩餘秒數）。參見 [Refusal codes](#拒絕碼提供方說別再問了不等於說這個被列入了)。
+- `GET /dns/rbl`（需要鑑權）—— 獲取 RBL（Realtime Blackhole List，反向 IP）配置：全域啟用標誌、各提供方區域及其**已解析為實際生效值**的拒絕碼、列表級的 `refusal_cooldown_secs`，以及 `rotated_out`（當前因拒絕查詢而被輪換出去的提供方，附帶拒絕碼與剩餘秒數）。參見 [Refusal codes](#拒絕碼提供方說別再問了不等於說這個被列入了)。
 - `POST /dns/rbl`（需要管理員）—— 替換 RBL 配置。接受一個啟用標誌、一個列表級的 `refusal_cooldown_secs`，以及一組 `{zone, enabled, refusal_codes, refusal_cooldown_secs}` 提供方。區域會被校驗為完全限定主機名，並轉小寫、去空白、去重；拒絕碼由 `ValidateRefusalCodes` 校驗（IPv4 地址或 `address/prefix`，按字首掩碼，`"none"` 只能單獨出現，不允許重複）。
 - `GET /dns/dnsbl`（需要鑑權）—— 獲取 DNSBL（域名黑名單，正向名稱）配置，形狀與 `/dns/rbl` 相同。
 - `POST /dns/dnsbl`（需要管理員）—— 替換 DNSBL 配置（形狀與校驗同 `/dns/rbl`；其拒絕冷卻時間與 RBL 的相互獨立）。
@@ -1533,14 +1534,14 @@ Rolodex（0.2.4+）提供三種互補的垃圾/惡意/廣告攔截機制，外�
 
 注意該封裝的兩個 `Set*` 方法把列表級的拒絕冷卻時間作為末位引數（`SetRblConfig(ctx, enabled, providers, refusalCooldownSecs)`）；它們對映到上游的 `Set*ConfigWithRefusalCooldown`，因為上游那些保持引數個數不變的寫法是為了外部 API 相容性而存在的，而內部封裝並不需要這一點。
 
-- **RBL**（Realtime Blackhole List）—— 反向 IP 黑名單區域，按需以反轉後的 IP 對某個區域發起查詢（例如 `zen.spamhaus.org`）。用於檢查反向 DNS 查詢中出現的 IP。通過 `/dns/rbl` 配置為一組 `{zone, enabled, refusal_codes, refusal_cooldown_secs}` 提供方，外加一個全域性啟用標誌與一個列表級的 `refusal_cooldown_secs`。
+- **RBL**（Realtime Blackhole List）—— 反向 IP 黑名單區域，按需以反轉後的 IP 對某個區域發起查詢（例如 `zen.spamhaus.org`）。用於檢查反向 DNS 查詢中出現的 IP。通過 `/dns/rbl` 配置為一組 `{zone, enabled, refusal_codes, refusal_cooldown_secs}` 提供方，外加一個全域啟用標誌與一個列表級的 `refusal_cooldown_secs`。
 - **DNSBL**（域名黑名單）—— 域名黑名單區域，按需通過把被查詢的域名前置到該區域來發起查詢（例如 `googleadservices.com` + `dbl.spamhaus.org`）。DNSBL 的命中優先於轉發/迭代得到的答案。通過 `/dns/dnsbl` 配置，形狀與 RBL 相同，並有自己獨立的冷卻時間。
 - **本地 RBL 條目** —— 一份由資料庫支撐的名稱/IP 列表，通過 `/dns/rbl/local*` 手動管理，在外部提供方之前被檢查。**域名**型別的本地條目會以 `NXDOMAIN` 阻斷該域名的正向 A/AAAA 查詢，並立即生效（rolodex 在新增時更新記憶體快取）。
 - **DNSBL 白名單**（rolodex 0.4.3+）—— 運維應對第三方訂閱源誤報的逃生艙口，通過 `/dns/dnsbl/allowlist*` 管理。一個條目覆蓋該名稱**以及它之下的每一個名稱**，因此把 `vendor.example` 加入白名單也會豁免 `cdn.vendor.example`。它會**短路整個基於名稱的檢查**，優先於已配置的 DNSBL 提供方以及任何匹配的本地 RBL 條目，並且它在提供方查詢*之前*執行，因此被豁免的名稱永遠不會發出那次查詢。同樣由資料庫支撐並帶記憶體快取，因此立即生效。
 
   沒有它，面對一個把家庭所需名稱列入黑名單的訂閱源，唯一的補救辦法就是停用整個提供方。請注意它與本地黑名單的不對稱：白名單條目**只能是名稱**，絕不能是 IP，因為它所短路的正是基於名稱的那次檢查。基於 IP 的 RBL 路徑不受它影響。
 
-  **版本下限：** 較老的 rolodex 會以 gRPC `Unimplemented` 應答這三個白名單 RPC，表現為 500。`make test` 與 mock 的整合測試都發現不了這一點——`TestRolodexDnsblAllowlistRoundtripReal` 才是證明所固定映象足夠新的那個測試。
+  **版本下限：** 較老的 rolodex 會以 gRPC `Unimplemented` 應答這三個白名單 RPC，表現為 500。`make test` 與 mock 的整合測試都發現不了這一點——`TestRolodexDnsblAllowlistRoundtripReal` 才是證明所固定鏡像足夠新的那個測試。
 
 #### 拒絕碼：提供方說"別再問了"不等於說"這個被列入了"
 
@@ -1552,7 +1553,7 @@ Rolodex 能識別這些碼，並在遇到拒絕時**把該提供方從查詢輪�
 - **`refusal_cooldown_secs`**，按提供方與按列表配置。提供方的 `0` 表示沿用列表值；列表的 `0` 表示使用 rolodex 內建的預設值（3600）。
 - **`rotated_out`**，出現在 `GET` 中，報告當前哪些提供方沒有被詢問、各自以什麼碼拒絕、以及剩餘多少秒。這是運維可見的那一半：沒有它，某個黑名單不再被查詢的唯一訊號，就是它不再攔截東西了。
 
-**`ValidateRefusalCodes`（`controller_dns_validate.go`）精確映象 rolodex 的 `resolve_refusal_codes`**，因為該列表是被原樣透傳的，而對某一項的含義各執一詞會比根本不校驗更糟。三種情形：
+**`ValidateRefusalCodes`（`controller_dns_validate.go`）精確鏡像 rolodex 的 `resolve_refusal_codes`**，因為該列表是被原樣透傳的，而對某一項的含義各執一詞會比根本不校驗更糟。三種情形：
 
 - **為空** ⇒ rolodex 代入它內建的集合，因此在這一切存在之前寫下的配置無需編輯就能獲得安全的讀法；
 - **恰好是 `"none"`** ⇒ 關閉檢測，供那些真實命中碼與內建碼衝突的私有黑名單使用；
@@ -1562,7 +1563,7 @@ Rolodex 能識別這些碼，並在遇到拒絕時**把該提供方從查詢輪�
 
 **`GET` 報告的是已解析的碼**，因此一個沒有指名任何碼的提供方讀回來會帶著內建集合——這正是要點，因為運維必須能看到機器實際在拿什麼做匹配。這也意味著**客戶端絕不能在下一次儲存時把它原樣回傳**：那樣做會把今天的列表凍結進儲存的配置，此後 rolodex 新增的碼就會開始被讀作命中——正是這一機制要防止的失敗，只不過在上一層被重新引入。`BlocklistsTab.jsx` 中的 `toWire` 會把已解析的內建集合收攏回一個預設欄位，而 UI 保留一份內建列表的副本（`BUILTIN_REFUSAL_CODES`）只為一個用途：決定設定對話方塊開啟時選中哪個單選項。若那份副本漂移，對話方塊會開啟在 "Custom" 並預填當前生效的碼——那是外觀上的錯誤預設值，而不是錯誤的配置，因為除非運維儲存，否則什麼也不會改變。
 
-**版本下限：** 早於拒絕碼處理的 rolodex 會接受這些欄位——proto3 忽略未知欄位——卻什麼也不儲存。mock 測試無法把這與成功區分開，因為 mock 會把遞給它的東西原樣回傳。`TestRolodexRblRefusalCodesRoundtripReal` 及其 DNSBL 孿生測試斷言：**空的**已配置列表讀回來必須是*已解析*的，而這正是老映象通不過的斷言。
+**版本下限：** 早於拒絕碼處理的 rolodex 會接受這些欄位——proto3 忽略未知欄位——卻什麼也不儲存。mock 測試無法把這與成功區分開，因為 mock 會把遞給它的東西原樣回傳。`TestRolodexRblRefusalCodesRoundtripReal` 及其 DNSBL 孿生測試斷言：**空的**已配置列表讀回來必須是*已解析*的，而這正是老鏡像通不過的斷言。
 
 **不存在訂閱源攝取/預快取**：提供方區域就是配置的單位；UI 提供一份精選的知名 DNSBL/RBL 區域列表作為一鍵快捷新增，但使用者可以新增任何區域。提供方區域的寫入會替換整份配置（經校驗、轉小寫、去重）。
 
@@ -1581,17 +1582,17 @@ Rolodex 能識別這些碼，並在遇到拒絕時**把該提供方從查詢輪�
 DNS 管理介面在四個可深鏈的子標籤頁（`?tab=`）之上顯示 DNS 狀態（啟用、執行中、TLD、記錄數量）：
 
 - **Records** —— DNS 記錄表，配有用於新增記錄（型別：A、AAAA、CNAME、MX、TXT、SRV、PTR）、移除記錄、更改 TLD 與初始化 DNS 的對話方塊。
-- **Blocklists** —— DNSBL 與 RBL 的提供方區域區塊（全域性啟用開關、按區域的啟用/移除、按區域的拒絕碼設定、建議區域快捷新增、自定義區域新增——全部為按需查詢），外加一張手動本地條目表（新增/移除）。每個區塊的開頭會列出當前因拒絕查詢而被退避的提供方（如果有的話）。沒有訂閱源，沒有"應用"按鈕，什麼也不快取。
+- **Blocklists** —— DNSBL 與 RBL 的提供方區域區塊（全域啟用開關、按區域的啟用/移除、按區域的拒絕碼設定、建議區域快捷新增、自定義區域新增——全部為按需查詢），外加一張手動本地條目表（新增/移除）。每個區塊的開頭會列出當前因拒絕查詢而被退避的提供方（如果有的話）。沒有訂閱源，沒有"應用"按鈕，什麼也不快取。
 - **Allow Lists**（`?tab=allowlists`，`ui/src/routes/dns/AllowListsTab.jsx`）—— DNSBL 白名單：一張帶原因的豁免域名錶，以及新增與移除。讀操作是 `requireAuth`，因此該標籤頁不限管理員；新增/移除控制元件僅限管理員。它是一個平級標籤頁而非 Blocklists 上的一張卡片，因為當某個東西無法訪問時，運維是按名稱去找豁免項的，而不是在滾動瀏覽提供方區域時順便發現它。
 - **Services** —— 已安裝的包服務，配有釋出開關（在 DNS 區域中釋出/取消釋出）。
 
 ## 狀態端點
 
-`GET /status/ping`（公開）返回系統狀態，包括：檔案系統數量（user、installed、uninstalled）、倉庫與包的數量、已安裝包數量、賬戶與管理員數量、服務單元數量（總數、活動、失敗）、系統服務單元數量（總數、活動、失敗）、近期審計錯誤（最近 5 分鐘）、初始化狀態（`needs_setup` 僅在不存在處於啟用狀態的管理員賬戶時為真；只要存在管理員，無論會話狀態如何都會顯示登入頁）、外部 IP（每小時從 ipinfo.io 獲取）、內部 IP（第一個非環回 IPv4 地址）、磁碟使用統計、升級可用性、伺服器 UTC 時區偏移的分鐘數、當前語言環境、`proton_enabled`（本次構建是否帶 `proton` 構建標籤）、`boot_id`，以及在提供了有效令牌時的已認證使用者名稱。
+`GET /status/ping`（公開）返回系統狀態，包括：檔案系統數量（user、installed、uninstalled）、倉庫與包的數量、已安裝包數量、帳戶與管理員數量、服務單元數量（總數、活動、失敗）、系統服務單元數量（總數、活動、失敗）、近期審計錯誤（最近 5 分鐘）、初始化狀態（`needs_setup` 僅在不存在處於啟用狀態的管理員帳戶時為真；只要存在管理員，無論會話狀態如何都會顯示登入頁）、外部 IP（每小時從 ipinfo.io 獲取）、內部 IP（第一個非環回 IPv4 地址）、磁碟使用統計、升級可用性、伺服器 UTC 時區偏移的分鐘數、當前語言環境、`proton_enabled`（本次構建是否帶 `proton` 構建標籤）、`boot_id`，以及在提供了有效令牌時的已認證使用者名稱。
 
 服務單元數量被拆為兩個欄位：`units` 只統計包服務單元（匹配 `town-os-package--*` 的），而 `system_services` 統計系統服務單元（匹配 `town-os-system--*` 的）。已解除安裝包遺留的 systemd 單元會被排除在包計數之外。已安裝包列表通過由每個包身份構造出的預期單元名，與發現到的 systemd 單元交叉比對。
 
-該處理器只列舉一次賬戶（用於 `needs_setup`、總數與管理員計數），並且卷計數使用 `FilesystemNames` 而非 `ListFilesystems`——後者每個子卷都要執行一次 `btrfs qgroup show` 加一次 rootid 查詢，在約 30 個子卷的規模下，為了一個 ping 根本不會讀取的配額，要花掉這次 ping 大約一秒的延遲預算。
+該處理器只列舉一次帳戶（用於 `needs_setup`、總數與管理員計數），並且卷計數使用 `FilesystemNames` 而非 `ListFilesystems`——後者每個子卷都要執行一次 `btrfs qgroup show` 加一次 rootid 查詢，在約 30 個子卷的規模下，為了一個 ping 根本不會讀取的配額，要花掉這次 ping 大約一秒的延遲預算。
 
 來自非 localhost 來源的未認證請求會收到一個最小響應，只含 `status`、`needs_setup` 與 `boot_id`。`boot_id` 即便在那裡也會攜帶，因為重新整理流程會跨控制器重啟輪詢 ping，而在此期間瀏覽器會短暫地沒有令牌；它是每個程序隨機生成的 UUID，不洩露任何系統資訊。已認證請求以及所有來自 localhost 的請求都會收到包含上述全部欄位的完整響應，另加 `repository_errors`（一個倉庫名到錯誤字串的 map，跟蹤按倉庫的重新整理失敗）。
 
@@ -1619,9 +1620,9 @@ system controller 從 `https://ipinfo.io/json` 獲取伺服器的公網（外部
 `monitoring_backend` 系統設定控制使用哪個儀表盤前端：
 
 - `"uplot"`（預設）—— 在 React UI 中用 uPlot（約 35 KB）渲染的輕量內建圖表。經由 socat 轉發器在 5308 埠查詢 Prometheus。不會拉取或啟動 Grafana，首次啟動可省下約 771 MB。
-- `"grafana"` —— 完整的 Grafana 儀表盤。Grafana 容器映象會被拉取並在 5308 埠啟動。預置了一個 Prometheus 資料來源以及登錄檔中的每一個儀表盤。
+- `"grafana"` —— 完整的 Grafana 儀表盤。Grafana 容器鏡像會被拉取並在 5308 埠啟動。預置了一個 Prometheus 資料來源以及登錄檔中的每一個儀表盤。
 
-更改該設定會立即生效：切換到 `"grafana"` 會拉取 Grafana 映象並啟動容器（同時停止 socat 轉發器）；切換到 `"uplot"` 會停止 Grafana 並啟動 socat 轉發器。
+更改該設定會立即生效：切換到 `"grafana"` 會拉取 Grafana 鏡像並啟動容器（同時停止 socat 轉發器）；切換到 `"uplot"` 會停止 Grafana 並啟動 socat 轉發器。
 
 ### 監控容器
 
@@ -1652,14 +1653,14 @@ system controller 從 `https://ipinfo.io/json` 獲取伺服器的公網（外部
 7. **Upstream Tier Outcomes** —— 每一層的成功與失敗次數，以及耗盡了所有層級的查詢數。
 8. **DNS Traffic** —— 線上收/發位元組數。
 
-每一條 DNS 查詢都帶有由 `monitoring.RolodexJobName` 構建的 `{job="rolodex"}` 選擇器，因此抓取配置發出的標籤與儀表盤所選擇的標籤不可能漂移開——不一致在任何地方都不是錯誤，它表現為一臺 DNS 明明正常的機器上八個空空如也的面板。
+每一條 DNS 查詢都帶有由 `monitoring.RolodexJobName` 構建的 `{job="rolodex"}` 選擇器，因此抓取配置發出的標籤與儀表盤所選擇的標籤不可能漂移開——不一致在任何地方都不是錯誤，它表現為一台 DNS 明明正常的機器上八個空空如也的面板。
 
 兩個前端是用不同語言寫的、渲染同一個儀表盤的兩套獨立程式碼，而它們**唯一**的差別是速率視窗：Grafana 按面板展開 `$__rate_interval`，而 uPlot 前端沒有巨集展開，因此它固定使用 `RATE_INTERVAL`（`5m`）。宏若洩漏到 uPlot 一側，就是一個 Prometheus 解析錯誤，會把整個標籤頁變成空白。
 
 有三個測試把兩側綁在一起，因為再沒有別的東西連線它們：
 
 - `TestRolodexDashboardMirroredInFrontendQueries` 從 Go 測試中讀取 `ui/src/components/monitoring/queries.js`，若任一側提到了另一側沒有的 rolodex 指標族則失敗——與 `TestBootStepsFrontendInSyncWithBackend` 對啟動階段所用的是同一種防漂移手段。
-- rolodex 抓取整合測試斷言**所固定的 rolodex 映象確實匯出了** `monitoring.RolodexDashboardMetrics()` 中的每一個指標族，並以 `# TYPE` 行匹配，這樣名稱是另一個字首的指標族就無法為一個缺失的族背書。面板提到守護程序並不發出的指標族時，會渲染出一張空圖，而那與一個空閒的解析器無法區分。
+- rolodex 抓取整合測試斷言**所固定的 rolodex 鏡像確實匯出了** `monitoring.RolodexDashboardMetrics()` 中的每一個指標族，並以 `# TYPE` 行匹配，這樣名稱是另一個字首的指標族就無法為一個缺失的族背書。面板提到守護程序並不發出的指標族時，會渲染出一張空圖，而那與一個空閒的解析器無法區分。
 - `TestDashboardQueriesParseInPrometheus` 把每個儀表盤的每一條表示式送到一個真實的 Prometheus 面前。JSON 內部畸形的 PromQL 在任何地方都不是語法錯誤：檔案被成功置備，儀表盤被載入，面板畫出座標軸，然後永遠顯示 "No data"。
 
 ### 儀表盤置備
@@ -1676,16 +1677,16 @@ Prometheus 與 Node Exporter 在啟動時總是被啟動。監控後端設定決
 
 ### 監控 API
 
-- `GET /monitoring/status`（需要鑑權）—— 返回 `backend`（`"uplot"` 或 `"grafana"`）、每個服務的執行標誌（`prometheus`、`node_exporter`、`monitoring_ui`，以及僅在 Grafana 模式下的 `grafana`），以及 `disk_devices`：支撐該 btrfs 檔案系統的核心裝置基名，前端會把它代入 Disk I/O 查詢。`disk_devices` 為空表示發現失敗，面板會回退到一個匹配不到任何東西的正則。當監控未配置時返回 `{"status": "disabled"}`。按服務的映象與單元後設資料不在此處——那是 `GET /system-services`。
+- `GET /monitoring/status`（需要鑑權）—— 返回 `backend`（`"uplot"` 或 `"grafana"`）、每個服務的執行標誌（`prometheus`、`node_exporter`、`monitoring_ui`，以及僅在 Grafana 模式下的 `grafana`），以及 `disk_devices`：支撐該 btrfs 檔案系統的核心裝置基名，前端會把它代入 Disk I/O 查詢。`disk_devices` 為空表示發現失敗，面板會回退到一個匹配不到任何東西的正則。當監控未配置時返回 `{"status": "disabled"}`。按服務的鏡像與單元後設資料不在此處——那是 `GET /system-services`。
 - `GET /metrics`（localhost 或需要管理員）—— system controller 自身的 Prometheus 端點。參見 [System Controller Metrics](#system-controller-指標)。
 
 ### System Controller 指標
 
 控制器把自身狀態以 Prometheus 文本展示格式匯出在**它已有的監聽器**上（`:5309`，`MetricsPath = "/metrics"`），而不是自己的埠上。這是刻意的：該端點因此搭載在測試框架已經會用 `TOWN_OS_LISTEN` 遷移的那個監聽器上，於是不需要向 `SYSTEM_PORT_FILES` 再新增宿主機埠，`make test-full` 與 `make dev` 也不可能在它上面衝突——IRON RULE。
 
-它是 **localhost 或管理員**可訪問的，而非公開。這次抓取聚合了賬戶數量、磁碟使用與哪些服務已經宕掉：那是一張"攻擊什麼、以及機器何時最無力抵抗"的地圖。Prometheus 以 `--net host` 執行，因此它無需 podman 網路跳轉即可到達環回地址，與 node-exporter 目標完全一樣。
+它是 **localhost 或管理員**可訪問的，而非公開。這次抓取聚合了帳戶數量、磁碟使用與哪些服務已經宕掉：那是一張"攻擊什麼、以及機器何時最無力抵抗"的地圖。Prometheus 以 `--net host` 執行，因此它無需 podman 網路跳轉即可到達環回地址，與 node-exporter 目標完全一樣。
 
-`src/metrics` 用幾百行渲染該格式，而不是依賴 `prometheus/client_golang`，理由與當初把 `errgroup` 擋在門外相同。那個庫的價值在於它的登錄檔、collector 介面與直方圖機制——而這裡一樣都沒用到，因為此處的每個值要麼是程序生命週期內的計數，要麼是每次抓取時從某個 manager 讀取的——與此同時它的傳遞依賴樹（`prometheus/common`、`procfs`、protobuf）卻是實打實的，並會落進一個從記憶體啟動的映象裡。
+`src/metrics` 用幾百行渲染該格式，而不是依賴 `prometheus/client_golang`，理由與當初把 `errgroup` 擋在門外相同。那個庫的價值在於它的登錄檔、collector 介面與直方圖機制——而這裡一樣都沒用到，因為此處的每個值要麼是程序生命週期內的計數，要麼是每次抓取時從某個 manager 讀取的——與此同時它的傳遞依賴樹（`prometheus/common`、`procfs`、protobuf）卻是實打實的，並會落進一個從記憶體啟動的鏡像裡。
 
 **標籤值的轉義是承重的，而非防禦性的。** 標籤值攜帶運維輸入（倉庫名、包名、systemd 單元名）。一個未轉義的引號毀掉的不是一行——它會讓 Prometheus 拒絕*整次*抓取，於是一個名字古怪的包就能悄悄把全部監控搞垮。
 
@@ -1715,7 +1716,7 @@ Prometheus 與 Node Exporter 在啟動時總是被啟動。監控後端設定決
 - **一次抓取絕不會整體失敗。** 每個 collector 都容忍 nil 的 manager，並在出錯時記錄日誌後跳過。因為某一個子系統生病就返回 500，會讓其餘每一個指標恰恰在最需要它們的時刻消失，於是機器讀起來是徹底死了而不是部分降級——而且啟動過程中的抓取本就該報告哪些已經起來了。
 - **值為零的桶仍然會被髮出。** 在零時消失的 gauge 與機器停止上報的 gauge 無法區分，因此"沒有失敗的單元"看起來會與"單元採集壞了"一模一樣。
 - **狀態按類別分桶。** 每一個不同的狀態碼都會成為一個永久序列，而一個在數十條路由上返回 400/401/403/404/409/422 的控制平面會迅速把序列數乘開，只為回答一個沒人會對家用機器提出的問題。精確狀態碼本來就在審計日誌與請求日誌裡。
-- **計數器在記憶體中且按程序計。** 跨重啟存活的計數器描述的是這臺機器的歷史而非本程序的歷史，而 Prometheus 本來就理解計數器重置。這也讓一次抓取——以及為它供數的審計中介軟體——完全不碰資料庫。
+- **計數器在記憶體中且按程序計。** 跨重啟存活的計數器描述的是這台機器的歷史而非本程序的歷史，而 Prometheus 本來就理解計數器重置。這也讓一次抓取——以及為它供數的審計中介軟體——完全不碰資料庫。
 - **`/metrics` 被排除在審計日誌之外**，也被排除在它自己的請求計數器之外。否則 15 秒一次的抓取每天會寫下約 5,700 行審計記錄，而它們描述的不是任何運維做過的事，並且會主導它所服務的那個計數器。
 - **`metricsMiddleware` 註冊在三者的最外層**（在審計與授權白名單之前），這樣被任一道門拒絕的請求仍會被計數——一個無法解釋的 403 恰恰是這個計數器要暴露的東西。它從返回的 error 中取狀態碼，因為返回 error 的處理器此時還沒有寫出自己的狀態碼。
 
@@ -1736,7 +1737,7 @@ Prometheus 與 Node Exporter 在啟動時總是被啟動。監控後端設定決
 
 ## UI 容器
 
-system controller 通過 `ui.Manager` 把一個獨立的 UI 容器（`quay.io/town/ui`）作為系統服務管理。映象標籤由 system controller 的釋出標籤推導（`quay.io/town/ui:<tag>`），可通過 `UI_IMAGE` 環境變數覆蓋。啟動失敗是非致命的；系統會在沒有 UI 容器的情況下繼續執行。
+system controller 通過 `ui.Manager` 把一個獨立的 UI 容器（`quay.io/town/ui`）作為系統服務管理。鏡像標籤由 system controller 的釋出標籤推導（`quay.io/town/ui:<tag>`），可通過 `UI_IMAGE` 環境變數覆蓋。啟動失敗是非致命的；系統會在沒有 UI 容器的情況下繼續執行。
 
 ## Web UI 佈局
 ### 儀表盤服務面板
@@ -1763,7 +1764,7 @@ system controller 通過 `ui.Manager` 把一個獨立的 UI 容器（`quay.io/to
 
 系統服務是由 systemd 管理的基礎設施容器（區別於使用者安裝的包服務）。它們使用 `town-os-system--` 單元名字首。
 
-這一集合是：rolodex、ingress、pages、UI、node-exporter、Prometheus、監控 UI（socat 轉發器或 Grafana），以及**每個網路一個 gfeh 分割槽**（`town-os-system--gfeh-<network>`）。該清單中的每一項都必須在 `collectSystemServices()` 中註冊，這樣 `POST /system-services/refresh` 才會重新拉取並重啟它——那裡的遺漏是不可見的，直到某次升級悄悄把該服務留在舊映象上。
+這一集合是：rolodex、ingress、pages、UI、node-exporter、Prometheus、監控 UI（socat 轉發器或 Grafana），以及**每個網路一個 gfeh 分割槽**（`town-os-system--gfeh-<network>`）。該清單中的每一項都必須在 `collectSystemServices()` 中註冊，這樣 `POST /system-services/refresh` 才會重新拉取並重啟它——那裡的遺漏是不可見的，直到某次升級悄悄把該服務留在舊鏡像上。
 
 ### 系統服務單元生成
 
@@ -1771,25 +1772,25 @@ system controller 通過 `ui.Manager` 把一個獨立的 UI 容器（`quay.io/to
 
 ### 系統服務 API
 
-- `GET /system-services`（localhost 或需要鑑權）—— 列出系統服務及其即時單元狀態。每一項包含 key、顯示名、映象、埠與 systemd 單元狀態欄位。當監控未配置時返回空列表。不計入審計日誌。
+- `GET /system-services`（localhost 或需要鑑權）—— 列出系統服務及其即時單元狀態。每一項包含 key、顯示名、鏡像、埠與 systemd 單元狀態欄位。當監控未配置時返回空列表。不計入審計日誌。
 - `POST /system-services/status`（需要管理員）—— 改變某個系統服務的狀態。接受 key 與動作（`start`、`stop`、`restart`）。`enable` 與 `disable` 動作會被拒絕。
 - `POST /system-services/refresh`（需要管理員）—— 刷新系統服務狀態。
 
-## Web UI 生產映象
+## Web UI 生產鏡像
 
-一個獨立的 UI 容器映象（`quay.io/town/ui`）由 `Containerfile.ui` 構建。它採用兩階段構建：`oven/bun:latest` 構建 UI 靜態檔案，然後 `docker.io/library/caddy:latest` 在 80 埠以 SPA 路由方式（`try_files {path} /index.html`）提供它們。UI 經由共享的 ingress 訪問，而不是直接霸佔宿主機的 `:80`——它是 ingress 對任何未被路由匹配的 host 的預設 `:80` 後端，因此裸 IP 登入仍然可用。
+一個獨立的 UI 容器鏡像（`quay.io/town/ui`）由 `Containerfile.ui` 構建。它採用兩階段構建：`oven/bun:latest` 構建 UI 靜態檔案，然後 `docker.io/library/caddy:latest` 在 80 埠以 SPA 路由方式（`try_files {path} /index.html`）提供它們。UI 經由共享的 ingress 訪問，而不是直接霸佔宿主機的 `:80`——它是 ingress 對任何未被路由匹配的 host 的預設 `:80` 後端，因此裸 IP 登入仍然可用。
 
 **快取頭是承重的**（`Caddyfile.ui`）。`/assets/*` 之下的一切都由 Vite 加了指紋，因此一個資源 URL 永遠精確對應某一次構建，並以 `public, max-age=31536000, immutable` 提供。`index.html` 是 Vite **不**加指紋的那一個檔案，而它正是指明當前 bundle 的那個；若提供時完全不帶 `Cache-Control`，瀏覽器可能會施加啟發式新鮮度（RFC 9111 §4.2.2）並在不重新驗證的情況下複用其快取副本，於是升級後的機器會繼續發放上一個版本的 `index.html`，而它指向的是上一個版本的 bundle。症狀是一次看上去根本沒發生過的升級——新功能渲染得就像 UI 從未聽說過它們。所有非資源路徑都是由 `try_files` 解析到 `index.html` 的 SPA 路由，因此 `no-cache` 規則被寫成覆蓋它們全部（`@html not path /assets/*`）。
 
 `make release-ui` 以 `--no-cache` 構建，因此 `push-rc` 總是釋出新鮮構建的 UI 資源，而不是層快取中的 bundle。
 
-**測試從不拉取 quay 上的 UI 映象** —— `ui-image` make 目標在本地把 `Containerfile.ui` 構建為 `localhost/town-os-ui:<INSTANCE_ID>`（始終與宿主機架構及倉庫內的 UI 原始碼一致），儲存到映象快取，測試框架再把它載入進測試容器並經由 `UI_IMAGE` 環境變數注入。`test-integration-build` 與 `test-ui-integration` 依賴 `ui-image`。quay.io/town/ui 的標籤只用於生產/釋出推送。`integration/systemcontroller_ui_test.go` 中的 `uiTestImage` 在 `UI_IMAGE` 未設定時跳過其測試，而不是回退到某個 quay 標籤。
+**測試從不拉取 quay 上的 UI 鏡像** —— `ui-image` make 目標在本地把 `Containerfile.ui` 構建為 `localhost/town-os-ui:<INSTANCE_ID>`（始終與宿主機架構及倉庫內的 UI 原始碼一致），儲存到鏡像快取，測試框架再把它載入進測試容器並經由 `UI_IMAGE` 環境變數注入。`test-integration-build` 與 `test-ui-integration` 依賴 `ui-image`。quay.io/town/ui 的標籤只用於生產/釋出推送。`integration/systemcontroller_ui_test.go` 中的 `uiTestImage` 在 `UI_IMAGE` 未設定時跳過其測試，而不是回退到某個 quay 標籤。
 
-## Proton 執行器映象
+## Proton 執行器鏡像
 
-Proton 執行器映象（`quay.io/town/proton`）由 `Containerfile.proton` 構建。它採用兩階段構建：下載階段獲取 GE-Proton 發行版壓縮包（通過 `GE_PROTON_VERSION` 構建引數固定版本），執行時階段安裝 Wine/Proton 依賴（64 位 + 32 位）、用於無頭執行的 Xvfb，以及位於 `/usr/local/bin/proton` 的包裝指令碼，該指令碼會先啟動虛擬幀緩衝並配置 Proton 環境，再執行應用。
+Proton 執行器鏡像（`quay.io/town/proton`）由 `Containerfile.proton` 構建。它採用兩階段構建：下載階段獲取 GE-Proton 發行版壓縮包（通過 `GE_PROTON_VERSION` 構建引數固定版本），執行時階段安裝 Wine/Proton 依賴（64 位 + 32 位）、用於無頭執行的 Xvfb，以及位於 `/usr/local/bin/proton` 的包裝指令碼，該指令碼會先啟動虛擬幀緩衝並配置 Proton 環境，再執行應用。
 
-make 流水線提供：`release-proton-image`（構建）、`push-proton-rc`（推送按架構的候選釋出標籤 `rc.<date>-<arch>` + `rc.latest-<arch>`），以及 `push-proton-release`（推送按架構的釋出標籤 `release.<date>-<arch>` + `latest-<arch>`）。當 `PROTON_ENABLED=1` 時，proton 映象也包含在完整的 `push-rc` / `push-release` 流程以及 `manifest-rc` / `manifest-release` 的組裝之中。
+make 流水線提供：`release-proton-image`（構建）、`push-proton-rc`（推送按架構的候選釋出標籤 `rc.<date>-<arch>` + `rc.latest-<arch>`），以及 `push-proton-release`（推送按架構的釋出標籤 `release.<date>-<arch>` + `latest-<arch>`）。當 `PROTON_ENABLED=1` 時，proton 鏡像也包含在完整的 `push-rc` / `push-release` 流程以及 `manifest-rc` / `manifest-release` 的組裝之中。
 
 ## Web UI API 客戶端
 
@@ -1813,11 +1814,41 @@ make 流水線提供：`release-proton-image`（構建）、`push-proton-rc`（�
 
 ### 已填充的目錄
 
-後端目錄在 `src/i18n` 中按語言環境一個檔案（`de_de.go`、`zh_cn.go` 等）；前端映象位於 `ui/src/i18n`（`de-DE.js`、`zh-CN.js` 等）。兩側保持同步——每一個已填充的後端目錄都有一個前端孿生體。
+後端目錄在 `src/i18n` 中按語言環境一個檔案（`de_de.go`、`zh_cn.go` 等）；前端鏡像位於 `ui/src/i18n`（`de-DE.js`、`zh-CN.js` 等）。兩側保持同步——每一個已填充的後端目錄都有一個前端孿生體。
 
-`PopulatedLocales()` 是權威清單（24 項）：`en-US`、`ar-SA`、`bn-BD`、`da-DK`、`de-DE`、`es-ES`、`fi-FI`、`fr-FR`、`hi-IN`、`it-IT`、`ja-JP`、`ko-KR`、`nl-NL`、`pl-PL`、`pt-BR`、`ru-RU`、`sa-IN`、`sv-SE`、`th-TH`、`tr-TR`、`uk-UA`、`vi-VN`、`zh-CN`、`zh-TW`。不在其中的一律回退到英語。`IsPopulated(code)` 是 UI 用來在語言選擇器中停用未填充條目的依據。
+`PopulatedLocales()` 是權威清單（48 項）：`en-US`、`ar-AE`、`ar-EG`、`ar-SA`、`bn-BD`、`bn-IN`、`cs-CZ`、`da-DK`、`de-AT`、`de-CH`、`de-DE`、`en-AU`、`en-CA`、`en-GB`、`en-IN`、`en-NZ`、`en-ZA`、`es-AR`、`es-ES`、`es-MX`、`fi-FI`、`fr-BE`、`fr-CA`、`fr-CH`、`fr-FR`、`hi-IN`、`hr-HR`、`hu-HU`、`it-IT`、`ja-JP`、`ko-KR`、`nl-BE`、`nl-NL`、`pl-PL`、`pt-BR`、`pt-PT`、`ro-RO`、`ru-RU`、`sa-IN`、`sk-SK`、`sl-SI`、`sv-SE`、`th-TH`、`tr-TR`、`uk-UA`、`vi-VN`、`zh-CN`、`zh-TW`。不在其中的一律回退到英語。`IsPopulated(code)` 是 UI 用來在語言選擇器中停用未填充條目的依據。
 
-**每個語言環境程式碼都帶有地區子標籤**，`TestLocaleCodesAreRegionQualified` 維持這一點。蘇美爾語（`sux`）曾是唯一的例外——一個裸的 ISO 639-3 程式碼——它已被移除。移除它是因為它的文字而非它的形狀：楔形文字位於 `U+12000`–`U+1254F`，幾乎沒有任何系統自帶能顯示它的字型，因此在任何沒有 Noto Sans Cuneiform 的機器上，該語言環境的每一個字串都會畫成替換方塊。目錄中括號裡攜帶的羅馬化轉寫卻留了下來，這讓情況比全空更糟——一堆窟窿周圍散落著拉丁字母片段與標點。要誠實地渲染它，就意味著自帶一份 webfont（該目錄用到 45 個不同碼位，但整套字型有 462K，做子集化又需要構建主機上有 `fonttools`），並新增 UI 完全沒有的 `@font-face` 機制——為一門沒有使用者的語言配備這麼多裝置，實在過重。
+這份清單是**從目錄對映派生出來的，而不是手寫出來的**：`buildPopulatedLocales()` 在 init 時讀取 `catalogs` 的鍵，將其排序，並把 `en-US` 釘在最前面；`IsPopulated` 則直接對 `catalogs` 做索引。它過去是一份手工維護的切片字面量，只有一種失敗模式，而那種失敗是無聲的——一個已在 `catalogs` 中註冊、卻在字面量裡被遺漏的目錄，被翻譯了、被發布了，卻從未在選擇器中被提供出來。`PopulatedLocales()` 返回一個克隆，因為這份清單如今是套件層級的狀態，而不再是每次呼叫都新建的字面量；呼叫方對結果做排序或截斷，不能因此擾動下一個呼叫方看到的內容。
+
+### 國家變體
+
+一個目錄屬於兩種類型之一，其差別在於檔案是怎麼寫的，而不在於它是怎麼被選中的——兩種類型都算已填充，也都出現在選擇器中。
+
+**語言目錄**是一份翻譯，完整寫出：`de_de.go`、`cs_cz.go`、`ja_jp.go`。
+
+**國家目錄**由 `derive(base, overrides)`（`src/i18n/derive.go`，前端鏡像為 `ui/src/i18n/derive.js`）構建：取它所屬語言的目錄，再加上該國家確實說得不一樣的那些字串。奧地利德語就是德語；`de_at.go` 回答的問題不是「這句話德語怎麼說」，而是「這些句子裡，哪一句奧地利人不會那樣寫」。把 `de-DE` 複製進 `de_at.go` 再改上四行，將意味著下一個加進 `de-DE` 的訊息鍵會悄無聲息地以英文抵達奧地利，而對一條德語字串的修正得在三個檔案裡被找出來並重複一遍。繼承基礎目錄、只列出分歧之處，讓變體預設就是對的：一個新鍵在其基礎語言擁有它的那一刻，就落到了每一處。
+
+有十八個語言環境是這樣派生出來的：
+
+| 基礎 | 由它派生 |
+| --- | --- |
+| `en-US` | `en-CA`、`en-GB` |
+| `en-GB` | `en-AU`、`en-IN`、`en-NZ`、`en-ZA` |
+| `de-DE` | `de-AT`、`de-CH` |
+| `fr-FR` | `fr-BE`、`fr-CA`、`fr-CH` |
+| `es-ES` → `es-latam` | `es-AR`、`es-MX` |
+| `pt-BR` | `pt-PT` |
+| `nl-NL` | `nl-BE` |
+| `ar-SA` | `ar-AE`、`ar-EG` |
+| `bn-BD` | `bn-IN` |
+
+`es-latam`（`src/i18n/es_latam.go`、`ui/src/i18n/es-latam.js`）是唯一的中間層：它承載所有美洲變體共有的、相對於半島西班牙語的分歧——`inválido` 而非 `no válido`，`agregar` 而非 `añadir`，直引號而非 `« »`——`es-AR` 與 `es-MX` 都建立在它之上。**它沒有註冊進 `catalogs`，也不可被選中**，因為它是一個共享片段，而不是任何人真正生活的地方；把它公布出去，等於提供一個並不存在的國家代碼。
+
+有些覆寫對映很小，還有幾個（後端的 `en-CA`、`de-CH`，以及 `es-MX`）是空的。對一塊技術性的控制面板來說，這是誠實的答案——加拿大英語保留美式的 `-ize` 拼寫，而 `de_de.go` 裡沒有任何一條訊息含有 `ß`，瑞士的 `ss` 規則無處可施（前端的 `de-CH.js` 確實帶有真實的覆寫，因為 `de-DE.js` 用了 `ß`）。一份空的覆寫對映仍然標記出：這個語言環境是被慎重審閱過的，而不是被遺忘的。
+
+這套方案由兩側的測試（`src/i18n/derive_test.go`、`ui/src/i18n/derive.test.js`）守住：每一個覆寫鍵都必須存在於其基礎目錄中，每一條覆寫都必須與它所替換的基礎字串確有不同，每一個派生目錄都必須帶有其基礎目錄的完整鍵集，並且每一個派生目錄都必須列在測試的 `variants()` 表裡——因此一個國家目錄不可能在這些規則未施加於它的情況下被發布。
+
+**每個語言環境代碼都帶有地區子標籤**，`TestLocaleCodesAreRegionQualified` 維持這一點。蘇美爾語（`sux`）曾是唯一的例外——一個裸的 ISO 639-3 代碼——它已被移除。移除它是因為它的文字而非它的形狀：楔形文字位於 `U+12000`–`U+1254F`，幾乎沒有任何系統自帶能顯示它的字型，因此在任何沒有 Noto Sans Cuneiform 的機器上，該語言環境的每一個字串都會畫成替換方塊。目錄中括號裡攜帶的羅馬化轉寫卻留了下來，這讓情況比全空更糟——一堆窟窿周圍散落著拉丁字母片段與標點。要誠實地渲染它，就意味著自帶一份 webfont（該目錄用到 45 個不同碼位，但整套字型有 462K，做子集化又需要構建主機上有 `fonttools`），並新增 UI 完全沒有的 `@font-face` 機制——為一門沒有使用者的語言配備這麼多裝置，實在過重。
 
 ### 語言環境清單
 
@@ -1834,25 +1865,33 @@ make 流水線提供：`release-proton-image`（構建）、`push-proton-rc`（�
 
 ### 語言環境的檢測、儲存與同步
 
-UI **首先從瀏覽器**選擇語言，而不是從全域性設定。載入時它讀取 `navigator.languages`，並把這些有序偏好與已釋出的目錄做匹配：地區變體摺疊到基礎語言（`de-AT` → `de-DE`），中文按文字/地區消歧（`zh-Hant` 或 `TW`/`HK`/`MO` 地區 → `zh-TW`，否則 `zh-CN`）。匹配不區分大小寫，並會先在所有偏好上嘗試精確標籤，然後才回退到主子標籤。
+UI **首先從瀏覽器**選擇語言，而不是從全域設定。載入時它讀取 `navigator.languages`，並把這些有序偏好與已發布的目錄做匹配。匹配不區分大小寫，並會先在所有偏好上嘗試精確標籤，然後才按以下順序回退：
+
+1. **精確匹配。** `de-CH` 如今自帶目錄，因此 `de-CH` 解析為 `de-CH`，而不是摺疊到 `de-DE`。
+2. **中文按文字/地區消歧。** `zh-Hant` 或 `TW`/`HK`/`MO` 地區 → `zh-TW`，否則 `zh-CN`。文字是比任何預設值都更強的訊號，因此這一條排在下面兩條之前。
+3. **有名有姓的地區預設值。** 那些不自帶目錄、卻讀某個變體而非其語言預設值的國家：西班牙語的拉丁美洲 → `es-MX`，葡語非洲與東帝汶 → `pt-PT`，愛爾蘭、非洲以及南亞與東南亞的英語 → `en-GB`。沒有這一條，`es-CO` 會拿到半島西班牙語，`en-IE` 會拿到美式英語。
+4. **有名有姓的語言預設值。** `ar` → `ar-SA`，`bn` → `bn-BD`，`de` → `de-DE`，`en` → `en-US`，`es` → `es-ES`，`fr` → `fr-FR`，`nl` → `nl-NL`，`pt` → `pt-BR`。
+5. **任何共享主子標籤的目錄。**
+
+第 3、4 步之所以存在，是因為回退過去只有第 5 步，而那只在每種語言恰好有一個目錄時才是對的。如今有八種語言不止一個目錄：一個瀏覽器要一個光禿禿的 `en`，或者要 `en-PH`，否則就會落到 `catalogs` 物件中最先宣告的那一份英語上，於是答案成了匯入順序的屬性，而不是任何人做出的決定。
 
 優先順序從高到低：
 
 1. 明確的選擇，**按瀏覽器**持久化在 `localStorage` 中——*已釘住*
 2. 瀏覽器檢測到並匹配上已釋出目錄的語言——*已釘住*
-3. 伺服器的全域性 `locale` 設定，稍後經由 `syncServerLocale` 應用——*未釘住*
+3. 伺服器的全域 `locale` 設定，稍後經由 `syncServerLocale` 應用——*未釘住*
 
-一旦語言環境被釘住，`syncServerLocale` 就是空操作。這正是這一拆分的意義所在：過去 60 秒一次的狀態 ping 會呼叫 `setLocale`，從而在每次輪詢時把管理員的全域性 `locale` 設定強加到每一個瀏覽器上。`locale` 設定（系統級，預設 `en-US`，仍在 ping 響應中上報）如今只是 Town OS 未提供目錄的語言的回退值。
+一旦語言環境被釘住，`syncServerLocale` 就是空操作。這正是這一拆分的意義所在：過去 60 秒一次的狀態 ping 會呼叫 `setLocale`，從而在每次輪詢時把管理員的全域 `locale` 設定強加到每一個瀏覽器上。`locale` 設定（系統級，預設 `en-US`，仍在 ping 響應中上報）如今只是 Town OS 未提供目錄的語言的回退值。
 
 ### 語言環境 API
 
-- `GET /locales`（需要鑑權）—— 返回當前語言環境、已填充語言環境清單、常用語言與擴充套件語言環境。不計入審計日誌。
+- `GET /locales`（需要鑑權）—— 返回當前語言環境、已填充語言環境清單、常用語言與擴充語言環境。不計入審計日誌。
 
 ### 設定 UI
 
-系統設定頁面包含一個語言選擇器。常用語言以母語文字名稱顯示在下拉框中。一個可展開區域會顯示擴充套件語言環境清單。未填充的語言環境（即沒有翻譯目錄的）會帶星號字尾顯示，並在選擇器中被停用，從而無法被選中。
+系統設定頁面包含一個語言選擇器。常用語言以母語文字名稱顯示在下拉框中。一個可展開區域會顯示擴充語言環境清單。未填充的語言環境（即沒有翻譯目錄的）會帶星號字尾顯示，並在選擇器中被停用，從而無法被選中。
 
-選擇器預設選中**頁面當前實際渲染所用的語言環境**——即 `useI18n()` 持有的那一個——而不是 `GET /locales` 返回的 `current`。二者在通常情況下就並不一致：語言環境由瀏覽器選定並被固定，而全域 `locale` 設定仍停留在預設的 `en-US`（參見[語言環境的檢測、儲存與同步](#語言環境的檢測儲存與同步)）。預選 `current` 會讓這個控制項在一個並非英文的頁面上顯示 "English"。當前語言環境若是國家變體，它位於預設摺疊的擴充套件清單中，因此載入時會展開該清單，以免下拉框停留在一個可見選項裡根本不存在的值上；再次摺疊時也會保留該條目，理由相同。`current` 只作為回退使用——僅當伺服端並不提供當前語言環境時。
+選擇器預設選中**頁面當前實際渲染所用的語言環境**——即 `useI18n()` 持有的那一個——而不是 `GET /locales` 返回的 `current`。二者在通常情況下就並不一致：語言環境由瀏覽器選定並被固定，而全域 `locale` 設定仍停留在預設的 `en-US`（參見[語言環境的檢測、儲存與同步](#語言環境的檢測儲存與同步)）。預選 `current` 會讓這個控制項在一個並非英文的頁面上顯示 "English"。當前語言環境若是國家變體，它位於預設摺疊的擴充清單中，因此載入時會展開該清單，以免下拉框停留在一個可見選項裡根本不存在的值上；再次摺疊時也會保留該條目，理由相同。`current` 只作為回退使用——僅當伺服端並不提供當前語言環境時。
 
 儲存時會同時與這兩者比較。只符合其中之一仍然有事可做：與伺服端一致但與頁面不一致，意味著切換頁面語言（呼叫 `setLocale`，並為該瀏覽器固定此選擇），而不寫入設定；與頁面一致但與伺服端不一致，意味著寫入設定。只有當所選項與兩者都一致時，才真的無事可做。成功提示用 `translateIn` 寫在剛剛選定的那門語言中，因為它背後的介面已經切換過去了；而"無事可做"提示仍用螢幕上當前的語言，因為什麼都沒有改變。此前僅與 `current` 比較，使得正在顯示的那門語言無法被選中——對它按下儲存只會提示"無事可做"，因此要切回英文，必須先儲存第三種語言。
 
@@ -1864,24 +1903,24 @@ UI **首先從瀏覽器**選擇語言，而不是從全域性設定。載入時�
 
 1. `setupPodmanEnv()` 把 `CONTAINER_HOST` 指向宿主機的 podman socket。
 2. 解析標誌，隨後立即以啟動狀態樁繫結 `:5309`。
-3. 建立目錄、清理陳舊的根 DB、開啟資料庫，以及賬戶（外加舊服務賬戶清除）、會話、審計、設定、pages 與網路 manager——最後一個會播種 home 網路。
+3. 建立目錄、清理陳舊的根 DB、開啟資料庫，以及帳戶（外加舊服務帳戶清除）、會話、審計、設定、pages 與網路 manager——最後一個會播種 home 網路。
 4. 播種倉庫、強制重新整理倉庫根。
-5. 安裝 manager、btrfs 儲存、systemd manager；解析映象標籤。
+5. 安裝 manager、btrfs 儲存、systemd manager；解析鏡像標籤。
 6. 寫入 Rolodex 配置並等待就緒（rolodex 本身由 systemd 監管）。
-7. 拉取核心映象（NC、監控、UI）並啟動監控系統服務。
+7. 拉取核心鏡像（NC、監控、UI）並啟動監控系統服務。
 8. 本地 TLS CA、ingress 與 pages 服務。
 9. Reconcile 物件儲存（每個網路一個 gfeh 分割槽）。
 10. 檢測版本變更、reconcile、執行更新後命令。
 11. 重建 DNS、reconcile 網路、第二次（冪等的）物件儲存 reconcile、編排 ingress、啟動 UI 容器。
 12. 新鮮度階段（重新整理之後按包重啟）。
 13. 構建處理器，並把啟動樁原子地切換為完整路由器。
-14. 一旦有分割槽應答，就在後臺釋出物件儲存的名稱。
+14. 一旦有分割槽應答，就在後台釋出物件儲存的名稱。
 
-監控、Rolodex 配置、核心映象拉取、TLS CA、ingress、pages 服務、物件儲存、網路 reconcile 與 UI 容器的啟動失敗都是非致命的；系統會在沒有它們的情況下繼續執行。所有容器映象拉取都使用 `ensureImage` 助手，它在拉取前先檢查 `podman image exists`，從而避免在映象已預載入的測試/開發環境中重複拉取。非必要服務的拉取失敗會記錄到 stderr 且不阻止啟動，使系統即便在網路暫時不可用時也能啟動。
+監控、Rolodex 配置、核心鏡像拉取、TLS CA、ingress、pages 服務、物件儲存、網路 reconcile 與 UI 容器的啟動失敗都是非致命的；系統會在沒有它們的情況下繼續執行。所有容器鏡像拉取都使用 `ensureImage` 助手，它在拉取前先檢查 `podman image exists`，從而避免在鏡像已預載入的測試/開發環境中重複拉取。非必要服務的拉取失敗會記錄到 stderr 且不阻止啟動，使系統即便在網路暫時不可用時也能啟動。
 
 ### 版本標籤檢測
 
-system controller 為每一個同族服務（UI、Rolodex、網路控制器、ingress）推匯出匹配的映象標籤，全部來自 `resolveImageTag()` 解析出的同一個標籤：若設定了 `TOWN_OS_TAG` 環境變數則取之，否則取 `rc.latest-<arch>`（`defaultVersionTag()`，架構由 `runtime.GOARCH` 經 `archTag()` 對映為 `x86_64`/`aarch64`）。不存在編譯期的 `Version` 固定值，也不存在 `/town-os.tag` 檔案——兩者都被移除了，因為其中任何一處的陳舊值都會在控制器已經前進之後，仍悄悄把每個同族映象按住在舊標籤上。install 構建系統通過在 systemcontroller 的 systemd 單元上設定 `TOWN_OS_TAG` 來固定某個具體標籤（`../install/make/install.sh` 從 `CONTROLLER_IMAGE` 推導它）；沒有覆蓋時，整個機群始終跟蹤 `rc.latest-<arch>`。該標籤用於構造諸如 `quay.io/town/ui:<tag>` 與 `quay.io/town/rolodex:<tag>` 的映象引用；推送的標籤是按架構的，因此每一個推匯出的同族標籤都帶有架構字尾。
+system controller 為每一個同族服務（UI、Rolodex、網路控制器、ingress）推匯出匹配的鏡像標籤，全部來自 `resolveImageTag()` 解析出的同一個標籤：若設定了 `TOWN_OS_TAG` 環境變數則取之，否則取 `rc.latest-<arch>`（`defaultVersionTag()`，架構由 `runtime.GOARCH` 經 `archTag()` 對映為 `x86_64`/`aarch64`）。不存在編譯期的 `Version` 固定值，也不存在 `/town-os.tag` 檔案——兩者都被移除了，因為其中任何一處的陳舊值都會在控制器已經前進之後，仍悄悄把每個同族鏡像按住在舊標籤上。install 構建系統通過在 systemcontroller 的 systemd 單元上設定 `TOWN_OS_TAG` 來固定某個具體標籤（`../install/make/install.sh` 從 `CONTROLLER_IMAGE` 推導它）；沒有覆蓋時，整個機群始終跟蹤 `rc.latest-<arch>`。該標籤用於構造諸如 `quay.io/town/ui:<tag>` 與 `quay.io/town/rolodex:<tag>` 的鏡像引用；推送的標籤是按架構的，因此每一個推匯出的同族標籤都帶有架構字尾。
 
 ### 錯誤格式
 
@@ -1889,29 +1928,29 @@ system controller 為每一個同族服務（UI、Rolodex、網路控制器、in
 
 ### 請求日誌
 
-Echo 的 `RequestLogger()` 中介軟體全域性啟用，把所有 HTTP 請求記錄到 stderr。詳略程度由 `LOG_LEVEL` 環境變數控制。
+Echo 的 `RequestLogger()` 中介軟體全域啟用，把所有 HTTP 請求記錄到 stderr。詳略程度由 `LOG_LEVEL` 環境變數控制。
 
 ### 登入限流
 
-`POST /account/authenticate` 是公開的，而每一次嘗試都要付出一次 64 MiB 的 argon2id 雜湊。對密碼雜湊而言那是恰當的代價，但讓未認證的呼叫者無限制地安排這種代價就是錯的：幾百個併發嘗試就是幾十 GB 的分配，而這臺機器的整個設計要點就是從記憶體執行，其失敗方式不是登入變慢——而是 OOM killer 把控制器帶走。
+`POST /account/authenticate` 是公開的，而每一次嘗試都要付出一次 64 MiB 的 argon2id 雜湊。對密碼雜湊而言那是恰當的代價，但讓未認證的呼叫者無限制地安排這種代價就是錯的：幾百個併發嘗試就是幾十 GB 的分配，而這台機器的整個設計要點就是從記憶體執行，其失敗方式不是登入變慢——而是 OOM killer 把控制器帶走。
 
 兩道相互獨立的限制，因為它們回答不同的問題。`loginLimiter` 在一個時間窗內限制**每個來源的嘗試次數**（5 分鐘 20 次），這是讓線上密碼猜測變得不可行的機制，並且它按來源地址分鍵，因此一個濫用的客戶端無法把這個家庭鎖在門外。`loginGate` 限制跨所有來源的**併發雜湊數**（4 個，把 argon2 的峰值記憶體約束在四分之一 GB 附近），而這是僅靠按來源限流做不到的。兩者都在記憶體中且按程序計：它們保護的是本程序的記憶體與 CPU，而持久化它們會讓一次失敗的登入變成一次資料庫寫入。
 
-兩者都在雜湊**之前**檢查，而不是之後——要防禦的代價正是雜湊本身，因此一次仍然做了雜湊的拒絕，等於為它所拒絕的攻擊付了錢。gate 的名額通過閉包內部的 `defer` 釋放，而不是在呼叫之後釋放，因為被 panic 洩漏掉的名額會在程序餘生中消失，四個這樣的名額就能讓這臺機器上的每一次登入卡死到重啟為止。一次被證實正確的密碼會清空該來源的時間窗，因此處在同一個 NAT 地址之後的一個家庭，不會因正常使用而走進鎖定狀態。
+兩者都在雜湊**之前**檢查，而不是之後——要防禦的代價正是雜湊本身，因此一次仍然做了雜湊的拒絕，等於為它所拒絕的攻擊付了錢。gate 的名額通過閉包內部的 `defer` 釋放，而不是在呼叫之後釋放，因為被 panic 洩漏掉的名額會在程序餘生中消失，四個這樣的名額就能讓這台機器上的每一次登入卡死到重啟為止。一次被證實正確的密碼會清空該來源的時間窗，因此處在同一個 NAT 地址之後的一個家庭，不會因正常使用而走進鎖定狀態。
 
 ### CORS
 
-在 `DEBUG` 模式下允許所有來源。否則，允許來自同一主機名的跨埠請求（例如 80 埠上的瀏覽器與 5309 埠上的 API 通訊），**但前提是 Host 頭已被核對為這臺機器可以合法被稱呼的名稱之一**。允許的方法：GET、HEAD、POST、PUT、PATCH、DELETE、OPTIONS。允許攜帶憑據，最大存活時間 3600 秒。
+在 `DEBUG` 模式下允許所有來源。否則，允許來自同一主機名的跨埠請求（例如 80 埠上的瀏覽器與 5309 埠上的 API 通訊），**但前提是 Host 頭已被核對為這台機器可以合法被稱呼的名稱之一**。允許的方法：GET、HEAD、POST、PUT、PATCH、DELETE、OPTIONS。允許攜帶憑據，最大存活時間 3600 秒。
 
-這項檢查之所以重要，是因為舊規則——"Origin 的主機名等於 Host 頭的主機名"——比較的是兩個都來自同一個攻擊者選定 URL 的值。把 `box.evil.example` 指向這臺機器的區域網地址，瀏覽器就會發送 `Origin: http://box.evil.example` 與 `Host: box.evil.example:5309`，二者匹配。那正是 DNS 重繫結的形態，而在 `AllowCredentials` 之下，它把引導視窗（在不存在啟用的管理員時 `POST /account/create` 會以未認證方式應答）交到了一個順路訪問的網頁手裡。
+這項檢查之所以重要，是因為舊規則——"Origin 的主機名等於 Host 頭的主機名"——比較的是兩個都來自同一個攻擊者選定 URL 的值。把 `box.evil.example` 指向這台機器的區域網地址，瀏覽器就會發送 `Origin: http://box.evil.example` 與 `Host: box.evil.example:5309`，二者匹配。那正是 DNS 重繫結的形態，而在 `AllowCredentials` 之下，它把引導視窗（在不存在啟用的管理員時 `POST /account/create` 會以未認證方式應答）交到了一個順路訪問的網頁手裡。
 
-因此 `originAllowed` 要求 Host 頭指名這臺機器：它自己的主機名、`<hostname>.local`、`<hostname>.<dns_tld>`、它所應答的環回與區域網地址，或運維在 `AllowedHosts` 中配置的任何名稱。這些形式是**逐一列舉的，而不是按字尾匹配**——像"任何第一個標籤是該主機名的名稱"這樣的規則會接受 `townos.evil.example`，而攻擊者只需去註冊它即可。IP 字面量單獨即可被接受：地址無法被 DNS 別名化，因此 `http://192.168.1.10/` 訪問 `http://192.168.1.10:5309` 在構造上就是同一臺機器，而這也是實際中最常見的用法。
+因此 `originAllowed` 要求 Host 頭指名這台機器：它自己的主機名、`<hostname>.local`、`<hostname>.<dns_tld>`、它所應答的環回與區域網地址，或運維在 `AllowedHosts` 中配置的任何名稱。這些形式是**逐一列舉的，而不是按字尾匹配**——像"任何第一個標籤是該主機名的名稱"這樣的規則會接受 `townos.evil.example`，而攻擊者只需去註冊它即可。IP 字面量單獨即可被接受：地址無法被 DNS 別名化，因此 `http://192.168.1.10/` 訪問 `http://192.168.1.10:5309` 在構造上就是同一台機器，而這也是實際中最常見的用法。
 
 **私有網路訪問（PNA）只對 CORS 會接受的來源作答。** `Access-Control-Allow-Private-Network` 頭此前是無條件回顯的，那等於把瀏覽器"可以訪問私有地址"的許可交給網際網路上的每一個來源——而那正是 PNA 在 CORS 之上要額外提供的唯一保護。它的中介軟體註冊在 CORS 中介軟體**之前**，因此在預檢請求上它仍然會執行——預檢由 CORS 自己應答，不會繼續呼叫後面的鏈條。
 
 ### 優雅關閉
 
-SIGINT 觸發 context 取消。HTTP 伺服器關閉，所有後臺 goroutine 經由 context 通道退出。Rolodex 由 systemd 監管，不由 systemcontroller 停止。
+SIGINT 觸發 context 取消。HTTP 伺服器關閉，所有後台 goroutine 經由 context 通道退出。Rolodex 由 systemd 監管，不由 systemcontroller 停止。
 
 ### 命令列標誌
 
@@ -1921,34 +1960,34 @@ SIGINT 觸發 context 取消。HTTP 伺服器關閉，所有後臺 goroutine 經
 - `-network-state <path>` —— 按包的網路狀態檔案所在目錄（預設 `/run/town-os`，即 `DefaultNetworkStatePath`；它必須是 systemcontroller 容器與宿主機共享的路徑——絕不能是 `/var/run/...` 或 `/tmp`）。
 - `-listen <addr>` —— HTTP 監聽地址（預設 `:5309`）。
 
-網路控制器映象同樣不是標誌；它由解析出的映象標籤推導，並可用 `NC_IMAGE` 覆蓋。
+網路控制器鏡像同樣不是標誌；它由解析出的鏡像標籤推導，並可用 `NC_IMAGE` 覆蓋。
 
 ### 環境變數
 
 - `CONTAINER_HOST` —— 宿主機 podman 守護程序的 unix socket URL。啟動時自動設為 `unix:///run/podman/podman.sock`（參見 `HostPodmanSocket`）。每一次 `podman` 呼叫——包括 systemcontroller fork 出的子程序——都從程序環境繼承它，並走宿主機 socket，而不是 systemcontroller 容器隔離的 podman 儲存。install 倉庫中的 systemd 單元也應設定 `Environment=CONTAINER_HOST=...` 以便在 `systemctl` 輸出中可見，但 `setupPodmanEnv()` 的呼叫才是執行時的事實來源。
 - `TOWN_OS_LISTEN` —— 覆蓋 `-listen` 標誌。
 - `TOWN_OS_SIGNING_KEY` —— 覆蓋臨時的 JWT 簽名金鑰（參見會話管理）。
-- `TOWN_OS_TLS` —— 讓控制平面自己的監聽器（`:5309`）以 HTTPS 提供服務，由本機的本地 CA 終止，其葉子證書的簽發方式與包的完全一致。**預設關閉，而這是次序問題而非折中**：沒有拿到本機 CA 的瀏覽器無法對一張不受信任的證書完成 XHR，而與頁面導航不同的是，這裡沒有可以點選通過的中間頁——UI 會直接停止工作，而且無從抵達那個解釋原因的介面。今天 UI 也是通過明文 HTTP 提供的（它是 ingress 的預設 `:80` 後端），因此沒有先安裝 CA 就開啟它的機器，會從"未加密"直接變成"宕機"。運維應先安裝 CA（`GET /tls/ca.crt`，公開），再設定本項。接受 `1`/`true`/`yes`/`on`。它在監聽器繫結**之前**解析，因此以 HTTP 開始的啟動狀態流絕不會在其客戶端腳下變成 HTTPS；並且失敗時是**致命的**，而不是回退到明文：一個要求了 TLS 卻悄悄得到明文的運維，處境比一臺拒絕啟動並說明原因的機器更糟。
+- `TOWN_OS_TLS` —— 讓控制平面自己的監聽器（`:5309`）以 HTTPS 提供服務，由本機的本地 CA 終止，其葉子證書的簽發方式與包的完全一致。**預設關閉，而這是次序問題而非折中**：沒有拿到本機 CA 的瀏覽器無法對一張不受信任的證書完成 XHR，而與頁面導航不同的是，這裡沒有可以點選通過的中間頁——UI 會直接停止工作，而且無從抵達那個解釋原因的介面。今天 UI 也是通過明文 HTTP 提供的（它是 ingress 的預設 `:80` 後端），因此沒有先安裝 CA 就開啟它的機器，會從"未加密"直接變成"宕機"。運維應先安裝 CA（`GET /tls/ca.crt`，公開），再設定本項。接受 `1`/`true`/`yes`/`on`。它在監聽器繫結**之前**解析，因此以 HTTP 開始的啟動狀態流絕不會在其客戶端腳下變成 HTTPS；並且失敗時是**致命的**，而不是回退到明文：一個要求了 TLS 卻悄悄得到明文的運維，處境比一台拒絕啟動並說明原因的機器更糟。
 - `TOWN_OS_TLS_CERT` / `TOWN_OS_TLS_KEY` —— 運維自備的證書與私鑰，適用於前置名稱已經擁有公共受信證書的機器。**同時**設定兩者即可自行啟用 TLS，且不會查詢本地 CA；只設置其中一個則什麼也不會發生。
 - `TOWN_OS_TLS_SANS` —— 為生成的葉子證書追加的名稱或 IP，逗號分隔，適用於通過控制器無法推導的名稱訪問的機器（CNAME，或路由器分配的 DHCP 名稱）。
 - `TOWN_OS_TEST` —— 若設定，則使用測試倉庫而非生產預設倉庫。
 - `DEBUG` —— 若設定，則允許所有 CORS 來源，並把測試倉庫前置到預設倉庫之前。
 - `LOG_LEVEL` —— 日誌級別：`debug`、`info`、`warn`、`error`（預設 `error`）。
 - `TOWN_OS_REPO_USERNAME` / `TOWN_OS_REPO_PASSWORD` —— 首次初始化時應用到所有倉庫的倉庫憑據。
-- `TOWN_OS_TAG` —— 固定每個同族映象所推導自的映象標籤（參見 [Version Tag Detection](#版本標籤檢測)）。由 install 構建系統在 systemcontroller 的 systemd 單元上設定。
-- `ROLODEX_IMAGE` —— 覆蓋 Rolodex 容器映象（預設 `quay.io/town/rolodex:<tag>`）。
-- `UI_IMAGE` —— 覆蓋 UI 容器映象（預設 `quay.io/town/ui:<tag>`）。把它設為**空字串**（顯式存在但為空）會完全跳過 UI 容器——開發模式，此時由 bun 提供 UI。
-- `NC_IMAGE` —— 覆蓋網路控制器映象（預設 `quay.io/town/networkcontroller:<tag>`）。整合測試框架用它注入本地構建的 NC。
-- `INGRESS_IMAGE` —— 覆蓋 ingress 映象（預設 `quay.io/town/ingress:<tag>`）。把它設為空字串會跳過 ingress 與 pages 服務——開發模式。
-- `GFEH_IMAGE` —— 覆蓋物件儲存映象（預設 `quay.io/town/gfeh:<tag>`）。把它設為**空字串**會完全跳過物件儲存——開發模式。當 ingress 被停用時物件儲存同樣會被跳過，因為四個 HTTP 檢視只能經由它訪問。
+- `TOWN_OS_TAG` —— 固定每個同族鏡像所推導自的鏡像標籤（參見 [Version Tag Detection](#版本標籤檢測)）。由 install 構建系統在 systemcontroller 的 systemd 單元上設定。
+- `ROLODEX_IMAGE` —— 覆蓋 Rolodex 容器鏡像（預設 `quay.io/town/rolodex:<tag>`）。
+- `UI_IMAGE` —— 覆蓋 UI 容器鏡像（預設 `quay.io/town/ui:<tag>`）。把它設為**空字串**（顯式存在但為空）會完全跳過 UI 容器——開發模式，此時由 bun 提供 UI。
+- `NC_IMAGE` —— 覆蓋網路控制器鏡像（預設 `quay.io/town/networkcontroller:<tag>`）。整合測試框架用它注入本地構建的 NC。
+- `INGRESS_IMAGE` —— 覆蓋 ingress 鏡像（預設 `quay.io/town/ingress:<tag>`）。把它設為空字串會跳過 ingress 與 pages 服務——開發模式。
+- `GFEH_IMAGE` —— 覆蓋物件儲存鏡像（預設 `quay.io/town/gfeh:<tag>`）。把它設為**空字串**會完全跳過物件儲存——開發模式。當 ingress 被停用時物件儲存同樣會被跳過，因為四個 HTTP 檢視只能經由它訪問。
 - `GFEH_SMB_PORT_BASE` —— 覆蓋 SMB 監聽器本會起始的宿主機埠（預設 `4450`）。這是遺留項：[沒有任何分割槽提供 SMB 服務](#不提供-smb-檢視)，因此不會分配宿主機埠。保留接線是為了讓測試框架的設定保持無害。
-- `TOWN_OS_WG_SALT` —— 例項鹽，用於把本機的 WireGuard 介面名、監聽埠與 overlay 子網與共享同一網路名稱空間的另一個 Town OS 區分開。真實機器不設定它；由測試與開發框架設定。參見 [The instance salt](#例項鹽)。
+- `TOWN_OS_WG_SALT` —— 實例鹽，用於把本機的 WireGuard 介面名、監聽埠與 overlay 子網與共享同一網路名稱空間的另一個 Town OS 區分開。真實機器不設定它；由測試與開發框架設定。參見 [The instance salt](#實例鹽)。
 
 #### 系統服務的宿主機埠
 
-每個系統服務都以 `--net host` 執行，因此這些埠全都繫結在控制器所處的那個網路名稱空間中——即*宿主機*名稱空間，在整合測試框架內部也是如此（其容器同樣刻意以 `--net host` 執行，以便在橋接 DNS 失效的強制門戶網路下構建仍能工作）。因此一臺 `make test-full` 的機器與一臺 `make dev` 的機器會爭奪這裡的每一個埠，並在 `Restart=always` 之下永遠互相把對方拖入崩潰重啟。
+每個系統服務都以 `--net host` 執行，因此這些埠全都繫結在控制器所處的那個網路名稱空間中——即*宿主機*名稱空間，在整合測試框架內部也是如此（其容器同樣刻意以 `--net host` 執行，以便在橋接 DNS 失效的強制門戶網路下構建仍能工作）。因此一台 `make test-full` 的機器與一台 `make dev` 的機器會爭奪這裡的每一個埠，並在 `Restart=always` 之下永遠互相把對方拖入崩潰重啟。
 
-下列每一項各自遷移其中一個埠，並且**預設為生產埠**，因此未設定任何環境變數時會精確復現今天的啟動行為。`make/lib.sh` 的 `system_port_env` 按次執行把它們分配到 `SYSTEM_PORT_FILES` 並傳給測試容器——IRON RULE。`make dev` 刻意**一個都不設定**：dev 映象的是真實機器，那裡 `redirect_host_dns` 需要 rolodex 在 `:53` 上，瀏覽器需要 ingress 在 `:443` 上。無法解析的值會在 stderr 上報告並回退到預設值，因為打字錯誤否則看起來會與根本沒設定一模一樣。
+下列每一項各自遷移其中一個埠，並且**預設為生產埠**，因此未設定任何環境變數時會精確復現今天的啟動行為。`make/lib.sh` 的 `system_port_env` 按次執行把它們分配到 `SYSTEM_PORT_FILES` 並傳給測試容器——IRON RULE。`make dev` 刻意**一個都不設定**：dev 鏡像的是真實機器，那裡 `redirect_host_dns` 需要 rolodex 在 `:53` 上，瀏覽器需要 ingress 在 `:443` 上。無法解析的值會在 stderr 上報告並回退到預設值，因為打字錯誤否則看起來會與根本沒設定一模一樣。
 
 - `TOWN_OS_DNS_PORT` —— rolodex 提供 DNS 服務的埠（預設 `53`，位於 `DNSLoopback`）。**當它為非預設值時，systemd-resolved 的路由配置會被完全跳過**：resolved 的按域名伺服器地址不攜帶埠，因此把 resolved 指向 `DNSLoopback` 只會悄悄黑洞掉該 `.tld` 之下的每一次查詢，而不是把它們留給正常的解析路徑。
 - `TOWN_OS_ROLODEX_METRICS_PORT` —— rolodex 提供其 Prometheus `/metrics` 端點的埠，同樣位於 `DNSLoopback`（預設 `9153`）。它與 DNS 埠是彼此獨立的監聽器，需要各自的覆蓋項；`rolodex.Manager.MetricsAddr()` 是 `rolodex.yml` 與 Prometheus 抓取目標共同構建自的那一個字串，因此遷移它會同時移動兩者。
@@ -1970,7 +2009,7 @@ SIGINT 觸發 context 取消。HTTP 伺服器關閉，所有後臺 goroutine 經
 | `dns_local_forwarders`   | `false`                          | 從本機所在網路下發的解析器取轉發器列表，而不是使用公共預設值 |
 | `peer_ttl`               | `7200`                           | WireGuard peer 登記有效期，單位秒（2 小時） |
 | `gfeh_partition_quota`   | `0`                              | 每個物件儲存分割槽的配額，單位位元組（0 = 不限） |
-| `proton_image`           | `quay.io/town/proton:latest`     | Proton 執行器映象——**僅在 `proton` 構建標籤下注冊** |
+| `proton_image`           | `quay.io/town/proton:latest`     | Proton 執行器鏡像——**僅在 `proton` 構建標籤下注冊** |
 
 `DefaultSettings`（`src/account/settings.go`）在首次初始化時被播種，且已有的值絕不會被覆蓋。
 
@@ -1987,6 +2026,6 @@ SIGINT 觸發 context 取消。HTTP 伺服器關閉，所有後臺 goroutine 經
 | `dns_excluded_services`  | 空列表（釋出是選擇退出制） | `POST /dns/services/set` |
 | `dismissed_upgrades_hash` | 不存在（未忽略任何升級） | `POST /packages/upgrades/dismiss` |
 
-**不存在 `object_storage_enabled`，也不存在服務賬戶密碼。** 物件儲存不是一個可以開啟的功能（[Boot and reconcile](#啟動與-reconcile)），而守護程序也不持有任何 Town OS 憑據（[No service accounts](#沒有服務賬戶)）。升級後的機器上若殘留這兩者中任何一行，都不會被任何東西讀取。
+**不存在 `object_storage_enabled`，也不存在服務帳戶密碼。** 物件儲存不是一個可以開啟的功能（[Boot and reconcile](#啟動與-reconcile)），而守護程序也不持有任何 Town OS 憑據（[No service accounts](#沒有服務帳戶)）。升級後的機器上若殘留這兩者中任何一行，都不會被任何東西讀取。
 
 `proton_image` 不在基礎 map 中：`src/account/settings_proton.go` 帶 `//go:build proton`，並在 `init()` 中註冊該預設值，因此不帶該標籤的構建沒有 Proton 設定、沒有 Proton 安裝路徑，並在狀態 ping 中報告 `proton_enabled: false`。之所以採用構建標籤門控的註冊方式而不是匯出一個 `Register` 函式，是為了不讓任何呼叫方對 `DefaultSettings` 產生呼叫順序上的依賴。

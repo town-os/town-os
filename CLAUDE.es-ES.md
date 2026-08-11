@@ -7,8 +7,8 @@ CLAUDE, NO TIENES PERMISO PARA EDITAR ESTE ARCHIVO SALVO QUE YO TE LO DIGA.
 > nombres de claves YAML se conservan sin traducir.
 >
 > Otras traducciones: español de México ([CLAUDE.es-MX.md](CLAUDE.es-MX.md)) y
-> chino, en escritura simplificada ([CLAUDE.zh-Hans.md](CLAUDE.zh-Hans.md)) y
-> tradicional ([CLAUDE.zh-Hant.md](CLAUDE.zh-Hant.md)).
+> chino, en escritura simplificada ([CLAUDE.zh-CN.md](CLAUDE.zh-CN.md)) y
+> tradicional ([CLAUDE.zh-TW.md](CLAUDE.zh-TW.md)).
 
 **Este archivo contiene solo instrucciones de compilación y estilo de código.**
 Cómo funciona realmente el sistema — arquitectura, comportamiento de los

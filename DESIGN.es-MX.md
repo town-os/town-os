@@ -17,8 +17,8 @@ CLAUDE.md.
 > conservan sin traducir.
 >
 > Otras traducciones: español de España ([DESIGN.es-ES.md](DESIGN.es-ES.md)) y
-> chino, en escritura simplificada ([DESIGN.zh-Hans.md](DESIGN.zh-Hans.md)) y
-> tradicional ([DESIGN.zh-Hant.md](DESIGN.zh-Hant.md)).
+> chino, en escritura simplificada ([DESIGN.zh-CN.md](DESIGN.zh-CN.md)) y
+> tradicional ([DESIGN.zh-TW.md](DESIGN.zh-TW.md)).
 
 ## Invariantes Arquitectónicos
 

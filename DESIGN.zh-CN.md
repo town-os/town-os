@@ -1,10 +1,11 @@
 # Town OS 设计
 
 Town OS 如何运作：架构、各子系统的行为、API 界面，以及维系它们的不变量。
-构建说明、测试规则与代码风格在 [CLAUDE.md](CLAUDE.md) 中。
+构建说明、测试规则与代码风格在 [CLAUDE.md](CLAUDE.md)（简体中文译本见
+[CLAUDE.zh-CN.md](CLAUDE.zh-CN.md)）中。
 
 > **本文件是 [DESIGN.md](DESIGN.md) 的简体中文译本。英文原件为准。**
-> 繁体中文译本见 [DESIGN.zh-Hant.md](DESIGN.zh-Hant.md)；西班牙语译本见
+> 繁体中文译本见 [DESIGN.zh-TW.md](DESIGN.zh-TW.md)；西班牙语译本见
 > [DESIGN.es-ES.md](DESIGN.es-ES.md)（西班牙）与 [DESIGN.es-MX.md](DESIGN.es-MX.md)（墨西哥）。
 > 两者出现分歧时，以英文原件为准，并应修正译文。代码标识符、文件路径、
 > 命令、环境变量、API 路径与 YAML 键名一律保留原文，不作翻译。
@@ -1876,7 +1877,37 @@ make 流水线提供：`release-proton-image`（构建）、`push-proton-rc`（�
 
 后端目录在 `src/i18n` 中按语言环境一个文件（`de_de.go`、`zh_cn.go` 等）；前端镜像位于 `ui/src/i18n`（`de-DE.js`、`zh-CN.js` 等）。两侧保持同步——每一个已填充的后端目录都有一个前端孪生体。
 
-`PopulatedLocales()` 是权威清单（24 项）：`en-US`、`ar-SA`、`bn-BD`、`da-DK`、`de-DE`、`es-ES`、`fi-FI`、`fr-FR`、`hi-IN`、`it-IT`、`ja-JP`、`ko-KR`、`nl-NL`、`pl-PL`、`pt-BR`、`ru-RU`、`sa-IN`、`sv-SE`、`th-TH`、`tr-TR`、`uk-UA`、`vi-VN`、`zh-CN`、`zh-TW`。不在其中的一律回退到英语。`IsPopulated(code)` 是 UI 用来在语言选择器中禁用未填充条目的依据。
+`PopulatedLocales()` 是权威清单（48 项）：`en-US`、`ar-AE`、`ar-EG`、`ar-SA`、`bn-BD`、`bn-IN`、`cs-CZ`、`da-DK`、`de-AT`、`de-CH`、`de-DE`、`en-AU`、`en-CA`、`en-GB`、`en-IN`、`en-NZ`、`en-ZA`、`es-AR`、`es-ES`、`es-MX`、`fi-FI`、`fr-BE`、`fr-CA`、`fr-CH`、`fr-FR`、`hi-IN`、`hr-HR`、`hu-HU`、`it-IT`、`ja-JP`、`ko-KR`、`nl-BE`、`nl-NL`、`pl-PL`、`pt-BR`、`pt-PT`、`ro-RO`、`ru-RU`、`sa-IN`、`sk-SK`、`sl-SI`、`sv-SE`、`th-TH`、`tr-TR`、`uk-UA`、`vi-VN`、`zh-CN`、`zh-TW`。不在其中的一律回退到英语。`IsPopulated(code)` 是 UI 用来在语言选择器中禁用未填充条目的依据。
+
+这份清单是**从目录映射派生出来的，而不是手写出来的**：`buildPopulatedLocales()` 在 init 时读取 `catalogs` 的键，将其排序，并把 `en-US` 钉在最前面；`IsPopulated` 则直接对 `catalogs` 做索引。它过去是一份手工维护的切片字面量，只有一种失败模式，而那种失败是无声的——一个已在 `catalogs` 中注册、却在字面量里被遗漏的目录，被翻译了、被发布了，却从未在选择器中被提供出来。`PopulatedLocales()` 返回一个克隆，因为这份清单如今是包级状态，而不再是每次调用都新建的字面量；调用方对结果做排序或截断，不能因此扰动下一个调用方看到的内容。
+
+### 国家变体
+
+一个目录属于两种类型之一，其差别在于文件是怎么写的，而不在于它是怎么被选中的——两种类型都算已填充，也都出现在选择器中。
+
+**语言目录**是一份翻译，完整写出：`de_de.go`、`cs_cz.go`、`ja_jp.go`。
+
+**国家目录**由 `derive(base, overrides)`（`src/i18n/derive.go`，前端镜像为 `ui/src/i18n/derive.js`）构建：取它所属语言的目录，再加上该国家确实说得不一样的那些字符串。奥地利德语就是德语；`de_at.go` 回答的问题不是"这句话德语怎么说"，而是"这些句子里，哪一句奥地利人不会那样写"。把 `de-DE` 复制进 `de_at.go` 再改上四行，将意味着下一个加进 `de-DE` 的消息键会悄无声息地以英文抵达奥地利，而对一条德语字符串的修正得在三个文件里被找出来并重复一遍。继承基础目录、只列出分歧之处，让变体默认就是对的：一个新键在其基础语言拥有它的那一刻，就落到了每一处。
+
+有十八个语言环境是这样派生出来的：
+
+| 基础 | 由它派生 |
+| --- | --- |
+| `en-US` | `en-CA`、`en-GB` |
+| `en-GB` | `en-AU`、`en-IN`、`en-NZ`、`en-ZA` |
+| `de-DE` | `de-AT`、`de-CH` |
+| `fr-FR` | `fr-BE`、`fr-CA`、`fr-CH` |
+| `es-ES` → `es-latam` | `es-AR`、`es-MX` |
+| `pt-BR` | `pt-PT` |
+| `nl-NL` | `nl-BE` |
+| `ar-SA` | `ar-AE`、`ar-EG` |
+| `bn-BD` | `bn-IN` |
+
+`es-latam`（`src/i18n/es_latam.go`、`ui/src/i18n/es-latam.js`）是唯一的中间层：它承载所有美洲变体共有的、相对于半岛西班牙语的分歧——`inválido` 而非 `no válido`，`agregar` 而非 `añadir`，直引号而非 `« »`——`es-AR` 与 `es-MX` 都建立在它之上。**它没有注册进 `catalogs`，也不可被选中**，因为它是一个共享片段，而不是任何人真正生活的地方；把它公布出去，等于提供一个并不存在的国家代码。
+
+有些覆盖映射很小，还有几个（后端的 `en-CA`、`de-CH`，以及 `es-MX`）是空的。对一块技术性的控制面板来说，这是诚实的答案——加拿大英语保留美式的 `-ize` 拼写，而 `de_de.go` 里没有任何一条消息含有 `ß`，瑞士的 `ss` 规则无处可施（前端的 `de-CH.js` 确实带有真实的覆盖，因为 `de-DE.js` 用了 `ß`）。一份空的覆盖映射仍然标记出：这个语言环境是被慎重审阅过的，而不是被遗忘的。
+
+这套方案由两侧的测试（`src/i18n/derive_test.go`、`ui/src/i18n/derive.test.js`）守住：每一个覆盖键都必须存在于其基础目录中，每一条覆盖都必须与它所替换的基础字符串确有不同，每一个派生目录都必须带有其基础目录的完整键集，并且每一个派生目录都必须列在测试的 `variants()` 表里——因此一个国家目录不可能在这些规则未施加于它的情况下被发布。
 
 **每个语言环境代码都带有地区子标签**，`TestLocaleCodesAreRegionQualified` 维持这一点。苏美尔语（`sux`）曾是唯一的例外——一个裸的 ISO 639-3 代码——它已被移除。移除它是因为它的文字而非它的形状：楔形文字位于 `U+12000`–`U+1254F`，几乎没有任何系统自带能显示它的字体，因此在任何没有 Noto Sans Cuneiform 的机器上，该语言环境的每一个字符串都会画成替换方块。目录中括号里携带的罗马化转写却留了下来，这让情况比全空更糟——一堆窟窿周围散落着拉丁字母片段与标点。要诚实地渲染它，就意味着自带一份 webfont（该目录用到 45 个不同码位，但整套字体有 462K，做子集化又需要构建主机上有 `fonttools`），并添加 UI 完全没有的 `@font-face` 机制——为一门没有使用者的语言配备这么多装置，实在过重。
 
@@ -1895,7 +1926,15 @@ make 流水线提供：`release-proton-image`（构建）、`push-proton-rc`（�
 
 ### 语言环境的检测、存储与同步
 
-UI **首先从浏览器**选择语言，而不是从全局设置。加载时它读取 `navigator.languages`，并把这些有序偏好与已发布的目录做匹配：地区变体折叠到基础语言（`de-AT` → `de-DE`），中文按文字/地区消歧（`zh-Hant` 或 `TW`/`HK`/`MO` 地区 → `zh-TW`，否则 `zh-CN`）。匹配不区分大小写，并会先在所有偏好上尝试精确标签，然后才回退到主子标签。
+UI **首先从浏览器**选择语言，而不是从全局设置。加载时它读取 `navigator.languages`，并把这些有序偏好与已发布的目录做匹配。匹配不区分大小写，并会先在所有偏好上尝试精确标签，然后才按以下顺序回退：
+
+1. **精确匹配。** `de-CH` 如今自带目录，因此 `de-CH` 解析为 `de-CH`，而不是折叠到 `de-DE`。
+2. **中文按文字/地区消歧。** `zh-Hant` 或 `TW`/`HK`/`MO` 地区 → `zh-TW`，否则 `zh-CN`。文字是比任何默认值都更强的信号，因此这一条排在下面两条之前。
+3. **有名有姓的地区默认值。** 那些不自带目录、却读某个变体而非其语言默认值的国家：西班牙语的拉丁美洲 → `es-MX`，葡语非洲与东帝汶 → `pt-PT`，爱尔兰、非洲以及南亚与东南亚的英语 → `en-GB`。没有这一条，`es-CO` 会拿到半岛西班牙语，`en-IE` 会拿到美式英语。
+4. **有名有姓的语言默认值。** `ar` → `ar-SA`，`bn` → `bn-BD`，`de` → `de-DE`，`en` → `en-US`，`es` → `es-ES`，`fr` → `fr-FR`，`nl` → `nl-NL`，`pt` → `pt-BR`。
+5. **任何共享主子标签的目录。**
+
+第 3、4 步之所以存在，是因为回退过去只有第 5 步，而那只在每种语言恰好有一个目录时才是对的。如今有八种语言不止一个目录：一个浏览器要一个光秃秃的 `en`，或者要 `en-PH`，否则就会落到 `catalogs` 对象中最先声明的那一份英语上，于是答案成了导入顺序的属性，而不是任何人做出的决定。
 
 优先级从高到低：
 

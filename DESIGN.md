@@ -7,12 +7,12 @@ rules, and code style live in [CLAUDE.md](CLAUDE.md).
 A behavioral change belongs in this file as part of the same commit that makes
 it. A change to how the repo is built or tested belongs in CLAUDE.md.
 
-Translations of this file: Chinese [zh-Hans](DESIGN.zh-Hans.md) (Simplified) and
-[zh-Hant](DESIGN.zh-Hant.md) (Traditional); Spanish [es-ES](DESIGN.es-ES.md)
+Translations of this file: Chinese [zh-CN](DESIGN.zh-CN.md) (Simplified) and
+[zh-TW](DESIGN.zh-TW.md) (Traditional); Spanish [es-ES](DESIGN.es-ES.md)
 (Spain) and [es-MX](DESIGN.es-MX.md) (Mexico). See also
-CLAUDE.md ([zh-Hans](CLAUDE.zh-Hans.md), [zh-Hant](CLAUDE.zh-Hant.md),
+CLAUDE.md ([zh-CN](CLAUDE.zh-CN.md), [zh-TW](CLAUDE.zh-TW.md),
 [es-ES](CLAUDE.es-ES.md), [es-MX](CLAUDE.es-MX.md)) and
-README.md ([zh-Hans](README.zh-Hans.md), [zh-Hant](README.zh-Hant.md),
+README.md ([zh-CN](README.zh-CN.md), [zh-TW](README.zh-TW.md),
 [es-ES](README.es-ES.md), [es-MX](README.es-MX.md)).
 **This file is authoritative** — describe the change here, and the translations
 follow.

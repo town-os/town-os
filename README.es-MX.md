@@ -21,10 +21,10 @@ Town OS es una plataforma autogestionada que corre por completo desde una unidad
 > funcional). También hay una versión en español de España
 > ([README.es-ES.md](README.es-ES.md), [CLAUDE.es-ES.md](CLAUDE.es-ES.md),
 > [DESIGN.es-ES.md](DESIGN.es-ES.md)) y en chino, en escritura simplificada
-> ([README.zh-Hans.md](README.zh-Hans.md), [CLAUDE.zh-Hans.md](CLAUDE.zh-Hans.md),
-> [DESIGN.zh-Hans.md](DESIGN.zh-Hans.md)) y tradicional
-> ([README.zh-Hant.md](README.zh-Hant.md), [CLAUDE.zh-Hant.md](CLAUDE.zh-Hant.md),
-> [DESIGN.zh-Hant.md](DESIGN.zh-Hant.md)).
+> ([README.zh-CN.md](README.zh-CN.md), [CLAUDE.zh-CN.md](CLAUDE.zh-CN.md),
+> [DESIGN.zh-CN.md](DESIGN.zh-CN.md)) y tradicional
+> ([README.zh-TW.md](README.zh-TW.md), [CLAUDE.zh-TW.md](CLAUDE.zh-TW.md),
+> [DESIGN.zh-TW.md](DESIGN.zh-TW.md)).
 
 ## Índice
 

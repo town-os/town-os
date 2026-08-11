@@ -1,14 +1,14 @@
 CLAUDE，未經我明確許可，不得編輯此檔案。
 
 > **本文件是 [CLAUDE.md](CLAUDE.md) 的繁體中文譯本。英文原件為準。**
-> 簡體中文譯本見 [CLAUDE.zh-Hans.md](CLAUDE.zh-Hans.md)；西班牙語譯本見
+> 簡體中文譯本見 [CLAUDE.zh-CN.md](CLAUDE.zh-CN.md)；西班牙語譯本見
 > [CLAUDE.es-ES.md](CLAUDE.es-ES.md)（西班牙）與 [CLAUDE.es-MX.md](CLAUDE.es-MX.md)（墨西哥）。
 > 兩者出現分歧時，以英文原件為準，並應修正譯文。程式碼識別字、檔案路徑、
 > 命令、環境變數、API 路徑與 YAML 鍵名一律保留原文，不作翻譯。
 
 **本檔案只包含構建說明與程式碼風格。** 系統實際如何運作——架構、各子系統行為、
 API 介面、啟動順序、設定項，以及維繫這些內容的不變數——都在
-[DESIGN.md](DESIGN.md)（中文譯本見 [DESIGN.zh-Hant.md](DESIGN.zh-Hant.md)）中。
+[DESIGN.md](DESIGN.md)（中文譯本見 [DESIGN.zh-TW.md](DESIGN.zh-TW.md)）中。
 需要了解 Town OS **做什麼**時讀 DESIGN.md；需要了解**如何構建、如何測試、
 如何在其中寫程式碼**時讀本檔案。凡是改變行為的改動，DESIGN.md 都需要隨之更新。
 
