@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { useI18n } from '@/i18n/I18nContext.jsx'
+import { useI18n, translateIn } from '@/i18n/I18nContext.jsx'
 import getClient from '@/lib/client-instance.js'
 import { usePolling } from '@/lib/hooks.js'
 import { Button } from '@/components/ui/button'
@@ -46,6 +46,16 @@ function formatDuration(t, seconds) {
   return `${seconds} second${seconds !== 1 ? 's' : ''}`
 }
 
+/**
+ * True when `code` is one of the locales in an entry list from /locales.
+ *
+ * @param {{code: string}[]|undefined} list
+ * @param {string} code
+ */
+function listsLocale(list, code) {
+  return Array.isArray(list) && list.some((l) => l.code === code)
+}
+
 function decomposeBytesToUnit(bytes) {
   if (bytes === 0) return { value: '0', unit: 'MB' }
   const gb = bytes / (1024 * 1024 * 1024)
@@ -64,7 +74,7 @@ function unitToBytes(input, unit) {
 }
 
 export default function SystemSettings() {
-  const { t, setLocale } = useI18n()
+  const { t, locale, setLocale } = useI18n()
   useEffect(() => { document.title = t('settings.page_title') }, [t])
   const [refreshKey, setRefreshKey] = useState(0)
 
@@ -90,24 +100,52 @@ export default function SystemSettings() {
   const [showExtended, setShowExtended] = useState(false)
   const [selectedLocale, setSelectedLocale] = useState('')
 
+  // Preselect the language the page is actually rendered in, not the server's
+  // global `locale` setting. Those two disagree whenever the browser picked the
+  // locale (navigator languages, or a previous explicit choice in localStorage
+  // — see I18nContext), which is the common case: the setting stays at its
+  // en-US default while the UI is in, say, Spanish. Showing `current` there
+  // made the dropdown claim "English" on a page that was not in English, and
+  // made English unselectable, because Save compared against `current` and
+  // took the nothing-to-do path on the very value it was displaying.
+  //
+  // Fall back to `current` only when the active locale is not one the server
+  // offers, so the control never shows a blank selection.
   useEffect(() => {
     getClient().getLocales().then((data) => {
       setLocaleData(data)
-      setSelectedLocale(data.current)
+      const inCommon = listsLocale(data.common_languages, locale)
+      const inExtended = listsLocale(data.extended_locales, locale)
+      setSelectedLocale(inCommon || inExtended ? locale : data.current)
+      // A country locale lives in the extended list, which is collapsed by
+      // default; leaving it collapsed would render a select whose value matches
+      // no visible option, i.e. an empty box.
+      if (!inCommon && inExtended) setShowExtended(true)
     }).catch(() => {})
-  }, [refreshKey])
+  }, [refreshKey, locale])
 
   async function handleSaveLanguage(e) {
     e.preventDefault()
     if (!selectedLocale) return
-    if (selectedLocale === localeData?.current) {
+    // Nothing to do only when the choice matches *both* what the page is
+    // rendered in and what the server has stored. Matching just one of them is
+    // still work: same-as-server-but-different-from-the-page means switch the
+    // page, and same-as-page-but-different-from-the-server means persist it.
+    const localeChanged = selectedLocale !== locale
+    const settingChanged = selectedLocale !== localeData?.current
+    if (!localeChanged && !settingChanged) {
       toast.info(t('settings.toast_nothing_to_do'))
       return
     }
     try {
-      await getClient().setSetting('locale', selectedLocale)
+      if (settingChanged) {
+        await getClient().setSetting('locale', selectedLocale)
+      }
       setLocale(selectedLocale)
-      toast.success(t('settings.toast_language_updated'))
+      // In the language being switched to, not the one being left: `t` closes
+      // over the locale of the render this handler came from, and the toast is
+      // read alongside a UI that has already changed.
+      toast.success(translateIn(selectedLocale, 'settings.toast_language_updated'))
       setRefreshKey((k) => k + 1)
     } catch (err) {
       toast.error(err.detail || err.message)
@@ -461,6 +499,14 @@ export default function SystemSettings() {
 
   const populated = new Set(localeData?.populated || [])
 
+  // The selected locale when it lives in the extended list and that list is
+  // collapsed. It still has to be rendered as an option: a <select> whose value
+  // matches none of its options shows an empty box, so collapsing the list
+  // would otherwise erase the very language in use from the control.
+  const collapsedSelection = showExtended
+    ? null
+    : (localeData?.extended_locales || []).find((l) => l.code === selectedLocale)
+
   return (
     <div className="space-y-6">
       <div>
@@ -493,6 +539,15 @@ export default function SystemSettings() {
                     {lang.native_name} ({lang.english_name}){!populated.has(lang.code) ? ' *' : ''}
                   </option>
                 ))}
+                {collapsedSelection && (
+                  <option
+                    key={collapsedSelection.code}
+                    value={collapsedSelection.code}
+                    disabled={!populated.has(collapsedSelection.code)}
+                  >
+                    {collapsedSelection.code} - {collapsedSelection.native_name} ({collapsedSelection.english_name})
+                  </option>
+                )}
                 {showExtended && localeData.extended_locales.map((lang) => (
                   <option key={lang.code} value={lang.code} disabled={!populated.has(lang.code)}>
                     {lang.code} - {lang.native_name} ({lang.english_name}){!populated.has(lang.code) ? ' *' : ''}

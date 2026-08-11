@@ -2,6 +2,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent, act, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
+import { I18nProvider } from '@/i18n/I18nContext.jsx'
+import enUS from '@/i18n/en-US.js'
+import esES from '@/i18n/es-ES.js'
+import deDE from '@/i18n/de-DE.js'
+import deAT from '@/i18n/de-AT.js'
+import frFR from '@/i18n/fr-FR.js'
 
 // --- Pure function tests (mirrored from SystemSettings.jsx) ---
 
@@ -223,6 +229,61 @@ describe('timeoutToSeconds logic', () => {
 
   it('returns null for NaN input', () => {
     expect(timeoutToSeconds('abc', 'seconds')).toBe(null)
+  })
+})
+
+// --- Language preselection rule (mirrored from SystemSettings.jsx) ---
+
+// Which of the two "current" languages the dropdown should open on: the locale
+// the page is rendered in (browser-detected or previously chosen, held by
+// I18nContext) or the server's global `locale` setting. The page one wins
+// whenever the server offers it at all; `current` is only a fallback so the
+// control never ends up holding a value none of its options carry.
+describe('language preselection rule', () => {
+  function listsLocale(list, code) {
+    return Array.isArray(list) && list.some((l) => l.code === code)
+  }
+
+  function preselect(data, locale) {
+    const inCommon = listsLocale(data.common_languages, locale)
+    const inExtended = listsLocale(data.extended_locales, locale)
+    return {
+      selected: inCommon || inExtended ? locale : data.current,
+      expand: !inCommon && inExtended,
+    }
+  }
+
+  const data = {
+    current: 'en-US',
+    common_languages: [{ code: 'en-US' }, { code: 'es-ES' }],
+    extended_locales: [{ code: 'de-AT' }],
+  }
+
+  it('prefers the page locale over the server setting', () => {
+    expect(preselect(data, 'es-ES').selected).toBe('es-ES')
+  })
+
+  it('keeps the page locale when it equals the server setting', () => {
+    expect(preselect(data, 'en-US').selected).toBe('en-US')
+  })
+
+  it('accepts a page locale from the extended list', () => {
+    expect(preselect(data, 'de-AT').selected).toBe('de-AT')
+  })
+
+  it('expands the extended list only for a locale that lives there', () => {
+    expect(preselect(data, 'de-AT').expand).toBe(true)
+    expect(preselect(data, 'es-ES').expand).toBe(false)
+    expect(preselect(data, 'fr-FR').expand).toBe(false)
+  })
+
+  it('falls back to the server setting for an unlisted page locale', () => {
+    expect(preselect(data, 'fr-FR').selected).toBe('en-US')
+  })
+
+  it('tolerates missing lists', () => {
+    expect(preselect({ current: 'en-US' }, 'es-ES').selected).toBe('en-US')
+    expect(listsLocale(undefined, 'en-US')).toBe(false)
   })
 })
 
@@ -1308,5 +1369,352 @@ describe('SystemSettings local DNS forwarders', () => {
         screen.getByText('No local resolver was found, so the public forwarders are still in use.'),
       ).toBeTruthy()
     })
+  })
+})
+
+// The language dropdown against a page whose locale did NOT come from the
+// server setting.
+//
+// This is the normal case, not an edge case: I18nContext picks the locale from
+// localStorage or navigator.languages and pins it, and the server's global
+// `locale` setting stays at its en-US default unless somebody deliberately
+// changes it. The settings page therefore has two candidate "current"
+// languages, and it used to show the wrong one — the dropdown opened on
+// English while the page around it was in Spanish, and Save compared the choice
+// against the server value, so pressing it on the English it was already
+// displaying took the nothing-to-do path. English was unreachable without
+// selecting a third language, saving, and coming back.
+describe('SystemSettings language reflects the locale actually in use', () => {
+  const localeCatalog = {
+    current: 'en-US',
+    populated: ['en-US', 'es-ES', 'de-DE', 'de-AT', 'en-GB'],
+    common_languages: [
+      { code: 'en-US', native_name: 'English', english_name: 'English' },
+      { code: 'es-ES', native_name: 'Español', english_name: 'Spanish' },
+      { code: 'de-DE', native_name: 'Deutsch', english_name: 'German' },
+    ],
+    extended_locales: [
+      { code: 'de-AT', native_name: 'Deutsch (Österreich)', english_name: 'German (Austria)' },
+      { code: 'en-GB', native_name: 'English (UK)', english_name: 'English (UK)' },
+    ],
+  }
+
+  beforeEach(() => {
+    mockGetSettings.mockClear()
+    mockSetSetting.mockClear()
+    mockGetLocales.mockClear()
+    mockToast.info.mockClear()
+    mockToast.success.mockClear()
+    mockToast.error.mockClear()
+    mockGetSettings.mockImplementation(() => Promise.resolve({ ...defaultSettings }))
+    mockSetSetting.mockImplementation(() => Promise.resolve())
+    mockGetLocales.mockImplementation(() => Promise.resolve({ ...localeCatalog }))
+    // setLocale() records the choice for the browser; a leftover from one test
+    // would decide the starting locale of the next one.
+    localStorage.clear()
+  })
+
+  // Render inside a real I18nProvider pinned to `locale`, which is what a
+  // browser-detected or previously-chosen language looks like to this page.
+  function renderInLocale(locale) {
+    return render(
+      <MemoryRouter>
+        <I18nProvider initialLocale={locale}>
+          <SystemSettings />
+        </I18nProvider>
+      </MemoryRouter>,
+    )
+  }
+
+  // Query by id, not by label: the labels are translated, and the point of
+  // these tests is that the page is not in English.
+  function languageSelect() {
+    const el = document.getElementById('language-select')
+    expect(el).toBeTruthy()
+    return el
+  }
+
+  async function saveLanguage(catalog) {
+    const form = languageSelect().closest('form')
+    const button = within(form).getByRole('button', { name: catalog['settings.save_btn'] })
+    await act(async () => {
+      fireEvent.click(button)
+    })
+  }
+
+  it('preselects the page language, not the server setting', async () => {
+    renderInLocale('es-ES')
+    await waitFor(() => {
+      expect(languageSelect().value).toBe('es-ES')
+    })
+    // Sanity: the server really is saying something else, so the assertion
+    // above cannot pass by both values agreeing.
+    expect(localeCatalog.current).toBe('en-US')
+  })
+
+  it('leaves the dropdown on a real option rather than blank', async () => {
+    renderInLocale('es-ES')
+    await waitFor(() => {
+      const select = languageSelect()
+      expect(select.value).toBe('es-ES')
+      expect(select.selectedIndex).toBeGreaterThanOrEqual(0)
+      expect(select.options[select.selectedIndex].value).toBe('es-ES')
+    })
+  })
+
+  // The reported bug. English is what the dropdown shows on a Spanish page, and
+  // it is also what the server has stored, so the old comparison against the
+  // server value made the button inert.
+  it('switches the page to the language shown when it matches the server setting', async () => {
+    renderInLocale('es-ES')
+    await waitFor(() => {
+      expect(screen.getByText(esES['settings.title'])).toBeTruthy()
+    })
+    const user = userEvent.setup()
+    await user.selectOptions(languageSelect(), 'en-US')
+    await saveLanguage(esES)
+
+    // The page is now in English...
+    await waitFor(() => {
+      expect(screen.getByText(enUS['settings.title'])).toBeTruthy()
+    })
+    // ...it did not claim there was nothing to do...
+    expect(mockToast.info).not.toHaveBeenCalled()
+    expect(mockToast.success).toHaveBeenCalled()
+    // ...and it did not write a setting that already held that value.
+    expect(mockSetSetting).not.toHaveBeenCalled()
+  })
+
+  // The workaround the user was forced into — pick a third language, save, pick
+  // the wanted one, save — must not be what makes it work. Both saves in the
+  // sequence have to land, against a server whose stored value moves with them.
+  it('applies both saves when the user switches away and back', async () => {
+    let serverCurrent = 'en-US'
+    mockSetSetting.mockImplementation((key, value) => {
+      if (key === 'locale') serverCurrent = value
+      return Promise.resolve()
+    })
+    mockGetLocales.mockImplementation(() =>
+      Promise.resolve({ ...localeCatalog, current: serverCurrent }),
+    )
+    renderInLocale('es-ES')
+    await waitFor(() => {
+      expect(languageSelect().value).toBe('es-ES')
+    })
+    const user = userEvent.setup()
+
+    await user.selectOptions(languageSelect(), 'de-DE')
+    await saveLanguage(esES)
+    await waitFor(() => {
+      expect(screen.getByText(deDE['settings.title'])).toBeTruthy()
+    })
+    // Let the reload the save triggers settle before touching the select
+    // again, so the second selection cannot be overwritten by it. The value
+    // is unobservable here (it reloads to the same de-DE), so wait on the
+    // refetch itself and then flush its resolution.
+    await waitFor(() => {
+      expect(mockGetLocales).toHaveBeenCalledTimes(2)
+    })
+    await act(async () => {})
+    expect(languageSelect().value).toBe('de-DE')
+    expect(serverCurrent).toBe('de-DE')
+
+    // Back to Spanish. The page is German and the server says de-DE, so this
+    // is a real change on both counts.
+    await user.selectOptions(languageSelect(), 'es-ES')
+    await saveLanguage(deDE)
+    await waitFor(() => {
+      expect(screen.getByText(esES['settings.title'])).toBeTruthy()
+    })
+    expect(serverCurrent).toBe('es-ES')
+    expect(mockToast.info).not.toHaveBeenCalled()
+  })
+
+  it('persists and applies a language that differs from both page and server', async () => {
+    renderInLocale('es-ES')
+    await waitFor(() => {
+      expect(languageSelect().value).toBe('es-ES')
+    })
+    const user = userEvent.setup()
+    await user.selectOptions(languageSelect(), 'de-DE')
+    await saveLanguage(esES)
+
+    await waitFor(() => {
+      expect(mockSetSetting).toHaveBeenCalledWith('locale', 'de-DE')
+    })
+    await waitFor(() => {
+      expect(screen.getByText(deDE['settings.title'])).toBeTruthy()
+    })
+  })
+
+  // The confirmation is read next to a UI that has already switched, so it is
+  // written in the language switched *to*. `t()` closes over the render it was
+  // called from, which is still the old language — the one message on the page
+  // whose subject is that that language is no longer in use.
+  it('announces the change in the language switched to', async () => {
+    renderInLocale('es-ES')
+    await waitFor(() => {
+      expect(languageSelect().value).toBe('es-ES')
+    })
+    const user = userEvent.setup()
+    await user.selectOptions(languageSelect(), 'de-DE')
+    await saveLanguage(esES)
+
+    await waitFor(() => {
+      expect(mockToast.success).toHaveBeenCalledWith(deDE['settings.toast_language_updated'])
+    })
+    expect(mockToast.success).not.toHaveBeenCalledWith(esES['settings.toast_language_updated'])
+  })
+
+  // Same rule on the path that writes no setting: the announcement follows the
+  // page, not the server.
+  it('announces in the target language even when only the page changes', async () => {
+    renderInLocale('es-ES')
+    await waitFor(() => {
+      expect(languageSelect().value).toBe('es-ES')
+    })
+    const user = userEvent.setup()
+    await user.selectOptions(languageSelect(), 'en-US')
+    await saveLanguage(esES)
+
+    await waitFor(() => {
+      expect(mockToast.success).toHaveBeenCalledWith(enUS['settings.toast_language_updated'])
+    })
+    expect(mockSetSetting).not.toHaveBeenCalled()
+    expect(mockToast.success).not.toHaveBeenCalledWith(esES['settings.toast_language_updated'])
+  })
+
+  it('announces in the target language when leaving English', async () => {
+    renderInLocale('en-US')
+    await waitFor(() => {
+      expect(languageSelect().value).toBe('en-US')
+    })
+    const user = userEvent.setup()
+    await user.selectOptions(languageSelect(), 'es-ES')
+    await saveLanguage(enUS)
+
+    await waitFor(() => {
+      expect(mockToast.success).toHaveBeenCalledWith(esES['settings.toast_language_updated'])
+    })
+    expect(mockToast.success).not.toHaveBeenCalledWith(enUS['settings.toast_language_updated'])
+  })
+
+  // A country locale inherits its base catalog, so the announcement has to
+  // arrive in inherited German rather than dropping to English.
+  it('announces a derived country locale in its inherited language', async () => {
+    renderInLocale('es-ES')
+    await waitFor(() => {
+      expect(languageSelect().value).toBe('es-ES')
+    })
+    const user = userEvent.setup()
+    // de-AT is in the extended list, which the toggle reveals.
+    const form = languageSelect().closest('form')
+    const toggle = within(form)
+      .getAllByRole('button')
+      .find((b) => b.getAttribute('type') === 'button')
+    await act(async () => {
+      fireEvent.click(toggle)
+    })
+    await user.selectOptions(languageSelect(), 'de-AT')
+    await saveLanguage(esES)
+
+    await waitFor(() => {
+      expect(mockToast.success).toHaveBeenCalledWith(deAT['settings.toast_language_updated'])
+    })
+    expect(mockToast.success).not.toHaveBeenCalledWith(enUS['settings.toast_language_updated'])
+  })
+
+  it('remembers the choice for this browser', async () => {
+    renderInLocale('es-ES')
+    await waitFor(() => {
+      expect(languageSelect().value).toBe('es-ES')
+    })
+    const user = userEvent.setup()
+    await user.selectOptions(languageSelect(), 'en-US')
+    await saveLanguage(esES)
+    await waitFor(() => {
+      expect(localStorage.getItem('townos.locale')).toBe('en-US')
+    })
+  })
+
+  // Saving the language the page is already in, when the server agrees too,
+  // really is nothing to do — the no-op path must survive the fix.
+  it('still reports nothing to do when page and server both match the choice', async () => {
+    mockGetLocales.mockImplementation(() =>
+      Promise.resolve({ ...localeCatalog, current: 'es-ES' }),
+    )
+    renderInLocale('es-ES')
+    await waitFor(() => {
+      expect(languageSelect().value).toBe('es-ES')
+    })
+    await saveLanguage(esES)
+    expect(mockSetSetting).not.toHaveBeenCalled()
+    expect(mockToast.info).toHaveBeenCalledWith(esES['settings.toast_nothing_to_do'])
+  })
+
+  // A country locale lives in the collapsed extended list. Preselecting it
+  // without expanding that list would set the select to a value none of its
+  // rendered options carry, which renders as an empty box — the same "shows
+  // the wrong language" symptom in a different disguise.
+  it('expands the extended list when the page language lives there', async () => {
+    renderInLocale('de-AT')
+    await waitFor(() => {
+      expect(languageSelect().value).toBe('de-AT')
+    })
+    const select = languageSelect()
+    const codes = Array.from(select.options).map((o) => o.value)
+    expect(codes).toContain('de-AT')
+    // The whole extended list is showing, not just the selected entry.
+    expect(codes).toContain('en-GB')
+    expect(select.options[select.selectedIndex].value).toBe('de-AT')
+  })
+
+  // Collapsing the list again must not erase the language in use from the
+  // control — that is the empty-box failure arriving by the other door.
+  it('keeps an extended selection visible when the list is collapsed', async () => {
+    renderInLocale('de-AT')
+    await waitFor(() => {
+      expect(languageSelect().value).toBe('de-AT')
+    })
+    const form = languageSelect().closest('form')
+    const toggle = within(form)
+      .getAllByRole('button')
+      .find((b) => b.getAttribute('type') === 'button')
+    expect(toggle).toBeTruthy()
+    await act(async () => {
+      fireEvent.click(toggle)
+    })
+    const select = languageSelect()
+    expect(select.value).toBe('de-AT')
+    expect(select.options[select.selectedIndex].value).toBe('de-AT')
+    // The rest of the extended list really is gone, so this is the collapsed
+    // state and not a toggle that failed to fire.
+    const codes = Array.from(select.options).map((o) => o.value)
+    expect(codes).toEqual(['en-US', 'es-ES', 'de-DE', 'de-AT'])
+  })
+
+  it('falls back to the server setting when the page language is not offered', async () => {
+    // A catalog the server does not advertise (nothing lists fr-FR here).
+    renderInLocale('fr-FR')
+    await waitFor(() => {
+      expect(languageSelect().value).toBe('en-US')
+    })
+  })
+
+  it('saving from an unlisted page language still applies the choice', async () => {
+    renderInLocale('fr-FR')
+    await waitFor(() => {
+      expect(languageSelect().value).toBe('en-US')
+    })
+    // en-US is the server's value, so only the page needs to change.
+    const form = languageSelect().closest('form')
+    const button = within(form).getByRole('button', { name: frFR['settings.save_btn'] })
+    await act(async () => {
+      fireEvent.click(button)
+    })
+    await waitFor(() => {
+      expect(screen.getByText(enUS['settings.title'])).toBeTruthy()
+    })
+    expect(mockToast.info).not.toHaveBeenCalled()
   })
 })

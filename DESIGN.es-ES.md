@@ -2034,6 +2034,8 @@ Se usan códigos BCP 47 en todo el sistema. Se proporcionan dos listas curadas:
 
 Un proveedor de contexto de React (`I18nProvider`) envuelve la aplicación y expone un hook `useI18n()` que devuelve `{ locale, setLocale, syncServerLocale, t }`. La función `t` resuelve claves contra el catálogo del frontend con la misma cadena de respaldo que el backend. La interpolación de parámetros usa marcadores `{name}` (p. ej., `t('greeting', { name: 'Alice' })`).
 
+Junto a ella se exporta `translateIn(locale, key, params)`, que traduce en una configuración regional nombrada en vez de en la activa, con la misma cadena de respaldo. Existe por el mensaje que confirma un cambio de idioma: `t` captura la configuración regional del renderizado desde el que se la llamó, así que una confirmación lanzada desde el formulario de idioma quedaría escrita en el idioma que se está *dejando* — el único mensaje de la página cuyo asunto es precisamente que ese idioma ya no está en uso.
+
 ### Detección, Almacenamiento y Sincronización de la Configuración Regional
 
 La interfaz elige su idioma **primero desde el navegador**, no desde el ajuste global. Al cargar lee `navigator.languages` y compara las preferencias ordenadas contra los catálogos distribuidos. La comparación no distingue mayúsculas e intenta las etiquetas exactas de todas las preferencias antes de recurrir, en este orden, a:
@@ -2061,6 +2063,10 @@ Una vez que la configuración regional está fijada, `syncServerLocale` no hace 
 ### Interfaz de Ajustes
 
 La página de ajustes del sistema incluye un selector de idioma. Los idiomas comunes se muestran en un desplegable con sus nombres en escritura nativa. Una sección expandible revela la lista de configuraciones regionales extendidas. Las no pobladas (las que no tienen catálogo de traducción) se muestran con un asterisco al final y están deshabilitadas en el selector, impidiendo su selección.
+
+El selector se abre en **la configuración regional en la que la página está renderizada** — la que mantiene `useI18n()` — y no en el valor `current` de `GET /locales`. Ambas discrepan en el caso corriente, porque el navegador elige la configuración regional y la fija mientras el ajuste global `locale` se queda en su valor por defecto `en-US` (véase [Detección, Almacenamiento y Sincronización de la Configuración Regional](#detección-almacenamiento-y-sincronización-de-la-configuración-regional)); preseleccionar `current` hacía que el control dijera «English» en una página que no estaba en inglés. Cuando la configuración regional activa es una variante de país, vive en la lista extendida, que está plegada, así que la lista se despliega al cargar en vez de dejar el desplegable con un valor que ninguna de sus opciones visibles lleva; si se vuelve a plegar, esa entrada se sigue mostrando, por la misma razón. `current` solo se usa como respaldo, para una configuración regional activa que el servidor no ofrece.
+
+Al guardar, la elección se compara con **ambas**. Coincidir con solo una sigue siendo trabajo: igual que el servidor pero distinta de la página significa cambiar la página (`setLocale`, que fija la elección para este navegador) sin escribir el ajuste; igual que la página pero distinta del servidor significa escribir el ajuste. Solo cuando la elección coincide con las dos no hay nada que hacer. El aviso de éxito se escribe con `translateIn` en el idioma recién elegido, porque la interfaz que hay detrás ya ha cambiado; el aviso de «no hay nada que hacer» se queda en el idioma que está en pantalla, porque no ha cambiado nada. Comparar únicamente con `current` hacía que el idioma mostrado fuera imposible de elegir: pulsar Guardar sobre él informaba de que «no hay nada que hacer», así que volver al inglés exigía guardar antes un tercer idioma.
 
 ## Configuración del Controlador del Sistema
 

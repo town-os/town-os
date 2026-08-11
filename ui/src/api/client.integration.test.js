@@ -1697,6 +1697,43 @@ describe('SystemControllerClient integration', () => {
       await client.setSetting('locale', 'en-US')
     })
 
+    // The settings picker preselects the locale the browser is rendering in and
+    // falls back to `current` when the server does not offer that one. That
+    // fallback is only safe while `current` itself is always offered — if it
+    // were not, the select would hold a value none of its options carry and
+    // render as an empty box.
+    it('offers the current locale as a selectable option', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+
+      const result = await client.getLocales()
+      const offered = new Set([
+        ...result.common_languages.map((l) => l.code),
+        ...result.extended_locales.map((l) => l.code),
+      ])
+      expect(offered.has(result.current), `current locale ${result.current} is in no picker list`).toBe(true)
+      expect(result.populated).toContain(result.current)
+    })
+
+    // A country locale is reported as current the same way a language is, and
+    // it lives in the extended list, which the picker keeps collapsed until it
+    // has a reason to open it. Both halves of that have to be true on a real
+    // server for the picker to be able to show such a locale at all.
+    it('reports a country locale as current and lists it under extended', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+
+      await client.setSetting('locale', 'de-AT')
+      const result = await client.getLocales()
+      expect(result.current).toBe('de-AT')
+      expect(result.extended_locales.map((l) => l.code)).toContain('de-AT')
+      expect(result.common_languages.map((l) => l.code)).not.toContain('de-AT')
+      expect(result.populated).toContain('de-AT')
+
+      // Reset back to default.
+      await client.setSetting('locale', 'en-US')
+    })
+
     it('advertises exactly the catalogs the frontend ships', async () => {
       // The two catalog sets are meant to be in lockstep, and this is the only
       // place both are visible at once: the backend list arrives over the wire,

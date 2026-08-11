@@ -357,5 +357,28 @@ export function useI18n() {
   return useContext(I18nContext)
 }
 
+/**
+ * Translate a key in a named locale rather than the active one.
+ *
+ * This exists for the message that announces a language change. `t()` closes
+ * over the locale that was active when the component rendered, so a success
+ * toast fired from the language form would be written in the language the user
+ * was just leaving — the one message on the page whose whole subject is that
+ * that language is no longer in use. The switch is applied by the same handler,
+ * so the toast is read against the new UI; it has to be written in the new
+ * language too.
+ *
+ * Same fallback chain as `t()`: requested locale, then en-US, then the key.
+ *
+ * @param {string} locale - Locale code to translate in (e.g. "de-DE").
+ * @param {string} key - The message key.
+ * @param {Record<string, any>} [params] - Optional interpolation values.
+ * @returns {string}
+ */
+// eslint-disable-next-line react-refresh/only-export-components
+export function translateIn(locale, key, params) {
+  return translate(locale, key, params)
+}
+
 // eslint-disable-next-line react-refresh/only-export-components
 export { defaultLocale, catalogs }

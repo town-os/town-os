@@ -2008,6 +2008,8 @@ BCP 47 locale codes are used throughout. Two curated lists are provided:
 
 A React context provider (`I18nProvider`) wraps the application and exposes a `useI18n()` hook returning `{ locale, setLocale, syncServerLocale, t }`. The `t` function resolves keys against the frontend catalog with the same fallback chain as the backend. Parameter interpolation uses `{name}` placeholders (e.g., `t('greeting', { name: 'Alice' })`).
 
+`translateIn(locale, key, params)` is exported alongside it and translates in a named locale rather than the active one, with the same fallback chain. It exists for the message that confirms a language change: `t` closes over the locale of the render it was called from, so a confirmation fired from the language form would be written in the language being *left* — the one message on the page whose subject is that that language is no longer in use.
+
 ### Locale Detection, Storage, and Sync
 
 The UI picks its language **from the browser first**, not from the global setting. On load it reads `navigator.languages` and matches the ordered preferences against the shipped catalogs. Matching is case-insensitive and tries exact tags across all preferences before falling back, in this order:
@@ -2035,6 +2037,10 @@ Once the locale is pinned, `syncServerLocale` is a no-op. This is the point of t
 ### Settings UI
 
 The system settings page includes a language picker. Common languages are shown in a dropdown with native-script names. An expandable section reveals the extended locales list. Unpopulated locales (those without a translation catalog) are displayed with an asterisk suffix and are disabled in the selector, preventing selection.
+
+The picker opens on **the locale the page is rendered in** — the one `useI18n()` holds — not on the `current` value from `GET /locales`. Those two disagree in the ordinary case, because the browser picks the locale and pins it while the global `locale` setting sits at its `en-US` default (see [Locale Detection, Storage, and Sync](#locale-detection-storage-and-sync)); preselecting `current` made the control read "English" on a page that was not in English. When the active locale is a country variant it lives in the collapsed extended list, so the list is expanded on load rather than leaving the select on a value none of its visible options carry; collapsing it again keeps that one entry rendered, for the same reason. `current` is used only as a fallback, for an active locale the server does not offer.
+
+Saving compares the choice against **both** of those. Matching only one is still work: same as the server but different from the page means switch the page (`setLocale`, which pins the choice for this browser) without writing the setting; same as the page but different from the server means write the setting. Only when the choice matches both is there nothing to be done. The success toast is written with `translateIn` in the language just chosen, since the UI behind it has already switched; the nothing-to-be-done toast stays in the language on screen, because nothing changed. Comparing against `current` alone made the displayed language unselectable — pressing Save on it reported "nothing to be done", so returning to English required saving a third language first.
 
 ## System Controller Configuration
 

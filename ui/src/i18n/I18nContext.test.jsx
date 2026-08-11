@@ -8,6 +8,7 @@ import {
   catalogs,
   matchLocale,
   detectBrowserLocale,
+  translateIn,
 } from './I18nContext.jsx'
 
 /** Override the browser's reported language preferences for a test. */
@@ -341,5 +342,58 @@ describe('matchLocale', () => {
     setNavLanguages(['ja-JP'])
     expect(detectBrowserLocale()).toBe('ja-JP')
     setNavLanguages(['en-US'])
+  })
+})
+
+// Translating in a locale that is not the active one.
+//
+// `t()` is bound to the render it came from, which is the right answer for
+// everything on the page and the wrong one for the message that announces a
+// language change: by the time it is read, the UI is in the new language and
+// the toast would be the only thing still written in the old one.
+describe('translateIn', () => {
+  it('translates in the named locale, not the default', () => {
+    expect(translateIn('de-DE', 'settings.toast_language_updated')).toBe('Sprache aktualisiert')
+    expect(translateIn('es-ES', 'settings.toast_language_updated')).toBe('Idioma actualizado')
+    expect(translateIn('en-US', 'settings.toast_language_updated')).toBe('Language updated')
+  })
+
+  it('agrees with the catalog it names', () => {
+    for (const code of ['de-DE', 'es-ES', 'fr-FR', 'ja-JP', 'zh-CN']) {
+      expect(translateIn(code, 'settings.toast_language_updated'))
+        .toBe(catalogs[code]['settings.toast_language_updated'])
+    }
+  })
+
+  // A derived country catalog inherits its base, so asking for one must not
+  // silently drop to English.
+  it('resolves a derived country locale through its base', () => {
+    expect(translateIn('de-AT', 'settings.toast_language_updated'))
+      .toBe(catalogs['de-AT']['settings.toast_language_updated'])
+    expect(translateIn('de-AT', 'settings.toast_language_updated')).not.toBe('Language updated')
+  })
+
+  it('interpolates parameters', () => {
+    expect(translateIn('en-US', 'dashboard.stat_installed_count', { count: 42 })).toBe('42 installed')
+  })
+
+  it('falls back to en-US for an unknown locale', () => {
+    expect(translateIn('xx-XX', 'settings.toast_language_updated')).toBe('Language updated')
+  })
+
+  it('falls back to en-US for a key a catalog is missing', () => {
+    // Fabricated key: no catalog carries it, so both the requested locale and
+    // the en-US fallback miss and the key itself comes back.
+    expect(translateIn('de-DE', 'nonexistent.key')).toBe('nonexistent.key')
+  })
+
+  it('does not depend on the active locale', () => {
+    render(
+      <I18nProvider initialLocale="ja-JP">
+        <TranslateDisplay msgKey="settings.toast_language_updated" />
+      </I18nProvider>,
+    )
+    expect(screen.getByTestId('msg').textContent).toBe(catalogs['ja-JP']['settings.toast_language_updated'])
+    expect(translateIn('de-DE', 'settings.toast_language_updated')).toBe('Sprache aktualisiert')
   })
 })
