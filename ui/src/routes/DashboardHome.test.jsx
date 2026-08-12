@@ -374,7 +374,7 @@ describe('DashboardHome', () => {
     expect(screen.queryByText('+1-555-0100')).toBeNull()
   })
 
-  it('links the package name to the packages panel', async () => {
+  it('links the package name to that service on the services screen', async () => {
     mockUnitsResponse = {
       entries: [
         { Name: 'town-os-package--default-nginx-1.0.service', package_identifier: 'default/nginx@1.0', ActiveState: 'active', package_description: '' },
@@ -391,10 +391,12 @@ describe('DashboardHome', () => {
     })
     const nameLink = screen.getByText('nginx').closest('a')
     expect(nameLink).toBeTruthy()
-    expect(nameLink.getAttribute('href')).toBe('/dashboard/packages')
+    expect(nameLink.getAttribute('href')).toBe(
+      '/dashboard/system?search=default%2Fnginx%401.0',
+    )
   })
 
-  it('links the status icon to the services panel', async () => {
+  it('links the status icon to that service on the services screen', async () => {
     mockUnitsResponse = {
       entries: [
         { Name: 'town-os-package--default-nginx-1.0.service', package_identifier: 'default/nginx@1.0', ActiveState: 'active', package_description: '' },
@@ -414,7 +416,41 @@ describe('DashboardHome', () => {
       { name: 'nginx status: active' },
       { timeout: 5000 },
     )
-    expect(statusLink.getAttribute('href')).toBe('/dashboard/system')
+    expect(statusLink.getAttribute('href')).toBe(
+      '/dashboard/system?search=default%2Fnginx%401.0',
+    )
+  })
+
+  // A dep's pretty display identifier ("core/gitea/postgres@1.0") is not a
+  // unit the services screen can filter on; the raw package_identifier is.
+  // Deep links must therefore carry package_identifier, never the display
+  // form, or the target screen opens on an empty tree.
+  it('deep-links using the raw package identifier, not the display identifier', async () => {
+    mockUnitsResponse = {
+      entries: [
+        {
+          Name: 'town-os-package--core-gitea-1.0.service',
+          package_identifier: 'core/gitea@1.0',
+          display_identifier: 'core/gitea/pretty@1.0',
+          ActiveState: 'active',
+          package_description: '',
+        },
+      ],
+    }
+    mockListUnitsTree.mockImplementation(() => Promise.resolve(mockUnitsResponse))
+    mockGetInstalledInfo.mockImplementation(() => Promise.resolve({
+      notes: { 'Web UI': 'https://gitea.example.com' },
+      note_types: { 'Web UI': 'url' },
+    }))
+    renderDashboard()
+    const nameLink = await screen.findByRole(
+      'link',
+      { name: 'gitea/pretty' },
+      { timeout: 5000 },
+    )
+    expect(nameLink.getAttribute('href')).toBe(
+      '/dashboard/system?search=core%2Fgitea%401.0',
+    )
   })
 
   it('omits dependency sub-packages from the services panel', async () => {

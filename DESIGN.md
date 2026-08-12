@@ -1897,7 +1897,7 @@ The dashboard home page displays a full-width installed services panel above the
 - The package description (if available).
 - Compiled notes from `POST /packages/installed/info`, rendered inline with type-aware links (URL, email, phone).
 
-Clicking any service row navigates to `/dashboard/system`. The panel is hidden when no services are installed. Notes are fetched once per service and cached.
+Clicking a service row — either the status icon or the package name — navigates to `/dashboard/system?search=<package_identifier>`, the service's own row on the services screen. The services screen seeds its filter box from `?search=` and passes the term to `GET /systemd/units-tree`, whose search matches a root's own fields, so the screen opens on that one package with its dependency subtree rather than on the full list. The term is a starting value, not a lock: clearing or editing the box widens the list back out. The link carries the raw `package_identifier`, never the pretty `display_identifier` — the latter is not a term the tree search can match, so a link built from it would land on an empty tree. The panel is hidden when no services are installed. Notes are fetched once per service and cached.
 
 ### Layout
 

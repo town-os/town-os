@@ -1811,7 +1811,7 @@ system controller 通过 `ui.Manager` 把一个独立的 UI 容器（`quay.io/to
 - 包描述（若有）。
 - 来自 `POST /packages/installed/info` 的编译后 notes，内联渲染并带有类型感知的链接（URL、邮箱、电话）。
 
-点击任意服务行会跳转到 `/dashboard/system`。当没有安装任何服务时该面板隐藏。notes 每个服务只获取一次并被缓存。
+点击服务行——状态图标或包名皆可——会跳转到 `/dashboard/system?search=<package_identifier>`，即该服务在服务页面上自己那一行。服务页面用 `?search=` 的值预填过滤框，并把该词传给 `GET /systemd/units-tree`；该搜索匹配根节点自身的字段，因此页面打开时只显示这一个包及其依赖子树，而不是整个列表。这个词只是初始值，不是锁定：清空或修改过滤框会重新展开列表。链接携带的始终是原始的 `package_identifier`，绝不是美化后的 `display_identifier`——后者不是树搜索能匹配的词，用它构造的链接会落在空树上。当没有安装任何服务时该面板隐藏。notes 每个服务只获取一次并被缓存。
 
 ### 布局
 

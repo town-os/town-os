@@ -249,6 +249,64 @@ describe('SystemManagement', () => {
     expect(mockListGfehPartitions).not.toHaveBeenCalled()
   })
 
+  // The dashboard's services panel links each service to
+  // /dashboard/system?search=<package_identifier>. The term has to reach both
+  // the filter box (so the operator can see and edit what is filtering the
+  // list) and the units-tree request (so the tree actually narrows).
+  it('seeds the service filter from the search query string', async () => {
+    mockListUnitsTree.mockClear()
+    renderSystemManagement(['/dashboard/system?search=core%2Fnginx%401.0'])
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText('Search...').value).toBe('core/nginx@1.0')
+    })
+    await waitFor(() => {
+      expect(mockListUnitsTree).toHaveBeenCalledWith(
+        'package_identifier',
+        'asc',
+        undefined,
+        undefined,
+        'core/nginx@1.0',
+      )
+    })
+  })
+
+  it('leaves the service filter empty without a search query string', async () => {
+    mockListUnitsTree.mockClear()
+    renderSystemManagement(['/dashboard/system'])
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText('Search...').value).toBe('')
+    })
+    expect(mockListUnitsTree).toHaveBeenCalledWith(
+      'package_identifier',
+      'asc',
+      undefined,
+      undefined,
+      '',
+    )
+  })
+
+  // The deep link seeds the filter, it does not pin it — clearing the box has
+  // to widen the list back out even though the query string still says
+  // otherwise.
+  it('lets the operator clear a search seeded from the query string', async () => {
+    mockListUnitsTree.mockClear()
+    renderSystemManagement(['/dashboard/system?search=core%2Fnginx%401.0'])
+    const input = await screen.findByPlaceholderText('Search...')
+    await waitFor(() => {
+      expect(input.value).toBe('core/nginx@1.0')
+    })
+    fireEvent.change(input, { target: { value: '' } })
+    await waitFor(() => {
+      expect(mockListUnitsTree).toHaveBeenCalledWith(
+        'package_identifier',
+        'asc',
+        undefined,
+        undefined,
+        '',
+      )
+    })
+  })
+
   it('renders the Services heading', async () => {
     renderSystemManagement()
     await waitFor(() => {
