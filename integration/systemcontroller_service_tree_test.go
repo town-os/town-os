@@ -201,3 +201,72 @@ func TestServiceTreeCascadeStartLeavesFirst(t *testing.T) {
 		t.Errorf("start order: second = %q, want parent %q", setStatusUnits[1], parentUnit)
 	}
 }
+
+// TestServiceTreeSearchByPackageIdentifierSelectsOneService is the backend
+// half of the dashboard's per-service deep link. The services panel on the
+// home screen links each service to
+// /dashboard/system?search=<package_identifier>, and the services screen
+// feeds that term straight into the units-tree search. This asserts the
+// contract that makes the link land on the service instead of on the whole
+// list: searching a root's package_identifier returns that root — with its
+// dependency subtree intact — and nothing else.
+func TestServiceTreeSearchByPackageIdentifierSelectsOneService(t *testing.T) {
+	t.Parallel()
+	c, _ := initSystemControllerInstallSystemdTest(t)
+
+	if err := addRepoWithCreds(c, "core", testCoreURLString()); err != nil {
+		t.Fatalf("AddRepository core: %v", err)
+	}
+
+	if err := c.InstallPackage(context.TODO(), "nginx", "1.0", packages.Responses{
+		"hostname": "alpha",
+		"port":     "80",
+	}, false, "", false); err != nil {
+		t.Fatalf("InstallPackage nginx@1.0: %v", err)
+	}
+	if err := c.InstallPackage(context.TODO(), "app-with-cache", "1.0", packages.Responses{
+		"port":      "9090",
+		"cachepass": "secret123",
+	}, false, "", false); err != nil {
+		t.Fatalf("InstallPackage app-with-cache@1.0: %v", err)
+	}
+
+	all, err := c.ListUnitsTree(context.TODO(), systemcontroller.ListParams{})
+	if err != nil {
+		t.Fatalf("ListUnitsTree unfiltered: %v", err)
+	}
+	if len(all.Entries) != 2 {
+		t.Fatalf("expected 2 roots before filtering, got %d: %+v", len(all.Entries), all.Entries)
+	}
+
+	// The exact term the dashboard link carries.
+	const wantID = "core/app-with-cache@1.0"
+	filtered, err := c.ListUnitsTree(context.TODO(), systemcontroller.ListParams{Search: wantID})
+	if err != nil {
+		t.Fatalf("ListUnitsTree search=%q: %v", wantID, err)
+	}
+	if len(filtered.Entries) != 1 {
+		t.Fatalf("search %q returned %d roots, want 1: %+v", wantID, len(filtered.Entries), filtered.Entries)
+	}
+	root := filtered.Entries[0]
+	if root.PackageIdentifier != wantID {
+		t.Errorf("search %q selected %q", wantID, root.PackageIdentifier)
+	}
+	// Filtering to one service must not strip its deps: the screen the link
+	// opens is the dependency tree for that package.
+	if len(root.Children) != 1 {
+		t.Errorf("expected the dep subtree to survive the search, got %d children", len(root.Children))
+	}
+
+	// The other installed package's identifier selects the other root, so the
+	// filter is really keyed on the term and not just returning the first
+	// entry.
+	const otherID = "core/nginx@1.0"
+	other, err := c.ListUnitsTree(context.TODO(), systemcontroller.ListParams{Search: otherID})
+	if err != nil {
+		t.Fatalf("ListUnitsTree search=%q: %v", otherID, err)
+	}
+	if len(other.Entries) != 1 || other.Entries[0].PackageIdentifier != otherID {
+		t.Fatalf("search %q returned %+v, want the single nginx root", otherID, other.Entries)
+	}
+}

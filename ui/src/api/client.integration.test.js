@@ -1027,6 +1027,43 @@ describe('SystemControllerClient integration', () => {
       }
     })
 
+    // The dashboard's services panel links each service to
+    // /dashboard/system?search=<package_identifier>, and the services screen
+    // passes that term to listUnitsTree. End-to-end, the term the link
+    // carries has to narrow the tree to that one service — otherwise the
+    // click lands on the full list and the operator is back to hunting.
+    it('narrows the unit tree to the service a dashboard link points at', async () => {
+      const resp = await client.authenticate('admin', 'adminpass')
+      client.setToken(resp.token)
+
+      const unfiltered = await client.listUnitsTree()
+      const target = unfiltered.entries.find(
+        (e) => e.package_identifier === 'core/nginx@1.0',
+      )
+      expect(target).toBeDefined()
+
+      const filtered = await client.listUnitsTree(
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        target.package_identifier,
+      )
+      expect(filtered.entries.length).toBe(1)
+      expect(filtered.entries[0].package_identifier).toBe('core/nginx@1.0')
+
+      // A term that matches nothing yields nothing — the filter is really
+      // filtering, not echoing the list back.
+      const none = await client.listUnitsTree(
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        'core/no-such-package@9.9',
+      )
+      expect(none.entries.length).toBe(0)
+    })
+
     it('restarts the unit and it is recognized by systemd', async () => {
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)

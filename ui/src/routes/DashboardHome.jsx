@@ -121,13 +121,24 @@ function httpsNotes(info) {
   return out
 }
 
+// serviceLink builds the deep link to a service's row on the services
+// screen. The search term is the root's package_identifier, which the
+// units-tree endpoint matches against the node's own fields — so the
+// screen opens showing that one service (and its deps) rather than the
+// whole list for the operator to hunt through.
+function serviceLink(packageIdentifier) {
+  return `/dashboard/system?search=${encodeURIComponent(packageIdentifier)}`
+}
+
 // ServicesPanel renders a flat table of services that expose at least
 // one HTTPS URL note — status icon on the left, package name in the
 // middle, clickable URLs on the right. Services without links (and
 // dependency sub-packages, which are internal) are filtered out
 // entirely so the dashboard stays focused on user-reachable entry
-// points. Clicking the status icon jumps to /dashboard/system for the
-// full service controls; clicking the name jumps to /dashboard/packages.
+// points. Both the status icon and the name link to that service's own
+// row on /dashboard/system — the package is only interesting here as a
+// running service, and the packages screen answers a different question
+// (what is installed / upgradable) than the one a dashboard click asks.
 function ServicesPanel({ roots, notesMap, t }) {
   const rows = (roots || [])
     .map((node) => ({ node, links: httpsNotes(notesMap[node.package_identifier]) }))
@@ -147,11 +158,12 @@ function ServicesPanel({ roots, notesMap, t }) {
               const displayId = node.display_identifier || node.package_identifier
               const parsed = parsePackageIdentifier(displayId)
               const displayName = parsed ? parsed.name : displayId
+              const to = serviceLink(node.package_identifier)
               return (
                 <TableRow key={node.package_identifier}>
                   <TableCell className="w-8 py-2">
                     <Link
-                      to="/dashboard/system"
+                      to={to}
                       aria-label={t('dashboard.services_status_label', { name: displayName, state: node.ActiveState })}
                     >
                       <StatusIcon state={node.ActiveState} />
@@ -159,7 +171,7 @@ function ServicesPanel({ roots, notesMap, t }) {
                   </TableCell>
                   <TableCell className="py-2">
                     <Link
-                      to="/dashboard/packages"
+                      to={to}
                       className="font-mono text-sm font-medium underline-offset-2 hover:underline"
                     >
                       {displayName}

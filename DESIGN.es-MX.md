@@ -1920,7 +1920,7 @@ La página de inicio del tablero muestra un panel de servicios instalados a todo
 - La descripción del paquete (si está disponible).
 - Las notas compiladas de `POST /packages/installed/info`, renderizadas en línea con enlaces según su tipo (URL, correo, teléfono).
 
-Al hacerle clic a cualquier renglón de servicio se navega a `/dashboard/system`. El panel se esconde cuando no hay servicios instalados. Las notas se obtienen una vez por servicio y se guardan en caché.
+Al hacerle clic a un renglón de servicio —ya sea al icono de estado o al nombre del paquete— se navega a `/dashboard/system?search=<package_identifier>`, el renglón de ese servicio en la pantalla de servicios. Esa pantalla arranca su caja de filtro con `?search=` y le pasa el término a `GET /systemd/units-tree`, cuya búsqueda compara contra los campos propios de cada raíz, así que la pantalla se abre sobre ese único paquete con su subárbol de dependencias en lugar de sobre la lista completa. El término es un valor inicial, no un candado: borrarlo o editarlo vuelve a abrir la lista completa. El enlace lleva el `package_identifier` crudo, nunca el `display_identifier` embellecido: ese último no es un término que la búsqueda del árbol pueda encontrar, así que un enlace armado con él caería en un árbol vacío. El panel se esconde cuando no hay servicios instalados. Las notas se obtienen una vez por servicio y se guardan en caché.
 
 ### Disposición
 

@@ -93,7 +93,11 @@ export default function SystemManagement() {
   const [actionInProgress, setActionInProgress] = useState(false)
   const actionToastId = useRef('svc-action-progress')
 
-  const [searchTerm, setSearchTerm] = useState('')
+  // ?search=<package_identifier> is how the dashboard's services panel links
+  // to one service: the term seeds the filter box so the tree opens on that
+  // package instead of the full list. It is a starting value, not a lock —
+  // the operator can clear or edit it like any other search.
+  const [searchTerm, setSearchTerm] = useState(searchParams.get('search') || '')
   const [customLogDialog, setCustomLogDialog] = useState(false)
   const [customLogUnit, setCustomLogUnit] = useState('')
 
