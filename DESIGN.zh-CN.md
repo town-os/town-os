@@ -6,7 +6,8 @@ Town OS 如何运作：架构、各子系统的行为、API 界面，以及维�
 
 > **本文件是 [DESIGN.md](DESIGN.md) 的简体中文译本。英文原件为准。**
 > 繁体中文译本见 [DESIGN.zh-TW.md](DESIGN.zh-TW.md)；西班牙语译本见
-> [DESIGN.es-ES.md](DESIGN.es-ES.md)（西班牙）与 [DESIGN.es-MX.md](DESIGN.es-MX.md)（墨西哥）。
+> [DESIGN.es-ES.md](DESIGN.es-ES.md)（西班牙）与 [DESIGN.es-MX.md](DESIGN.es-MX.md)（墨西哥）；
+> 日语译本见 [DESIGN.ja-JP.md](DESIGN.ja-JP.md)。
 > 两者出现分歧时，以英文原件为准，并应修正译文。代码标识符、文件路径、
 > 命令、环境变量、API 路径与 YAML 键名一律保留原文，不作翻译。
 

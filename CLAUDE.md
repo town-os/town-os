@@ -9,11 +9,12 @@ change alters behavior, DESIGN.md is the file that needs updating with it.
 
 Translations of this file: Chinese [zh-CN](CLAUDE.zh-CN.md) (Simplified) and
 [zh-TW](CLAUDE.zh-TW.md) (Traditional); Spanish [es-ES](CLAUDE.es-ES.md)
-(Spain) and [es-MX](CLAUDE.es-MX.md) (Mexico). See also
+(Spain) and [es-MX](CLAUDE.es-MX.md) (Mexico); Japanese
+[ja-JP](CLAUDE.ja-JP.md). See also
 DESIGN.md ([zh-CN](DESIGN.zh-CN.md), [zh-TW](DESIGN.zh-TW.md),
-[es-ES](DESIGN.es-ES.md), [es-MX](DESIGN.es-MX.md)) and
+[es-ES](DESIGN.es-ES.md), [es-MX](DESIGN.es-MX.md), [ja-JP](DESIGN.ja-JP.md)) and
 README.md ([zh-CN](README.zh-CN.md), [zh-TW](README.zh-TW.md),
-[es-ES](README.es-ES.md), [es-MX](README.es-MX.md)).
+[es-ES](README.es-ES.md), [es-MX](README.es-MX.md), [ja-JP](README.ja-JP.md)).
 **This file is authoritative** — when a rule here changes, change it here, and
 the translations follow.
 

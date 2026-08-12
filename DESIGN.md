@@ -9,11 +9,12 @@ it. A change to how the repo is built or tested belongs in CLAUDE.md.
 
 Translations of this file: Chinese [zh-CN](DESIGN.zh-CN.md) (Simplified) and
 [zh-TW](DESIGN.zh-TW.md) (Traditional); Spanish [es-ES](DESIGN.es-ES.md)
-(Spain) and [es-MX](DESIGN.es-MX.md) (Mexico). See also
+(Spain) and [es-MX](DESIGN.es-MX.md) (Mexico); Japanese
+[ja-JP](DESIGN.ja-JP.md). See also
 CLAUDE.md ([zh-CN](CLAUDE.zh-CN.md), [zh-TW](CLAUDE.zh-TW.md),
-[es-ES](CLAUDE.es-ES.md), [es-MX](CLAUDE.es-MX.md)) and
+[es-ES](CLAUDE.es-ES.md), [es-MX](CLAUDE.es-MX.md), [ja-JP](CLAUDE.ja-JP.md)) and
 README.md ([zh-CN](README.zh-CN.md), [zh-TW](README.zh-TW.md),
-[es-ES](README.es-ES.md), [es-MX](README.es-MX.md)).
+[es-ES](README.es-ES.md), [es-MX](README.es-MX.md), [ja-JP](README.ja-JP.md)).
 **This file is authoritative** — describe the change here, and the translations
 follow.
 

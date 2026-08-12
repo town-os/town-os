@@ -18,7 +18,8 @@ corresponde a CLAUDE.md.
 >
 > Otras traducciones: español de México ([DESIGN.es-MX.md](DESIGN.es-MX.md)) y
 > chino, en escritura simplificada ([DESIGN.zh-CN.md](DESIGN.zh-CN.md)) y
-> tradicional ([DESIGN.zh-TW.md](DESIGN.zh-TW.md)).
+> tradicional ([DESIGN.zh-TW.md](DESIGN.zh-TW.md)); y japonés
+> ([DESIGN.ja-JP.md](DESIGN.ja-JP.md)).
 
 ## Invariantes Arquitectónicos
 

@@ -8,7 +8,8 @@ CLAUDE, NO TIENES PERMISO DE EDITAR ESTE ARCHIVO A MENOS QUE YO TE LO DIGA.
 >
 > Otras traducciones: español de España ([CLAUDE.es-ES.md](CLAUDE.es-ES.md)) y
 > chino, en escritura simplificada ([CLAUDE.zh-CN.md](CLAUDE.zh-CN.md)) y
-> tradicional ([CLAUDE.zh-TW.md](CLAUDE.zh-TW.md)).
+> tradicional ([CLAUDE.zh-TW.md](CLAUDE.zh-TW.md)); y japonés
+> ([CLAUDE.ja-JP.md](CLAUDE.ja-JP.md)).
 
 **Este archivo contiene solo instrucciones de compilación y estilo de código.**
 Cómo funciona realmente el sistema — arquitectura, comportamiento de los

@@ -23,6 +23,10 @@ Town OS is a self-service platform that runs entirely from a USB drive, turning 
 > Mexico: [README.es-MX.md](README.es-MX.md),
 > [CLAUDE.es-MX.md](CLAUDE.es-MX.md), [DESIGN.es-MX.md](DESIGN.es-MX.md).
 >
+> **日本語 / Japanese.** The same three documents are also available in Japanese
+> (`ja-JP`): [README.ja-JP.md](README.ja-JP.md),
+> [CLAUDE.ja-JP.md](CLAUDE.ja-JP.md), and [DESIGN.ja-JP.md](DESIGN.ja-JP.md).
+>
 > The English files are authoritative; where a translation disagrees with them,
 > the English is correct and the translation is what needs fixing.
 

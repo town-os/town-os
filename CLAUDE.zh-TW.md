@@ -2,7 +2,8 @@ CLAUDE，未經我明確許可，不得編輯此檔案。
 
 > **本文件是 [CLAUDE.md](CLAUDE.md) 的繁體中文譯本。英文原件為準。**
 > 簡體中文譯本見 [CLAUDE.zh-CN.md](CLAUDE.zh-CN.md)；西班牙語譯本見
-> [CLAUDE.es-ES.md](CLAUDE.es-ES.md)（西班牙）與 [CLAUDE.es-MX.md](CLAUDE.es-MX.md)（墨西哥）。
+> [CLAUDE.es-ES.md](CLAUDE.es-ES.md)（西班牙）與 [CLAUDE.es-MX.md](CLAUDE.es-MX.md)（墨西哥）；
+> 日語譯本見 [CLAUDE.ja-JP.md](CLAUDE.ja-JP.md)。
 > 兩者出現分歧時，以英文原件為準，並應修正譯文。程式碼識別字、檔案路徑、
 > 命令、環境變數、API 路徑與 YAML 鍵名一律保留原文，不作翻譯。
 

@@ -24,7 +24,9 @@ Town OS es una plataforma autogestionada que corre por completo desde una unidad
 > ([README.zh-CN.md](README.zh-CN.md), [CLAUDE.zh-CN.md](CLAUDE.zh-CN.md),
 > [DESIGN.zh-CN.md](DESIGN.zh-CN.md)) y tradicional
 > ([README.zh-TW.md](README.zh-TW.md), [CLAUDE.zh-TW.md](CLAUDE.zh-TW.md),
-> [DESIGN.zh-TW.md](DESIGN.zh-TW.md)).
+> [DESIGN.zh-TW.md](DESIGN.zh-TW.md)); y en japonés
+> ([README.ja-JP.md](README.ja-JP.md), [CLAUDE.ja-JP.md](CLAUDE.ja-JP.md),
+> [DESIGN.ja-JP.md](DESIGN.ja-JP.md)).
 
 ## Índice
 
