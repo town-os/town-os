@@ -136,29 +136,41 @@ func TestGfehBuildsDefeatTheLayerCache(t *testing.T) {
 }
 
 // TestGfehCacheDateActuallyBustsTheLayer asserts Containerfile.gfeh both
-// declares GFEH_CACHE_DATE and references it inside the cargo RUN.
+// declares GFEH_CACHE_DATE and references it inside the cargo RUN, and that the
+// reference tolerates the arg being unset.
 //
-// The reference is the whole mechanism. An ARG that is declared but never used
-// does not invalidate the layer it precedes, so a bare declaration would look
-// exactly like a working cache-bust, pass a build, and do nothing — the same
-// class of silent no-op as the version pin this file's other tests guard.
+// Two separate traps, and this build hit both in one commit.
+//
+// The reference is the mechanism: an ARG that is declared but never used does
+// not invalidate the layer it precedes, so a bare declaration would look exactly
+// like a working cache-bust, pass a build, and do nothing.
+//
+// The :- is what makes the reference safe. That RUN sets -u, and release-gfeh
+// deliberately does not pass this arg — it passes --no-cache, which supersedes
+// it. A bare ${GFEH_CACHE_DATE} therefore aborts the RELEASE build with
+// "parameter not set" before cargo runs, which is how this shipped broken: the
+// local fixture passes the arg and builds fine, so every test and dev run is
+// green while push-rc dies.
 func TestGfehCacheDateActuallyBustsTheLayer(t *testing.T) {
 	t.Parallel()
 
 	body := readRepoFile(t, "Containerfile.gfeh")
 	if !strings.Contains(body, "ARG GFEH_CACHE_DATE") {
-		t.Error("Containerfile.gfeh does not declare ARG GFEH_CACHE_DATE")
+		t.Fatal("Containerfile.gfeh does not declare ARG GFEH_CACHE_DATE")
 	}
 
-	_, afterARG, found := strings.Cut(body, "ARG GFEH_CACHE_DATE")
-	if !found {
-		return // already reported above
-	}
+	_, afterARG, _ := strings.Cut(body, "ARG GFEH_CACHE_DATE")
 	runBody, _, ok := strings.Cut(afterARG, "cargo install gfehd")
 	if !ok {
 		t.Fatal("Containerfile.gfeh has no cargo install after ARG GFEH_CACHE_DATE")
 	}
-	if !strings.Contains(runBody, "${GFEH_CACHE_DATE}") {
+	if !strings.Contains(runBody, "${GFEH_CACHE_DATE") {
 		t.Error("Containerfile.gfeh declares GFEH_CACHE_DATE but never references it before the cargo install; an unused ARG does not invalidate the layer, so the daily bust would silently do nothing")
+	}
+	if strings.Contains(runBody, "${GFEH_CACHE_DATE}") {
+		t.Error("Containerfile.gfeh references ${GFEH_CACHE_DATE} without a :- default; the RUN sets -u and release-gfeh does not pass the arg, so the release build aborts with \"parameter not set\"")
+	}
+	if !strings.Contains(runBody, "${GFEH_CACHE_DATE:-}") {
+		t.Error("Containerfile.gfeh does not reference ${GFEH_CACHE_DATE:-}; the reference must survive the arg being unset on the release build")
 	}
 }

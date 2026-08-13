@@ -69,12 +69,17 @@ RUN set -eux; \
 # GFEH_CACHE_DATE is a cache key, not a version knob — it never reaches cargo.
 # It must be referenced in the RUN, not merely declared: an unused ARG does not
 # invalidate the layer.
+#
+# Referenced as ${GFEH_CACHE_DATE:-} and not ${GFEH_CACHE_DATE}, because the RUN
+# below sets -u and release-gfeh deliberately does not pass this arg (--no-cache
+# supersedes it there). A bare reference aborts that build with "parameter not
+# set" before cargo ever runs.
 ARG GFEH_CACHE_DATE
 
 # cargo install writes to <root>/bin regardless of --target, so the COPY below
 # is the same path either way.
 RUN set -eux; \
-    : "cache key ${GFEH_CACHE_DATE}"; \
+    : "cache key ${GFEH_CACHE_DATE:-}"; \
     if [ -f /rust-target ]; then \
       rust_target="$(cat /rust-target)"; \
       linker_var="CARGO_TARGET_$(echo "${rust_target}" | tr 'a-z-' 'A-Z_')_LINKER"; \
