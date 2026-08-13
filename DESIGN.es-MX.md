@@ -1765,10 +1765,11 @@ Cambiar el ajuste surte efecto de inmediato: cambiar a `"grafana"` baja la image
 
 ### Paneles
 
-Hay dos tableros, y **los dos backends renderizan los mismos dos a partir de las
+Hay tres tableros, y **los dos backends renderizan los mismos tres a partir de las
 mismas consultas**. Están separados en vez de ser una sola página larga porque
 contestan preguntas distintas: System es lo que un operador mira cuando el equipo
-se siente lento, DNS es lo que abre cuando un nombre no se resuelve. Meter los
+se siente lento, DNS es lo que abre cuando un nombre no se resuelve, y Controller
+es lo que abre cuando algo que Town OS ejecuta no está corriendo. Meter los
 ocho paneles de DNS dentro de la vista general enterraría los cuatro paneles de
 host, que son la razón por la que cualquiera la abre.
 
@@ -1791,11 +1792,33 @@ trabajo de recolección `rolodex`:
 7. **Resultados por escalón upstream** -- éxitos y fallas por escalón, más las consultas que agotaron todos los escalones.
 8. **Tráfico DNS** -- bytes de cable rx/tx.
 
+**Controller** (uid de Grafana `town-os-controller`, "Town OS Controller") -- once
+paneles sobre el trabajo de recolección `systemcontroller`, y el único tablero que
+lee las [métricas `townos_*`](#métricas-del-controlador-del-sistema) del propio
+equipo:
+
+1. **Service Units by State** -- `townos_system_units` y `townos_package_units` por estado, en un mismo panel y **sin apilar**: son dos totales aparte, y apilarlos dibujaría una altura combinada que no cuenta nada que nadie administre.
+2. **Service Health** -- `townos_system_unit_active` y `townos_package_unit_active`, una serie por unidad, fijado a 0--1. Este es el panel que dice *cuál* servicio está caído, no cuántos. El eje se fija porque la métrica es booleana: en escala automática, un equipo completamente sano se dibuja como ruido alrededor de 1,0 y se lee como alarmante justo cuando no pasa nada.
+3. **API Requests by Status** -- `rate(townos_http_requests_total)` sumado por `status`, apilado. Sumado por estado a propósito: la familia también trae `method`, y un panel de estados que lo conservara dibujaría una línea por cada par.
+4. **Audit Events** -- `rate(townos_audit_events_total)` por `result`, apilado.
+5. **Recent Failures** -- `townos_audit_recent_errors` (el mismo conteo de cinco minutos que el tablero de inicio muestra como su píldora roja) junto a `townos_repository_errors`. Los dos en un panel porque un operador que revisa "¿hay algo roto?" no debería tener que saber primero bajo cuál subsistema buscar, y los dos son gauges sobre una ventana reciente, así que volver a cero es una recuperación y no un contador que dejó de subir.
+6. **Package Inventory** -- instalados, disponibles, actualizables y repositorios configurados.
+7. **Town OS Disk Usage** -- `townos_disk_used_bytes` y `townos_disk_available_bytes`, apilados. Usado y disponible en vez de usado y total: apilados, esos dos *son* el tamaño del sistema de archivos, así que una tercera serie nomás lo repetiría.
+8. **Accounts** -- `townos_accounts` por tipo, apilado (los tipos parten la lista de cuentas exactamente una vez, así que la altura de la pila es el total real).
+9. **Granted Accounts** -- `townos_accounts_granted`, aparte porque es un *subconjunto* del grupo de usuarios y no un cuarto tipo, y apilarlo lo contaría doble.
+10. **btrfs Subvolumes** -- `townos_filesystems` por espacio de nombres, apilado.
+11. **Controller Uptime** -- `time() - townos_start_time_seconds`. La señal es el diente de sierra, no la altura: un controlador que se reinicia en silencio bajo `Restart=always` se ve sano en todos los demás paneles de aquí.
+
+`townos_up` y `townos_disk_total_bytes` a propósito **no** se grafican. El primero
+es una constante de vitalidad de la recolección, y una línea plana en 1 no es un
+panel; el segundo es la suma de las dos series que el panel 7 ya apila.
+
 Todas las consultas de DNS traen un selector `{job="rolodex"}` construido a partir
-de `monitoring.RolodexJobName`, así que la etiqueta que emite la configuración de
-recolección y la que seleccionan los tableros no se pueden separar — un desajuste
-no es un error en ningún lado, son ocho paneles leyendo vacío en un equipo cuyo
-DNS está funcionando.
+de `monitoring.RolodexJobName`, y todas las de controller uno
+`{job="systemcontroller"}` construido a partir de `monitoring.ControllerJobName`,
+así que la etiqueta que emite la configuración de recolección y la que seleccionan
+los tableros no se pueden separar — un desajuste no es un error en ningún lado, es
+una pestaña entera de paneles leyendo vacío en un equipo que está funcionando.
 
 Los dos frontends son código aparte en lenguajes aparte renderizando el mismo
 tablero, y la **única** diferencia es la ventana de tasa: Grafana expande
@@ -1803,11 +1826,18 @@ tablero, y la **única** diferencia es la ventana de tasa: Grafana expande
 así que fija `RATE_INTERVAL` (`5m`). Una macro que se cuele del lado de uPlot es un
 error de análisis de Prometheus que deja en blanco toda la pestaña.
 
-Tres pruebas mantienen unidos los dos lados, porque nada más los conecta:
+Cuatro tipos de prueba mantienen unidos los dos lados, porque nada más los conecta:
 
-- `TestRolodexDashboardMirroredInFrontendQueries` lee `ui/src/components/monitoring/queries.js` desde la prueba de Go y falla si cualquiera de los dos lados nombra una familia de métricas de rolodex que el otro no — la misma guarda contra la deriva que `TestBootStepsFrontendInSyncWithBackend` aplica a las etapas de arranque.
-- La prueba de integración de recolección de rolodex comprueba que la **imagen fijada de rolodex de veras exporta** todas las familias de `monitoring.RolodexDashboardMetrics()`, comparando por el renglón `# TYPE` para que una familia cuyo nombre es prefijo de otra no pueda salir de aval por una que falta. Un panel que nombra una familia que el demonio no emite renderiza una gráfica vacía, que no se distingue de un resolvedor inactivo.
+- `TestRolodexDashboardMirroredInFrontendQueries` y `TestControllerDashboardMirroredInFrontendQueries` leen `ui/src/components/monitoring/queries.js` desde la prueba de Go y fallan si cualquiera de los dos lados nombra una familia de métricas que el otro no — la misma guarda contra la deriva que `TestBootStepsFrontendInSyncWithBackend` aplica a las etapas de arranque.
+- La prueba de integración de recolección de rolodex comprueba que la **imagen fijada de rolodex de veras exporta** todas las familias de `monitoring.RolodexDashboardMetrics()`, y `TestControllerDashboardMetricsAreServed` comprueba lo mismo para `monitoring.ControllerDashboardMetrics()` contra una recolección real del endpoint del propio controlador. Las dos comparan por el renglón `# TYPE` para que una familia cuyo nombre es prefijo de otra no pueda salir de aval por una que falta. Un panel que nombra una familia que el equipo no emite renderiza una gráfica vacía, que no se distingue de un equipo inactivo.
 - `TestDashboardQueriesParseInPrometheus` pasa todas las expresiones de todos los tableros por un Prometheus real. Un PromQL malformado dentro de un JSON no es un error de sintaxis en ningún lado: el archivo se aprovisiona, el tablero carga, el panel dibuja sus ejes y dice "No data" para siempre.
+- `MonitoringDashboard.test.jsx` comprueba que cada pestaña monta un componente uPlot **distinto**. La lista de pestañas nombra su componente en vez de que una rama lo escoja, porque una pestaña cuya rama se olvidó caía en las gráficas de System — un tablero real bajo el encabezado equivocado, lo que se lee como que funciona.
+
+El tablero de controller es el único que depende de un trabajo de recolección que
+puede estar ausente: `ports.ControllerMetrics` se deriva del valor de `-listen`, y
+`WritePrometheusConfig` **omite** el trabajo en vez de adivinar una dirección
+cuando no lo puede derivar. Un trabajo omitido es un tablero sin datos, no un
+tablero roto.
 
 ### Aprovisionamiento de paneles
 
@@ -1820,13 +1850,15 @@ Antes de que existiera el registro, el escritor de archivos era la lista de fact
 lo que significaba que un segundo tablero solo se podía agregar editando código que
 no tiene nada que ver con tableros.
 
-Los uid son constantes (`OverviewDashboardUID`, `DNSDashboardUID`) porque la
+Los uid son constantes (`OverviewDashboardUID`, `DNSDashboardUID`,
+`ControllerDashboardUID`) porque la
 interfaz web enlaza directo a ellos. Un uid desviado no produce ningún error en
 ningún lado — Grafana sirve una página de "dashboard not found" dentro del iframe.
 
-El tablero de DNS se **construye a partir de especificaciones de panel y se
-serializa** (`src/monitoring/dashboard_dns.go`) en vez de concatenarse dentro de
-una plantilla JSON, como todavía hace el tablero de vista general más viejo. Un
+Los tableros de DNS y de controller se **construyen a partir de especificaciones de
+panel y se serializan** (`src/monitoring/dashboard_dns.go`,
+`src/monitoring/dashboard_controller.go`) en vez de concatenarse dentro de una
+plantilla JSON, como todavía hace el tablero de vista general más viejo. Un
 JSON malformado en un tablero no cuesta un panel; hace fallar el aprovisionamiento,
 y el tablero no aparece para nada. Los objetivos de los paneles traen la referencia
 de fuente de datos en forma de objeto (`{"type":"prometheus","uid":GrafanaDatasourceUID}`)
@@ -1873,6 +1905,11 @@ Lo que se exporta:
 | `townos_audit_events_total{result}` | counter | `success`/`failure`, que incrementa `auditMiddleware` |
 | `townos_http_requests_total{method,status}` | counter | el estado es una **clase** (`2xx`…), nunca el código exacto |
 
+Todas ellas salvo `townos_up` y `townos_disk_total_bytes` las grafica el [tablero
+de Controller](#paneles), cuyo conjunto de paneles se declara contra
+`monitoring.ControllerDashboardMetrics()` para que las dos listas no se puedan
+separar.
+
 Varias de estas decisiones son la gracia y no algo incidental:
 
 - **Una recolección nunca falla como bloque.** Cada recolector tolera un administrador nil y registra-y-se-salta ante un error. Un 500 porque un subsistema está enfermo hace desaparecer todas las demás métricas justo cuando se las quiere, así que el equipo se lee como completamente muerto en vez de parcialmente degradado — y una recolección durante el arranque debería reportar lo que sí está arriba.
@@ -1887,17 +1924,20 @@ Varias de estas decisiones son la gracia y no algo incidental:
 ### Interfaz de Monitoreo
 
 La pestaña de monitoreo de la navegación lateral abre una página de tableros que
-trae **subpestañas System / DNS**, con enlace directo como `?tab=system|dns` como
-cualquier otra pantalla con subpestañas, para que un tablero que alguien está
-mirando durante una caída sobreviva a una recarga y se pueda enlazar. Un valor
-`?tab=` desconocido se va a System en vez de no renderizar nada. La lista de
-pestañas es un solo arreglo que trae tanto el componente uPlot que hay que montar
-como el uid de Grafana que muestra los mismos paneles, así que una pestaña no puede
-existir en un backend y no en el otro.
+trae **subpestañas System / DNS / Controller**, con enlace directo como
+`?tab=system|dns|controller` como cualquier otra pantalla con subpestañas, para que
+un tablero que alguien está mirando durante una caída sobreviva a una recarga y se
+pueda enlazar. Un valor `?tab=` desconocido se va a System en vez de no renderizar
+nada. La lista de pestañas es un solo arreglo que trae tanto el componente uPlot que
+hay que montar como el uid de Grafana que muestra los mismos paneles, así que una
+pestaña no puede existir en un backend y no en el otro — y nombrar ahí el
+componente, en vez de ramificar según el valor de la pestaña, es lo que evita que
+una rama olvidada renderice las gráficas de System bajo el encabezado de otra
+pestaña.
 
 El renderizado depende del campo `backend` de la respuesta de estado:
 
-- **Modo uPlot**: paneles renderizados directo en React usando uPlot, consultando Prometheus en el puerto 5308. La rejilla de System se ajusta al viewport (cuatro paneles, dos por renglón); la de DNS **no** — ocho paneles apretados en una pantalla le dejan a cada uno como 100 px de lienzo, y a esa altura una gráfica de latencia es decoración, así que los paneles tienen altura fija y la página se desplaza.
+- **Modo uPlot**: paneles renderizados directo en React usando uPlot, consultando Prometheus en el puerto 5308. La rejilla de System se ajusta al viewport (cuatro paneles, dos por renglón); las de DNS y Controller **no** — ocho u once paneles apretados en una pantalla le dejan a cada uno como 100 px de lienzo o menos, y a esa altura una gráfica de latencia es decoración, así que los paneles tienen altura fija y la página se desplaza.
 - **Modo Grafana**: un iframe de Grafana incrustado apuntando al puerto 5308 en modo kiosco con tema claro. Cambiar de pestaña reapunta el marco al uid del otro tablero, y el iframe está indexado por ese uid para que el marco se *reemplace* en vez de navegar — Grafana lleva su propio historial, y un cambio de `src` sobre un marco vivo deja el botón Atrás del navegador recorriendo tableros en vez de salir de la página.
 
 Los títulos de los paneles son idénticos en los dos backends: un operador que se

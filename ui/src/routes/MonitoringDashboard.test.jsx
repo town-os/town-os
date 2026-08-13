@@ -19,6 +19,10 @@ vi.mock('@/components/monitoring/DNSCharts.jsx', () => ({
   default: () => <div data-testid="dns-charts" />,
 }))
 
+vi.mock('@/components/monitoring/ControllerCharts.jsx', () => ({
+  default: () => <div data-testid="controller-charts" />,
+}))
+
 // A real router rather than a mocked one: the tab lives in the query
 // string, so a stubbed useSearchParams would test the stub.
 function renderAt(path = '/dashboard/monitoring') {
@@ -128,6 +132,64 @@ describe('MonitoringDashboard', () => {
       expect(iframe).toBeTruthy()
       expect(iframe.getAttribute('src')).toContain('/d/town-os-dns/town-os-dns')
     })
+  })
+
+  it('opens the controller charts directly from ?tab=controller', async () => {
+    mockMonitoringStatus.mockResolvedValue({
+      backend: 'uplot',
+      prometheus: true,
+      node_exporter: true,
+      disk_devices: ['sda3'],
+    })
+
+    const { getByTestId, queryByTestId } = renderAt('/dashboard/monitoring?tab=controller')
+    await waitFor(() => {
+      expect(getByTestId('controller-charts')).toBeTruthy()
+    })
+    expect(queryByTestId('uplot-charts')).toBeNull()
+    expect(queryByTestId('dns-charts')).toBeNull()
+  })
+
+  it('points the Grafana iframe at the controller dashboard uid on the controller tab', async () => {
+    mockMonitoringStatus.mockResolvedValue({
+      backend: 'grafana',
+      prometheus: true,
+      node_exporter: true,
+      grafana: true,
+    })
+
+    const { container } = renderAt('/dashboard/monitoring?tab=controller')
+
+    await waitFor(() => {
+      const iframe = container.querySelector('iframe[title="Grafana Dashboard"]')
+      expect(iframe).toBeTruthy()
+      expect(iframe.getAttribute('src')).toContain('/d/town-os-controller/town-os-controller')
+    })
+  })
+
+  // Every tab must mount its own charts. The bug this pins is the one the
+  // TABS table exists to prevent: a tab whose branch was forgotten fell
+  // through to the system charts, rendering a real dashboard under the
+  // wrong heading — a failure that reads as working.
+  it('mounts a distinct uPlot component for every tab', async () => {
+    mockMonitoringStatus.mockResolvedValue({
+      backend: 'uplot',
+      prometheus: true,
+      node_exporter: true,
+      disk_devices: ['sda3'],
+    })
+
+    for (const [tab, testid] of [
+      ['system', 'uplot-charts'],
+      ['dns', 'dns-charts'],
+      ['controller', 'controller-charts'],
+    ]) {
+      const { getByTestId, unmount } = renderAt(`/dashboard/monitoring?tab=${tab}`)
+      await waitFor(() => {
+        expect(getByTestId(testid)).toBeTruthy()
+      })
+      unmount()
+    }
   })
 
   // An unknown tab value is a typo or a stale link, not a reason to render

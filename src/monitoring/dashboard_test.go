@@ -67,8 +67,8 @@ func TestGrafanaDashboardsCoversEveryDashboard(t *testing.T) {
 	t.Parallel()
 
 	dashboards := GrafanaDashboards([]string{"sda3"})
-	if len(dashboards) < 2 {
-		t.Fatalf("expected at least the overview and DNS dashboards, got %d", len(dashboards))
+	if len(dashboards) < 3 {
+		t.Fatalf("expected at least the overview, DNS and controller dashboards, got %d", len(dashboards))
 	}
 
 	seenUID := map[string]bool{}
@@ -104,6 +104,9 @@ func TestGrafanaDashboardsCoversEveryDashboard(t *testing.T) {
 	}
 	if !seenUID[DNSDashboardUID] {
 		t.Errorf("registry is missing the DNS dashboard (%s)", DNSDashboardUID)
+	}
+	if !seenUID[ControllerDashboardUID] {
+		t.Errorf("registry is missing the controller dashboard (%s)", ControllerDashboardUID)
 	}
 }
 

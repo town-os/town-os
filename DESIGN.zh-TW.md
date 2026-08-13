@@ -1638,7 +1638,7 @@ system controller 從 `https://ipinfo.io/json` 獲取伺服器的公網（外部
 
 ### 儀表盤
 
-共有兩個儀表盤，而且**兩種後端都從同一批查詢渲染出同樣的這兩個**。它們之所以分開而不是併成一長頁，是因為它們回答不同的問題：System 是運維在機器髮卡時看的，DNS 是他們在某個名稱無法解析時開啟的。把八個 DNS 面板折進 overview，只會把那四個主機面板——人們開啟它的理由——埋掉。
+共有三個儀表盤，而且**兩種後端都從同一批查詢渲染出同樣的這三個**。它們之所以分開而不是併成一長頁，是因為它們回答不同的問題：System 是運維在機器髮卡時看的，DNS 是他們在某個名稱無法解析時開啟的，Controller 則是他們在 Town OS 所執行的某樣東西沒有在執行時開啟的。把八個 DNS 面板與十一個 controller 面板折進 overview，只會把那四個主機面板——人們開啟它的理由——埋掉。
 
 **System**（Grafana uid `town-os-overview`，"Town OS Overview"）—— 四個面板：
 
@@ -1658,23 +1658,42 @@ system controller 從 `https://ipinfo.io/json` 獲取伺服器的公網（外部
 7. **Upstream Tier Outcomes** —— 每一層的成功與失敗次數，以及耗盡了所有層級的查詢數。
 8. **DNS Traffic** —— 線上收/發位元組數。
 
-每一條 DNS 查詢都帶有由 `monitoring.RolodexJobName` 構建的 `{job="rolodex"}` 選擇器，因此抓取配置發出的標籤與儀表盤所選擇的標籤不可能漂移開——不一致在任何地方都不是錯誤，它表現為一台 DNS 明明正常的機器上八個空空如也的面板。
+**Controller**（Grafana uid `town-os-controller`，"Town OS Controller"）—— 基於 `systemcontroller` 抓取 job 的十一個面板，也是唯一讀取本機自身 [`townos_*` 指標](#system-controller-指標)的儀表盤：
+
+1. **Service Units by State** —— `townos_system_units` 與 `townos_package_units` 按 state，同處一個面板且**不堆疊**：它們是兩個各自獨立的總數，堆疊會畫出一個誰也管不著的合計高度。
+2. **Service Health** —— `townos_system_unit_active` 與 `townos_package_unit_active`，每個單元一條序列，固定在 0–1。這個面板說明的是*哪一個*服務掛了，而不是掛了幾個。軸之所以固定，是因為該指標是布林值：自動縮放時，一台完全健康的機器會被畫成 1.0 附近的一團噪聲，恰恰在什麼都沒出問題的時候顯得嚇人。
+3. **API Requests by Status** —— `rate(townos_http_requests_total)` 按 `status` 求和，堆疊。特意按 status 求和：該指標族還帶有 `method`，若保留它，按狀態的面板會畫出每個組合一條線。
+4. **Audit Events** —— `rate(townos_audit_events_total)` 按 `result`，堆疊。
+5. **Recent Failures** —— `townos_audit_recent_errors`（與儀表盤那顆紅色藥丸渲染的是同一個五分鐘計數）與 `townos_repository_errors` 並列。二者同處一個面板，是因為檢視「有沒有什麼壞了」的運維不應該還得先知道該去哪個子系統底下找；而且兩者都是近期視窗上的 gauge，因此歸零意味著恢復，而不是一個不再攀升的計數器。
+6. **Package Inventory** —— 已安裝、可用、可升級，以及已配置的倉庫數。
+7. **Town OS Disk Usage** —— `townos_disk_used_bytes` 與 `townos_disk_available_bytes`，堆疊。用的是已用與可用，而不是已用與總量：堆疊起來，這兩者*就是*檔案系統的大小，因此第三條序列只會把它重述一遍。
+8. **Accounts** —— `townos_accounts` 按 kind，堆疊（這些 kind 恰好把賬戶列表劃分一次，因此堆疊高度就是真實總數）。
+9. **Granted Accounts** —— `townos_accounts_granted`，之所以單列，是因為它是 user 這一桶的*子集*而不是第四種 kind，堆疊會重複計數。
+10. **btrfs Subvolumes** —— `townos_filesystems` 按名稱空間，堆疊。
+11. **Controller Uptime** —— `time() - townos_start_time_seconds`。訊號是那道鋸齒，而不是高度：一個在 `Restart=always` 之下悄悄崩潰重啟的 controller，在這裡的其他每個面板上都顯得健康。
+
+`townos_up` 與 `townos_disk_total_bytes` 刻意**不**作圖。前者是抓取存活性的常量，一條平直的 1 不成其為面板；後者是第 7 個面板已經堆疊起來的那兩條序列之和。
+
+每一條 DNS 查詢都帶有由 `monitoring.RolodexJobName` 構建的 `{job="rolodex"}` 選擇器，每一條 controller 查詢都帶有由 `monitoring.ControllerJobName` 構建的 `{job="systemcontroller"}` 選擇器，因此抓取配置發出的標籤與儀表盤所選擇的標籤不可能漂移開——不一致在任何地方都不是錯誤，它表現為一台明明正常的機器上一整個標籤頁空空如也的面板。
 
 兩個前端是用不同語言寫的、渲染同一個儀表盤的兩套獨立程式碼，而它們**唯一**的差別是速率視窗：Grafana 按面板展開 `$__rate_interval`，而 uPlot 前端沒有巨集展開，因此它固定使用 `RATE_INTERVAL`（`5m`）。宏若洩漏到 uPlot 一側，就是一個 Prometheus 解析錯誤，會把整個標籤頁變成空白。
 
-有三個測試把兩側綁在一起，因為再沒有別的東西連線它們：
+有四類測試把兩側綁在一起，因為再沒有別的東西連線它們：
 
-- `TestRolodexDashboardMirroredInFrontendQueries` 從 Go 測試中讀取 `ui/src/components/monitoring/queries.js`，若任一側提到了另一側沒有的 rolodex 指標族則失敗——與 `TestBootStepsFrontendInSyncWithBackend` 對啟動階段所用的是同一種防漂移手段。
-- rolodex 抓取整合測試斷言**所固定的 rolodex 鏡像確實匯出了** `monitoring.RolodexDashboardMetrics()` 中的每一個指標族，並以 `# TYPE` 行匹配，這樣名稱是另一個字首的指標族就無法為一個缺失的族背書。面板提到守護程序並不發出的指標族時，會渲染出一張空圖，而那與一個空閒的解析器無法區分。
+- `TestRolodexDashboardMirroredInFrontendQueries` 與 `TestControllerDashboardMirroredInFrontendQueries` 從 Go 測試中讀取 `ui/src/components/monitoring/queries.js`，若任一側提到了另一側沒有的指標族則失敗——與 `TestBootStepsFrontendInSyncWithBackend` 對啟動階段所用的是同一種防漂移手段。
+- rolodex 抓取整合測試斷言**所固定的 rolodex 鏡像確實匯出了** `monitoring.RolodexDashboardMetrics()` 中的每一個指標族，而 `TestControllerDashboardMetricsAreServed` 針對 `monitoring.ControllerDashboardMetrics()`、對著 controller 自身端點的一次真實抓取做同樣的斷言。兩者都以 `# TYPE` 行匹配，這樣名稱是另一個字首的指標族就無法為一個缺失的族背書。面板提到本機並不發出的指標族時，會渲染出一張空圖，而那與一台空閒的機器無法區分。
 - `TestDashboardQueriesParseInPrometheus` 把每個儀表盤的每一條表示式送到一個真實的 Prometheus 面前。JSON 內部畸形的 PromQL 在任何地方都不是語法錯誤：檔案被成功置備，儀表盤被載入，面板畫出座標軸，然後永遠顯示 "No data"。
+- `MonitoringDashboard.test.jsx` 斷言每個標籤頁掛載的都是**各不相同的** uPlot 元件。標籤頁列表裡寫的是元件本身，而不是由某個分支去挑一個，因為一個被遺漏了分支的標籤頁會落到 System 圖表上——在錯誤的標題下渲染出一個真實的儀表盤，而那看上去像是正常工作。
+
+controller 儀表盤是唯一依賴於一個可能缺席的抓取 job 的：`ports.ControllerMetrics` 由 `-listen` 的值推導而來，而 `WritePrometheusConfig` 在推導不出時會**略去**該 job，而不是猜一個地址。被略去的 job 意味著一個沒有資料的儀表盤，而不是一個壞掉的儀表盤。
 
 ### 儀表盤置備
 
 `monitoring.GrafanaDashboards(diskDevices)`（`src/monitoring/dashboard.go`）就是那份登錄檔——每個儀表盤的檔名、uid、標題與渲染出的 JSON——而 `WriteGrafanaProvisioningFiles` 遍歷它。新增一個儀表盤就是在那裡加一條，僅此而已：置備器（`GrafanaDashboardProviderYAML`）指向的是 `dashboard-json` **目錄**，因此其中的每個檔案都會被拾取。在登錄檔存在之前，檔案寫入器就是事實上的清單，這意味著要新增第二個儀表盤，就只能去改一段與儀表盤毫不相干的程式碼。
 
-那些 uid 是常量（`OverviewDashboardUID`、`DNSDashboardUID`），因為 Web UI 會深鏈它們。漂移的 uid 在任何地方都不會產生錯誤——Grafana 只會在 iframe 裡呈現一個 "dashboard not found" 頁面。
+那些 uid 是常量（`OverviewDashboardUID`、`DNSDashboardUID`、`ControllerDashboardUID`），因為 Web UI 會深鏈它們。漂移的 uid 在任何地方都不會產生錯誤——Grafana 只會在 iframe 裡呈現一個 "dashboard not found" 頁面。
 
-DNS 儀表盤是**由面板規格構建並序列化**出來的（`src/monitoring/dashboard_dns.go`），而不是像仍然如此的舊 overview 儀表盤那樣拼接進一份 JSON 模板。儀表盤中畸形的 JSON 代價不是少一個面板；它會讓置備失敗，於是該儀表盤根本不會出現。面板的 target 攜帶物件形式的資料來源引用（`{"type":"prometheus","uid":GrafanaDatasourceUID}`）——Grafana 13+ 無法解析 target 中的舊字串形式，會在不報任何錯誤的情況下渲染 "No data"。
+DNS 與 controller 儀表盤是**由面板規格構建並序列化**出來的（`src/monitoring/dashboard_dns.go`、`src/monitoring/dashboard_controller.go`），而不是像仍然如此的舊 overview 儀表盤那樣拼接進一份 JSON 模板。儀表盤中畸形的 JSON 代價不是少一個面板；它會讓置備失敗，於是該儀表盤根本不會出現。面板的 target 攜帶物件形式的資料來源引用（`{"type":"prometheus","uid":GrafanaDatasourceUID}`）——Grafana 13+ 無法解析 target 中的舊字串形式，會在不報任何錯誤的情況下渲染 "No data"。
 
 ### 生命週期
 
@@ -1716,6 +1735,8 @@ Prometheus 與 Node Exporter 在啟動時總是被啟動。監控後端設定決
 | `townos_audit_events_total{result}` | counter | `success`/`failure`，由 `auditMiddleware` 遞增 |
 | `townos_http_requests_total{method,status}` | counter | status 是一個**類別**（`2xx` 等），絕不是精確狀態碼 |
 
+除 `townos_up` 與 `townos_disk_total_bytes` 之外，以上全部由 [Controller 儀表盤](#儀表盤)作圖，其面板集合是針對 `monitoring.ControllerDashboardMetrics()` 宣告的，因此兩份清單不可能漂移開。
+
 這裡有幾個選擇本身就是要點，而非無關緊要：
 
 - **一次抓取絕不會整體失敗。** 每個 collector 都容忍 nil 的 manager，並在出錯時記錄日誌後跳過。因為某一個子系統生病就返回 500，會讓其餘每一個指標恰恰在最需要它們的時刻消失，於是機器讀起來是徹底死了而不是部分降級——而且啟動過程中的抓取本就該報告哪些已經起來了。
@@ -1729,11 +1750,11 @@ Prometheus 與 Node Exporter 在啟動時總是被啟動。監控後端設定決
 
 ### 監控 UI
 
-側邊欄導航中的監控標籤開啟一個儀表盤頁面，頁面上帶有 **System / DNS 子標籤頁**，與其他每一個帶子標籤頁的介面一樣可通過 `?tab=system|dns` 深鏈，因此有人在故障期間正在看的儀表盤能挺過一次重新整理，也可以被分享成連結。未知的 `?tab=` 值會回退到 System，而不是什麼也不渲染。這份標籤頁清單是同一個陣列，既持有要掛載的 uPlot 元件，也持有展示相同面板的 Grafana uid，因此不可能出現某個標籤頁在一種後端有、在另一種沒有的情況。
+側邊欄導航中的監控標籤開啟一個儀表盤頁面，頁面上帶有 **System / DNS / Controller 子標籤頁**，與其他每一個帶子標籤頁的介面一樣可通過 `?tab=system|dns|controller` 深鏈，因此有人在故障期間正在看的儀表盤能挺過一次重新整理，也可以被分享成連結。未知的 `?tab=` 值會回退到 System，而不是什麼也不渲染。這份標籤頁清單是同一個陣列，既持有要掛載的 uPlot 元件，也持有展示相同面板的 Grafana uid，因此不可能出現某個標籤頁在一種後端有、在另一種沒有的情況——而在那裡寫明元件本身、而不是按標籤頁的值去分支，正是防止某個被遺漏的分支把 System 圖表渲染到另一個標籤頁標題之下的手段。
 
 渲染方式取決於狀態響應中的 `backend` 欄位：
 
-- **uPlot 模式**：在 React 中用 uPlot 直接渲染面板，在 5308 埠查詢 Prometheus。System 網格把自己釘在視口內（四個面板，每行兩個）；DNS 網格**不這樣做**——八個面板擠進一屏後每個只剩約 100px 的畫布高度，到那個程度延遲圖就只是裝飾了，因此面板採用固定高度，頁面滾動。
+- **uPlot 模式**：在 React 中用 uPlot 直接渲染面板，在 5308 埠查詢 Prometheus。System 網格把自己釘在視口內（四個面板，每行兩個）；DNS 與 Controller 網格**不這樣做**——八個或十一個面板擠進一屏後每個只剩約 100px 甚至更少的畫布高度，到那個程度延遲圖就只是裝飾了，因此面板採用固定高度，頁面滾動。
 - **Grafana 模式**：一個內嵌的 Grafana iframe，指向 5308 埠，使用 kiosk 模式與淺色主題。切換標籤頁會把該框架重新指向另一個儀表盤的 uid，並且 iframe 以該 uid 作為 key，因此框架是被*替換*而不是在其中導航——Grafana 有自己的歷史記錄，而在活動框架上替換 src 會讓瀏覽器的後退按鈕在多個儀表盤之間來回走，而不是離開該頁面。
 
 兩種後端的面板標題完全一致：切換後端的運維不該還要去琢磨哪個面板變成了哪個。它們是硬編碼的英文——本介面不含任何 `t()` 呼叫，而且 Grafana 的面板標題無論如何都無法翻譯，因為它存在於被置備的 JSON 之中。

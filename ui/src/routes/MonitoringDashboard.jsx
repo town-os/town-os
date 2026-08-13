@@ -9,16 +9,23 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Activity, AlertCircle } from 'lucide-react'
 import MonitoringCharts from '@/components/monitoring/MonitoringCharts.jsx'
 import DNSCharts from '@/components/monitoring/DNSCharts.jsx'
+import ControllerCharts from '@/components/monitoring/ControllerCharts.jsx'
 
 // TABS is the single list both backends render from: the uPlot component
 // to mount, and the uid of the Grafana dashboard that shows the same
-// panels. The uids mirror monitoring.OverviewDashboardUID and
-// monitoring.DNSDashboardUID in src/monitoring/dashboard.go — a uid that
-// drifts is not an error anywhere, it is a "dashboard not found" page
-// inside the iframe.
+// panels. The uids mirror monitoring.OverviewDashboardUID,
+// monitoring.DNSDashboardUID and monitoring.ControllerDashboardUID in
+// src/monitoring/dashboard.go — a uid that drifts is not an error anywhere,
+// it is a "dashboard not found" page inside the iframe.
+//
+// The uPlot component is named here rather than chosen by a branch in
+// renderBody: a tab whose branch was forgotten fell through to the system
+// charts, which renders a real dashboard under the wrong tab heading — the
+// failure mode that reads as working.
 const TABS = [
   { value: 'system', label: 'System', grafanaUID: 'town-os-overview' },
-  { value: 'dns', label: 'DNS', grafanaUID: 'town-os-dns' },
+  { value: 'dns', label: 'DNS', grafanaUID: 'town-os-dns', Charts: DNSCharts },
+  { value: 'controller', label: 'Controller', grafanaUID: 'town-os-controller', Charts: ControllerCharts },
 ]
 
 export default function MonitoringDashboard() {
@@ -59,7 +66,8 @@ export default function MonitoringDashboard() {
 
   // Port 5308 is exposed directly by the network controller — no proxy.
   const monitoringBase = getBaseURLForPort(5308)
-  const grafanaUID = (TABS.find((t) => t.value === activeTab) || TABS[0]).grafanaUID
+  const tab = TABS.find((t) => t.value === activeTab) || TABS[0]
+  const grafanaUID = tab.grafanaUID
   const grafanaURL = `${monitoringBase}/d/${grafanaUID}/${grafanaUID}?kiosk&theme=light&refresh=30s`
 
   if (isDisabled) {
@@ -105,7 +113,11 @@ export default function MonitoringDashboard() {
         </div>
       )
     }
-    return activeTab === 'dns' ? <DNSCharts /> : <MonitoringCharts diskDevices={status?.disk_devices || []} />
+    // The system tab is the only one that needs a prop (the discovered
+    // btrfs devices), so it stays the default rather than being wedged into
+    // the table with a prop-passing indirection for one caller.
+    const Charts = tab.Charts
+    return Charts ? <Charts /> : <MonitoringCharts diskDevices={status?.disk_devices || []} />
   }
 
   return (

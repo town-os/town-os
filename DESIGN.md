@@ -1747,12 +1747,13 @@ Changing the setting takes effect immediately: switching to `"grafana"` pulls th
 
 ### Dashboards
 
-There are two dashboards, and **both backends render the same two from the same
-queries**. They are separate rather than one long page because they answer
+There are three dashboards, and **both backends render the same three from the
+same queries**. They are separate rather than one long page because they answer
 different questions: System is what an operator watches when the box feels slow,
-DNS is what they open when a name will not resolve. Folding the eight DNS panels
-into the overview would bury the four host panels that are the reason anyone
-opens it.
+DNS is what they open when a name will not resolve, and Controller is what they
+open when something Town OS runs is not running. Folding the eight DNS panels
+and the eleven controller panels into the overview would bury the four host
+panels that are the reason anyone opens it.
 
 **System** (Grafana uid `town-os-overview`, "Town OS Overview") -- four panels:
 
@@ -1773,10 +1774,32 @@ opens it.
 7. **Upstream Tier Outcomes** -- wins and failures per tier, plus queries that exhausted every tier.
 8. **DNS Traffic** -- wire bytes rx/tx.
 
+**Controller** (Grafana uid `town-os-controller`, "Town OS Controller") -- eleven
+panels over the `systemcontroller` scrape job, and the only dashboard that reads
+the box's own [`townos_*` metrics](#system-controller-metrics):
+
+1. **Service Units by State** -- `townos_system_units` and `townos_package_units` by state, on one panel and **unstacked**: they are two separate totals, and stacking them would draw a combined height that counts nothing anybody administers.
+2. **Service Health** -- `townos_system_unit_active` and `townos_package_unit_active`, one series per unit, pinned to 0--1. This is the panel that says *which* service is down rather than how many. The axis is pinned because the metric is a boolean: autoscaled, a wholly healthy box draws as noise around 1.0 and reads as alarming exactly when nothing is wrong.
+3. **API Requests by Status** -- `rate(townos_http_requests_total)` summed by `status`, stacked. Summed by status specifically: the family also carries `method`, and a status panel that kept it would draw a line per pair.
+4. **Audit Events** -- `rate(townos_audit_events_total)` by `result`, stacked.
+5. **Recent Failures** -- `townos_audit_recent_errors` (the same 5-minute count the dashboard renders as its red pill) beside `townos_repository_errors`. Both on one panel because an operator checking "is anything broken" should not have to know which subsystem to look under, and both are gauges over a recent window, so a return to zero is a recovery rather than a counter that stopped climbing.
+6. **Package Inventory** -- installed, available, upgradable, and configured repositories.
+7. **Town OS Disk Usage** -- `townos_disk_used_bytes` and `townos_disk_available_bytes`, stacked. Used and available rather than used and total: stacked, those two *are* the filesystem size, so a third series would restate it.
+8. **Accounts** -- `townos_accounts` by kind, stacked (the kinds partition the account list exactly once, so the stack height is the real total).
+9. **Granted Accounts** -- `townos_accounts_granted`, separate because it is a *subset* of the user bucket rather than a fourth kind, and stacking it would double-count.
+10. **btrfs Subvolumes** -- `townos_filesystems` by namespace, stacked.
+11. **Controller Uptime** -- `time() - townos_start_time_seconds`. The sawtooth is the signal, not the height: a controller quietly crash-looping under `Restart=always` looks healthy on every other panel here.
+
+`townos_up` and `townos_disk_total_bytes` are deliberately **not** graphed. The
+first is a scrape-liveness constant, and a flat line at 1 is not a panel; the
+second is the sum of the two series panel 7 already stacks.
+
 Every DNS query carries a `{job="rolodex"}` selector built from
-`monitoring.RolodexJobName`, so the label the scrape config emits and the one the
-dashboards select on cannot drift apart — a mismatch is not an error anywhere,
-it is eight panels reading empty on a box whose DNS is working.
+`monitoring.RolodexJobName`, and every controller query a
+`{job="systemcontroller"}` one built from `monitoring.ControllerJobName`, so the
+label the scrape config emits and the one the dashboards select on cannot drift
+apart — a mismatch is not an error anywhere, it is a tab of empty panels on a
+box that is working.
 
 The two frontends are separate code in separate languages rendering the same
 dashboard, and the **only** difference is the rate window: Grafana expands
@@ -1784,11 +1807,18 @@ dashboard, and the **only** difference is the rate window: Grafana expands
 it pins `RATE_INTERVAL` (`5m`). A leaked macro on the uPlot side is a Prometheus
 parse error that blanks the whole tab.
 
-Three tests hold the two sides together, because nothing else connects them:
+Four kinds of test hold the two sides together, because nothing else connects
+them:
 
-- `TestRolodexDashboardMirroredInFrontendQueries` reads `ui/src/components/monitoring/queries.js` from the Go test and fails if either side names a rolodex metric family the other does not — the same drift guard `TestBootStepsFrontendInSyncWithBackend` applies to the boot stages.
-- The rolodex scrape integration test asserts the **pinned rolodex image actually exports** every family in `monitoring.RolodexDashboardMetrics()`, matched on the `# TYPE` line so a family whose name is a prefix of another cannot vouch for a missing one. A panel naming a family the daemon does not emit renders an empty chart, which is indistinguishable from an idle resolver.
+- `TestRolodexDashboardMirroredInFrontendQueries` and `TestControllerDashboardMirroredInFrontendQueries` read `ui/src/components/monitoring/queries.js` from the Go test and fail if either side names a metric family the other does not — the same drift guard `TestBootStepsFrontendInSyncWithBackend` applies to the boot stages.
+- The rolodex scrape integration test asserts the **pinned rolodex image actually exports** every family in `monitoring.RolodexDashboardMetrics()`, and `TestControllerDashboardMetricsAreServed` asserts the same for `monitoring.ControllerDashboardMetrics()` against a real scrape of the controller's own endpoint. Both match on the `# TYPE` line so a family whose name is a prefix of another cannot vouch for a missing one. A panel naming a family the box does not emit renders an empty chart, which is indistinguishable from an idle box.
 - `TestDashboardQueriesParseInPrometheus` runs every expression from every dashboard past a real Prometheus. Malformed PromQL inside JSON is a syntax error nowhere: the file provisions, the dashboard loads, the panel draws its axes, and it says "No data" forever.
+- `MonitoringDashboard.test.jsx` asserts every tab mounts a **distinct** uPlot component. The tab list names its component rather than a branch choosing one, because a tab whose branch was forgotten fell through to the system charts — a real dashboard under the wrong heading, which reads as working.
+
+The controller dashboard is the one that depends on a scrape job that can be
+absent: `ports.ControllerMetrics` is derived from the `-listen` value, and
+`WritePrometheusConfig` **omits** the job rather than guessing an address when it
+cannot be. An omitted job is a dashboard with no data, not a broken one.
 
 ### Dashboard Provisioning
 
@@ -1801,13 +1831,15 @@ the registry existed the file writer was the de-facto list, which meant a second
 dashboard could only be added by editing code that has nothing to do with
 dashboards.
 
-The uids are constants (`OverviewDashboardUID`, `DNSDashboardUID`) because the
-web UI deep-links them. A drifted uid produces no error anywhere — Grafana
-serves a "dashboard not found" page inside the iframe.
+The uids are constants (`OverviewDashboardUID`, `DNSDashboardUID`,
+`ControllerDashboardUID`) because the web UI deep-links them. A drifted uid
+produces no error anywhere — Grafana serves a "dashboard not found" page inside
+the iframe.
 
-The DNS dashboard is **built from panel specs and marshalled**
-(`src/monitoring/dashboard_dns.go`) rather than concatenated into a JSON
-template the way the older overview dashboard still is. Malformed JSON in a
+The DNS and controller dashboards are **built from panel specs and marshalled**
+(`src/monitoring/dashboard_dns.go`, `src/monitoring/dashboard_controller.go`)
+rather than concatenated into a JSON template the way the older overview
+dashboard still is. Malformed JSON in a
 dashboard does not cost a panel; it fails provisioning, and the dashboard never
 appears at all. Panel targets carry the object-form datasource ref
 (`{"type":"prometheus","uid":GrafanaDatasourceUID}`) — Grafana 13+ cannot
@@ -1853,6 +1885,10 @@ What is exported:
 | `townos_audit_events_total{result}` | counter | `success`/`failure`, incremented by `auditMiddleware` |
 | `townos_http_requests_total{method,status}` | counter | status is a **class** (`2xx`…), never the exact code |
 
+All of these except `townos_up` and `townos_disk_total_bytes` are graphed by the
+[Controller dashboard](#dashboards), whose panel set is declared against
+`monitoring.ControllerDashboardMetrics()` so the two lists cannot drift.
+
 Several choices here are the point rather than incidental:
 
 - **A scrape never fails as a unit.** Each collector tolerates a nil manager and logs-and-skips on error. A 500 because one subsystem is sick makes every other metric vanish at exactly the moment they are wanted, so the box reads as entirely dead rather than partly degraded — and a scrape during boot should report what is up.
@@ -1867,16 +1903,19 @@ Several choices here are the point rather than incidental:
 ### Monitoring UI
 
 The monitoring tab in the sidebar navigation opens a dashboard page carrying
-**System / DNS sub-tabs**, deep-linkable as `?tab=system|dns` like every other
-sub-tabbed screen, so a dashboard somebody is watching during an outage survives
-a reload and can be linked to. An unknown `?tab=` value falls back to System
-rather than rendering nothing. The tab list is one array holding both the uPlot
-component to mount and the Grafana uid that shows the same panels, so a tab
-cannot exist in one backend and not the other.
+**System / DNS / Controller sub-tabs**, deep-linkable as
+`?tab=system|dns|controller` like every other sub-tabbed screen, so a dashboard
+somebody is watching during an outage survives a reload and can be linked to. An
+unknown `?tab=` value falls back to System rather than rendering nothing. The tab
+list is one array holding both the uPlot component to mount and the Grafana uid
+that shows the same panels, so a tab cannot exist in one backend and not the
+other — and naming the component there rather than branching on the tab value is
+what stops a forgotten branch from rendering the System charts under another
+tab's heading.
 
 Rendering depends on the `backend` field from the status response:
 
-- **uPlot mode**: panels rendered directly in React using uPlot, querying Prometheus on port 5308. The System grid pins itself to the viewport (four panels, two per row); the DNS grid does **not** — eight panels squeezed into one screen leaves each about 100px of canvas, at which point a latency chart is decoration, so panels get a fixed height and the page scrolls.
+- **uPlot mode**: panels rendered directly in React using uPlot, querying Prometheus on port 5308. The System grid pins itself to the viewport (four panels, two per row); the DNS and Controller grids do **not** — eight or eleven panels squeezed into one screen leaves each about 100px of canvas or less, at which point a latency chart is decoration, so panels get a fixed height and the page scrolls.
 - **Grafana mode**: an embedded Grafana iframe targeting port 5308 in kiosk mode with light theme. Switching tabs repoints the frame at the other dashboard's uid, and the iframe is keyed on that uid so the frame is *replaced* rather than navigated — Grafana keeps its own history, and a src swap on a live frame leaves the browser Back button stepping through dashboards instead of leaving the page.
 
 Panel titles are identical across the two backends: an operator who switches

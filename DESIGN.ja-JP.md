@@ -1619,7 +1619,7 @@ systemcontroller（ポート 5309）を通じたリバースプロキシは**無
 
 ### ダッシュボード
 
-ダッシュボードは二つあり、**どちらのバックエンドも同じ問い合わせから同じ二つを描く**。一つの長いページではなく分かれているのは、それらが異なる問いに答えるからである。System はこの機械が遅く感じるときにオペレーターが見るものであり、DNS は名前が解決しないときに開くものである。八つの DNS のパネルを概観へ畳み込めば、そもそも人がそれを開く理由である四つのホストのパネルが埋もれてしまう。
+ダッシュボードは三つあり、**どちらのバックエンドも同じ問い合わせから同じ三つを描く**。一つの長いページではなく分かれているのは、それらが異なる問いに答えるからである。System はこの機械が遅く感じるときにオペレーターが見るものであり、DNS は名前が解決しないときに開くもの、Controller は Town OS が動かしている何かが動いていないときに開くものである。八つの DNS のパネルと十一の controller のパネルを概観へ畳み込めば、そもそも人がそれを開く理由である四つのホストのパネルが埋もれてしまう。
 
 **System**（Grafana の uid は `town-os-overview`、「Town OS Overview」）-- 四つのパネル:
 
@@ -1639,23 +1639,42 @@ systemcontroller（ポート 5309）を通じたリバースプロキシは**無
 7. **Upstream Tier Outcomes** -- 段ごとの成功と失敗、そしてすべての段を使い切った問い合わせ。
 8. **DNS Traffic** -- 通信のバイト数の rx/tx。
 
-すべての DNS の問い合わせは `monitoring.RolodexJobName` から作られた `{job="rolodex"}` の選択子を運ぶので、収集の設定が出力するラベルと、ダッシュボードが選択に使うラベルがずれることはありえない —— 食い違いはどこでもエラーにならず、DNS が働いている機械の上で八つのパネルが空になるだけである。
+**Controller**（Grafana の uid は `town-os-controller`、「Town OS Controller」）-- `systemcontroller` の収集のジョブに対する十一のパネルであり、この機械自身の [`townos_*` のメトリクス](#システムコントローラのメトリクス)を読む唯一のダッシュボードである:
+
+1. **Service Units by State** -- `townos_system_units` と `townos_package_units` を state ごとに、一つのパネルの上に**積み上げずに**置く。両者は別々の合計であり、積み上げれば誰も管理していない合算の高さを描くことになる。
+2. **Service Health** -- `townos_system_unit_active` と `townos_package_unit_active`。ユニットごとに一本の系列で、軸は 0--1 に固定する。これは何個落ちたかではなく*どれが*落ちたかを言うパネルである。軸を固定するのは、この指標が真偽値だからである。自動目盛りでは、完全に健全な機械が 1.0 の周りの雑音として描かれ、何も問題が無いときに限って不穏に見える。
+3. **API Requests by Status** -- `rate(townos_http_requests_total)` を `status` で合計し、積み上げる。あえて status で合計している。この族は `method` も運んでおり、それを残した状態のパネルは組み合わせごとに一本の線を描いてしまう。
+4. **Audit Events** -- `rate(townos_audit_events_total)` を `result` ごとに、積み上げ。
+5. **Recent Failures** -- `townos_audit_recent_errors`（ダッシュボードが赤い丸として描くのと同じ五分間の数）を `townos_repository_errors` と並べる。二つが一つのパネルにあるのは、「何か壊れていないか」を見るオペレーターが、どの下位の仕組みの下を見ればよいかを先に知っている必要は無いからである。どちらも近い窓の上のゲージなので、ゼロに戻ることは登るのをやめた計数器ではなく回復を意味する。
+6. **Package Inventory** -- 導入済み、入手可能、更新可能、そして設定されたリポジトリの数。
+7. **Town OS Disk Usage** -- `townos_disk_used_bytes` と `townos_disk_available_bytes` の積み上げ。使用済みと合計ではなく使用済みと空きなのは、積み上げればその二つ*が*ファイルシステムの大きさだからで、三本目の系列はそれを言い直すだけである。
+8. **Accounts** -- `townos_accounts` を kind ごとに、積み上げ（kind はアカウントの一覧をちょうど一度だけ分割するので、積み上げの高さが本当の合計になる）。
+9. **Granted Accounts** -- `townos_accounts_granted`。別のパネルにしてあるのは、これが四つ目の kind ではなく user の*部分集合*であり、積み上げれば二重に数えてしまうからである。
+10. **btrfs Subvolumes** -- `townos_filesystems` を名前空間ごとに、積み上げ。
+11. **Controller Uptime** -- `time() - townos_start_time_seconds`。信号は高さではなくその鋸歯である。`Restart=always` の下で静かに落ち続けている controller は、ここの他のどのパネルの上でも健全に見える。
+
+`townos_up` と `townos_disk_total_bytes` はあえて描**かない**。前者は収集の生存を示す定数であり、1 の平らな線はパネルにならない。後者は 7 番のパネルが既に積み上げている二本の系列の和である。
+
+すべての DNS の問い合わせは `monitoring.RolodexJobName` から作られた `{job="rolodex"}` の選択子を運び、すべての controller の問い合わせは `monitoring.ControllerJobName` から作られた `{job="systemcontroller"}` の選択子を運ぶので、収集の設定が出力するラベルと、ダッシュボードが選択に使うラベルがずれることはありえない —— 食い違いはどこでもエラーにならず、働いている機械の上でタブ一つ分のパネルが空になるだけである。
 
 二つのフロントエンドは別々の言語の別々のコードで同じダッシュボードを描いており、**唯一の**違いは率の窓である。Grafana はパネルごとに `$__rate_interval` を展開するが、uPlot のフロントエンドにはマクロの展開が無いので `RATE_INTERVAL`（`5m`）を固定している。uPlot の側にマクロが漏れると Prometheus の解析エラーになり、タブ全体が真っ白になる。
 
-三つのテストが両側を繋ぎ止めている。他に両者を繋ぐものが無いからである:
+四種類のテストが両側を繋ぎ止めている。他に両者を繋ぐものが無いからである:
 
-- `TestRolodexDashboardMirroredInFrontendQueries` は Go のテストから `ui/src/components/monitoring/queries.js` を読み、どちらかの側がもう一方に無い rolodex のメトリクスの族を名指ししていれば失敗する —— `TestBootStepsFrontendInSyncWithBackend` が起動の段階に適用しているのと同じ、ずれの見張りである。
-- rolodex の収集の統合テストは、**固定された rolodex のイメージが実際に** `monitoring.RolodexDashboardMetrics()` のすべての族を**出力すること**を主張する。`# TYPE` の行で照合するので、ある族の名前が別の族の接頭辞であっても、欠けているほうの保証にはならない。デーモンが出力しない族を名指しするパネルは空のグラフを描き、それは暇なリゾルバと区別がつかない。
+- `TestRolodexDashboardMirroredInFrontendQueries` と `TestControllerDashboardMirroredInFrontendQueries` は Go のテストから `ui/src/components/monitoring/queries.js` を読み、どちらかの側がもう一方に無いメトリクスの族を名指ししていれば失敗する —— `TestBootStepsFrontendInSyncWithBackend` が起動の段階に適用しているのと同じ、ずれの見張りである。
+- rolodex の収集の統合テストは、**固定された rolodex のイメージが実際に** `monitoring.RolodexDashboardMetrics()` のすべての族を**出力すること**を主張し、`TestControllerDashboardMetricsAreServed` は `monitoring.ControllerDashboardMetrics()` について、controller 自身の端点への本物の収集に対して同じことを主張する。どちらも `# TYPE` の行で照合するので、ある族の名前が別の族の接頭辞であっても、欠けているほうの保証にはならない。この機械が出力しない族を名指しするパネルは空のグラフを描き、それは暇な機械と区別がつかない。
 - `TestDashboardQueriesParseInPrometheus` は、すべてのダッシュボードのすべての式を本物の Prometheus に通す。JSON の中の壊れた PromQL は、どこでも構文エラーにならない。ファイルは用意され、ダッシュボードは読み込まれ、パネルは軸を描き、そして永遠に「No data」と言う。
+- `MonitoringDashboard.test.jsx` は、どのタブも**それぞれ別の** uPlot のコンポーネントをマウントすることを主張する。タブの一覧が分岐に選ばせるのではなく自分でコンポーネントを名指ししているのは、分岐を書き忘れたタブが System のグラフへ落ちてしまい —— 誤った見出しの下に本物のダッシュボードが描かれ、それが動いているように読めてしまうからである。
+
+controller のダッシュボードは、欠けうる収集のジョブに依存する唯一のものである。`ports.ControllerMetrics` は `-listen` の値から導かれ、`WritePrometheusConfig` は導けないときにアドレスを推測せずそのジョブを**省く**。省かれたジョブは、壊れたダッシュボードではなくデータの無いダッシュボードである。
 
 ### ダッシュボードのプロビジョニング
 
 `monitoring.GrafanaDashboards(diskDevices)`（`src/monitoring/dashboard.go`）が登録簿であり —— ダッシュボードごとのファイル名、uid、タイトル、描き出された JSON —— `WriteGrafanaProvisioningFiles` がそれを反復する。ダッシュボードの追加はそこへの一項目だけで、他には何も要らない。プロビジョナ（`GrafanaDashboardProviderYAML`）は `dashboard-json` の**ディレクトリ**を指すので、その中のすべてのファイルが拾われる。この登録簿ができる前は、ファイルを書く側が事実上の一覧だった。つまり二つ目のダッシュボードを追加するには、ダッシュボードとは何の関係も無いコードを編集するしかなかった。
 
-uid が定数（`OverviewDashboardUID`、`DNSDashboardUID`）であるのは、ウェブの UI がそれに深いリンクを張るからである。ずれた uid はどこにもエラーを生まない —— Grafana は iframe の中に「dashboard not found」のページを提供する。
+uid が定数（`OverviewDashboardUID`、`DNSDashboardUID`、`ControllerDashboardUID`）であるのは、ウェブの UI がそれに深いリンクを張るからである。ずれた uid はどこにもエラーを生まない —— Grafana は iframe の中に「dashboard not found」のページを提供する。
 
-DNS のダッシュボードは、古い概観のダッシュボードが今もそうしているような JSON のテンプレートへの連結ではなく、**パネルの仕様から組み立てられてマーシャルされる**（`src/monitoring/dashboard_dns.go`）。ダッシュボードの中の壊れた JSON はパネル一つで済まない。プロビジョニングが失敗し、そのダッシュボードはそもそも現れない。パネルの対象はオブジェクト形式のデータソースの参照（`{"type":"prometheus","uid":GrafanaDatasourceUID}`）を運ぶ —— Grafana 13 以降は対象の中の旧来の文字列形式を解決できず、エラーを出さずに「No data」を描く。
+DNS と controller のダッシュボードは、古い概観のダッシュボードが今もそうしているような JSON のテンプレートへの連結ではなく、**パネルの仕様から組み立てられてマーシャルされる**（`src/monitoring/dashboard_dns.go`、`src/monitoring/dashboard_controller.go`）。ダッシュボードの中の壊れた JSON はパネル一つで済まない。プロビジョニングが失敗し、そのダッシュボードはそもそも現れない。パネルの対象はオブジェクト形式のデータソースの参照（`{"type":"prometheus","uid":GrafanaDatasourceUID}`）を運ぶ —— Grafana 13 以降は対象の中の旧来の文字列形式を解決できず、エラーを出さずに「No data」を描く。
 
 ### ライフサイクル
 
@@ -1697,6 +1716,8 @@ Prometheus と Node Exporter は起動時に常に開始される。Grafana か 
 | `townos_audit_events_total{result}` | counter | `success`/`failure`。`auditMiddleware` が増やす |
 | `townos_http_requests_total{method,status}` | counter | status は**分類**（`2xx` など）であり、正確なコードでは決してない |
 
+`townos_up` と `townos_disk_total_bytes` を除くすべては [Controller のダッシュボード](#ダッシュボード)が描いており、そのパネルの集合は `monitoring.ControllerDashboardMetrics()` に対して宣言されているので、二つの一覧がずれることはありえない。
+
 ここでのいくつかの選択は、付随的なものではなく要点である:
 
 - **収集が丸ごと失敗することは決してない。** 各コレクタは nil のマネージャを許容し、エラーではログを出して飛ばす。一つのサブシステムが不調だからと 500 を返せば、他のすべてのメトリクスが、まさにそれらが欲しい瞬間に消えてしまい、この機械は部分的に劣化しているのではなく完全に死んでいるように読める —— そして起動中の収集は、上がっているものを報告すべきである。
@@ -1710,11 +1731,11 @@ Prometheus と Node Exporter は起動時に常に開始される。Grafana か 
 
 ### 監視の UI
 
-サイドバーのナビゲーションの監視のタブは、**System / DNS の下位タブ**を持つダッシュボードのページを開く。他のすべての下位タブのある画面と同じく `?tab=system|dns` として深いリンクを張れるので、障害の最中に誰かが見ているダッシュボードは再読み込みを生き延び、リンクとして渡せる。未知の `?tab=` の値は、何も描かないのではなく System へフォールバックする。タブの一覧は、マウントする uPlot のコンポーネントと、同じパネルを表示する Grafana の uid の両方を持つ一つの配列なので、片方のバックエンドにだけ存在するタブはありえない。
+サイドバーのナビゲーションの監視のタブは、**System / DNS / Controller の下位タブ**を持つダッシュボードのページを開く。他のすべての下位タブのある画面と同じく `?tab=system|dns|controller` として深いリンクを張れるので、障害の最中に誰かが見ているダッシュボードは再読み込みを生き延び、リンクとして渡せる。未知の `?tab=` の値は、何も描かないのではなく System へフォールバックする。タブの一覧は、マウントする uPlot のコンポーネントと、同じパネルを表示する Grafana の uid の両方を持つ一つの配列なので、片方のバックエンドにだけ存在するタブはありえない —— そしてタブの値で分岐させるのではなくそこにコンポーネントを名指ししていることが、書き忘れた分岐が System のグラフを別のタブの見出しの下に描いてしまうのを防いでいる。
 
 描き方は状態の応答の `backend` のフィールドに依存する:
 
-- **uPlot のモード**: uPlot を使って React で直接描かれるパネルであり、ポート 5308 で Prometheus を問い合わせる。System のグリッドは自分をビューポートに合わせる（四つのパネル、一行に二つ）。DNS のグリッドは**そうしない** —— 八つのパネルを一画面に押し込めば、それぞれの描画領域は約 100 ピクセルになり、その大きさでは遅延のグラフは飾りである。だからパネルは固定の高さを持ち、ページがスクロールする。
+- **uPlot のモード**: uPlot を使って React で直接描かれるパネルであり、ポート 5308 で Prometheus を問い合わせる。System のグリッドは自分をビューポートに合わせる（四つのパネル、一行に二つ）。DNS と Controller のグリッドは**そうしない** —— 八つないし十一のパネルを一画面に押し込めば、それぞれの描画領域は約 100 ピクセルかそれ以下になり、その大きさでは遅延のグラフは飾りである。だからパネルは固定の高さを持ち、ページがスクロールする。
 - **Grafana のモード**: 明るいテーマのキオスクのモードでポート 5308 を対象とする埋め込みの Grafana の iframe。タブを切り替えるとフレームがもう一方のダッシュボードの uid を指し直し、iframe はその uid を鍵にしているので、フレームは遷移するのではなく*置き換えられる* —— Grafana は自前の履歴を持つので、生きたフレームの src を差し替えると、ブラウザの戻るボタンがページを離れる代わりにダッシュボードを一つずつ遡ることになる。
 
 パネルのタイトルは二つのバックエンドで同一である。切り替えたオペレーターが、どのパネルがどれになったのかを考える必要はないはずだからである。これらは英語でハードコードされている —— この画面には `t()` の呼び出しが無く、そもそも Grafana のパネルのタイトルは、それが用意された JSON の中にあるので翻訳できない。

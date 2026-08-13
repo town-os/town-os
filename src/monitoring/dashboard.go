@@ -5,14 +5,15 @@ import (
 	"fmt"
 )
 
-// OverviewDashboardUID and DNSDashboardUID are the stable uids Grafana
-// deep-links are built from. They are constants for the same reason
-// RolodexJobName is: the web UI's iframe URL names one of them, and a uid
-// that moves orphans the link without any error anywhere — Grafana simply
-// serves a "dashboard not found" page inside the frame.
+// OverviewDashboardUID, DNSDashboardUID and ControllerDashboardUID are the
+// stable uids Grafana deep-links are built from. They are constants for the
+// same reason RolodexJobName is: the web UI's iframe URL names one of them,
+// and a uid that moves orphans the link without any error anywhere — Grafana
+// simply serves a "dashboard not found" page inside the frame.
 const (
-	OverviewDashboardUID = "town-os-overview"
-	DNSDashboardUID      = "town-os-dns"
+	OverviewDashboardUID   = "town-os-overview"
+	DNSDashboardUID        = "town-os-dns"
+	ControllerDashboardUID = "town-os-controller"
 )
 
 // GrafanaDashboard is one provisioned dashboard: the file it is written to
@@ -47,6 +48,12 @@ func GrafanaDashboards(diskDevices []string) []GrafanaDashboard {
 			UID:      DNSDashboardUID,
 			Title:    "Town OS DNS",
 			JSON:     RolodexDashboard(),
+		},
+		{
+			Filename: "town-os-controller.json",
+			UID:      ControllerDashboardUID,
+			Title:    "Town OS Controller",
+			JSON:     ControllerDashboard(),
 		},
 	}
 }

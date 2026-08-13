@@ -133,3 +133,85 @@ export const DNS_UPSTREAM_TIER_QUERIES = [
 export const DNS_TRAFFIC_QUERIES = [
   { expr: sumBy('direction', 'rolodex_dns_traffic_bytes_total'), legend: '{{direction}}' },
 ]
+
+// --- system controller ------------------------------------------------
+//
+// The uPlot twin of the Grafana controller dashboard
+// (src/monitoring/dashboard_controller.go), under the same rule as the DNS
+// block above: identical apart from the rate window, and guarded by
+// TestControllerDashboardMirroredInFrontendQueries, which fails if either
+// side names a controller metric family the other does not.
+//
+// That guard scans this file for the metric prefix, so the prefix is
+// described rather than written out in prose here — a bare mention in a
+// comment would read as a nineteenth family that no panel queries.
+
+// CONTROLLER_SELECTOR mirrors monitoring.ControllerJobName. The controller
+// is the only thing exporting these families today, but the selector is
+// what keeps these panels pointed at this box's controller rather than at
+// whatever else lands in the same Prometheus.
+export const CONTROLLER_SELECTOR = '{job="systemcontroller"}'
+
+const gauge = (metric) => `${metric}${CONTROLLER_SELECTOR}`
+const controllerRate = (metric) =>
+  `rate(${metric}${CONTROLLER_SELECTOR}[${RATE_INTERVAL}])`
+// Summing away the labels the panel does not legend on:
+// townos_http_requests_total carries method as well as status, and a status
+// panel that kept method would draw a line per pair.
+const controllerSumBy = (label, metric) =>
+  `sum by (${label}) (${controllerRate(metric)})`
+
+export const CONTROLLER_UNIT_STATE_QUERIES = [
+  { expr: gauge('townos_system_units'), legend: 'system {{state}}' },
+  { expr: gauge('townos_package_units'), legend: 'package {{state}}' },
+]
+
+export const CONTROLLER_UNIT_HEALTH_QUERIES = [
+  { expr: gauge('townos_system_unit_active'), legend: '{{unit}}' },
+  { expr: gauge('townos_package_unit_active'), legend: '{{unit}}' },
+]
+
+export const CONTROLLER_HTTP_QUERIES = [
+  { expr: controllerSumBy('status', 'townos_http_requests_total'), legend: '{{status}}' },
+]
+
+export const CONTROLLER_AUDIT_QUERIES = [
+  { expr: controllerSumBy('result', 'townos_audit_events_total'), legend: '{{result}}' },
+]
+
+export const CONTROLLER_FAILURE_QUERIES = [
+  { expr: gauge('townos_audit_recent_errors'), legend: 'Audit failures (5m)' },
+  { expr: gauge('townos_repository_errors'), legend: 'Repository refresh errors' },
+]
+
+export const CONTROLLER_PACKAGE_QUERIES = [
+  { expr: gauge('townos_packages_installed'), legend: 'Installed' },
+  { expr: gauge('townos_packages_available'), legend: 'Available' },
+  { expr: gauge('townos_upgrades_available'), legend: 'Upgradable' },
+  { expr: gauge('townos_repositories'), legend: 'Repositories' },
+]
+
+// Used and available stack to the filesystem size, so the panel shows the
+// fill and the headroom without a third series restating either.
+export const CONTROLLER_DISK_QUERIES = [
+  { expr: gauge('townos_disk_used_bytes'), legend: 'Used' },
+  { expr: gauge('townos_disk_available_bytes'), legend: 'Available' },
+]
+
+export const CONTROLLER_ACCOUNT_QUERIES = [
+  { expr: gauge('townos_accounts'), legend: '{{kind}}' },
+]
+
+export const CONTROLLER_GRANTED_QUERIES = [
+  { expr: gauge('townos_accounts_granted'), legend: 'Holding a grant' },
+]
+
+export const CONTROLLER_FILESYSTEM_QUERIES = [
+  { expr: gauge('townos_filesystems'), legend: '{{state}}' },
+]
+
+// The sawtooth is the signal, not the height: a controller quietly
+// crash-looping under Restart=always looks healthy on every other panel.
+export const CONTROLLER_UPTIME_QUERIES = [
+  { expr: `time() - ${gauge('townos_start_time_seconds')}`, legend: 'Uptime' },
+]
