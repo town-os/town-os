@@ -40,6 +40,13 @@ ARG BUILDARCH
 # libraries via dpkg multiarch. PKG_CONFIG_ALLOW_CROSS lets pkg-config answer
 # at all when host and target differ; PKG_CONFIG_LIBDIR is what points it at
 # the target's .pc files rather than the host's.
+#
+# libc6-dev:${TARGETARCH} is named explicitly for the same reason it is in
+# Containerfile: the cross gcc only *Recommends* the target's libc headers and
+# --no-install-recommends drops them, leaving a toolchain with no headers for
+# the arch it compiles for. Any crate whose build script compiles C then fails
+# with `bits/libc-header-start.h: No such file or directory` out of the HOST's
+# /usr/include — a native build never reaches it.
 RUN set -eux; \
     if [ "${TARGETARCH}" != "${BUILDARCH}" ]; then \
       case "${TARGETARCH}" in \
@@ -50,7 +57,7 @@ RUN set -eux; \
       dpkg --add-architecture "${TARGETARCH}"; \
       apt-get update; \
       apt-get install -y --no-install-recommends \
-        "${cross_gcc}" pkg-config "libssl-dev:${TARGETARCH}"; \
+        "${cross_gcc}" pkg-config "libc6-dev:${TARGETARCH}" "libssl-dev:${TARGETARCH}"; \
       apt-get clean; rm -rf /var/lib/apt/lists/*; \
       rustup target add "${rust_target}"; \
       echo "${rust_target}" > /rust-target; \

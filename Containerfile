@@ -12,6 +12,19 @@ ARG BUILDARCH
 # cross gcc plus the target arch's libsystemd headers and library, pulled in
 # through dpkg multiarch. Debian's mirrors serve every arch from the same
 # sources, so adding the foreign arch is all it takes.
+#
+# libc6-dev:${TARGETARCH} is NOT optional and is easy to lose. The cross gcc
+# package only *Recommends* the target's libc headers, and --no-install-recommends
+# is on every apt line here, so without naming it explicitly the toolchain lands
+# with no libc headers for the arch it is compiling FOR. The build then gets
+# almost all the way through and dies inside runtime/cgo:
+#
+#   /usr/include/stdlib.h:26:10: fatal error: bits/libc-header-start.h
+#
+# which reads like a broken image rather than a missing package: /usr/include
+# does exist, because that is the HOST's libc-dev, and only the arch-specific
+# bits/ under /usr/include/<triple>/ are absent. Native builds never hit it, so
+# it surfaces only on `make ... TARGET=aarch64`.
 RUN set -eux; \
     if [ "${TARGETARCH}" = "${BUILDARCH}" ]; then \
       apt-get update; \
@@ -24,7 +37,8 @@ RUN set -eux; \
       esac; \
       dpkg --add-architecture "${TARGETARCH}"; \
       apt-get update; \
-      apt-get install -y --no-install-recommends "${cross_gcc}" "libsystemd-dev:${TARGETARCH}"; \
+      apt-get install -y --no-install-recommends \
+        "${cross_gcc}" "libc6-dev:${TARGETARCH}" "libsystemd-dev:${TARGETARCH}"; \
     fi; \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/*
