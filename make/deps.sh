@@ -274,26 +274,90 @@ install_ui_deps() {
 # works inside a build container's mount namespace. A dynamically linked
 # interpreter would still need its shared libraries present in the target
 # rootfs, and they are not.
-enable_cross_binfmt() {
-  if ! command -v systemctl >/dev/null 2>&1 || [ ! -d /run/systemd/system ]; then
-    echo ">>> Skipping binfmt registration (no systemd); cross builds will need it registered by hand."
-    return 0
-  fi
-  echo ">>> Registering qemu binfmt handlers for cross-architecture builds..."
-  $SUDO systemctl restart systemd-binfmt 2>/dev/null || true
+#
+# Installing the packages is NOT the same as having a handler, and this is the
+# common state rather than an edge case. binfmt_misc is global kernel state
+# that survives no reboot and that anything on the box can clear (a `--reset`
+# from a multiarch/qemu-user-static container unregisters every handler, not
+# just its own), while the units that populate it run once at boot and never
+# again. So a host can carry every package and still have an empty
+# /proc/sys/fs/binfmt_misc — at which point `pacman -S` reports "up to date"
+# and changes nothing. That is why this function VERIFIES rather than assumes,
+# and registers by hand as a last resort.
+#
+# binfmt_handler_ok NAME — what make/lib.sh's require_cross_binfmt checks before
+# it will start a cross build, so that a deps run reporting success cannot be
+# followed by a build refusing to start. Existence alone is not enough: an entry
+# can be registered but disabled, and one registered without F resolves its
+# interpreter inside the build container's mount namespace, where it does not
+# exist. This is the stricter of the two on the F flag — require_cross_binfmt
+# warns and proceeds, because by then failing is the user's problem to weigh,
+# whereas here re-registering it correctly is free.
+binfmt_handler_ok() {
+  local h="/proc/sys/fs/binfmt_misc/$1"
+  [ -e "$h" ] && grep -qx enabled "$h" 2>/dev/null && grep -q '^flags:.*F' "$h" 2>/dev/null
+}
 
+enable_cross_binfmt() {
   local want
   case "$(uname -m)" in
     x86_64 | amd64) want=aarch64 ;;
     aarch64 | arm64) want=x86_64 ;;
     *) return 0 ;;
   esac
-  if [ -e "/proc/sys/fs/binfmt_misc/qemu-${want}" ]; then
-    echo ">>> binfmt handler qemu-${want} registered; cross builds to that arch are available."
-  else
-    echo ">>> WARNING: no qemu-${want} binfmt handler after install."
-    echo "    Native builds are unaffected; only \`make <release target> TARGET=${want}\` needs it."
+
+  if binfmt_handler_ok "qemu-${want}"; then
+    echo ">>> binfmt handler qemu-${want} already registered; cross builds to that arch are available."
+    return 0
   fi
+
+  echo ">>> Registering qemu binfmt handlers for cross-architecture builds..."
+
+  # Which unit owns the registration depends on the distro, so restart whichever
+  # exists rather than assuming systemd-binfmt: Debian registers qemu handlers
+  # through binfmt-support's update-binfmts (/var/lib/binfmts), and restarting
+  # systemd-binfmt there is a no-op that would leave this reporting failure with
+  # no attempt made. Errors are shown, not swallowed — a restart that failed
+  # because sudo was declined or the unit is masked is the answer, and hiding it
+  # behind the generic warning below is what made this hard to diagnose.
+  if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+    local unit
+    for unit in systemd-binfmt binfmt-support; do
+      if systemctl list-unit-files "${unit}.service" >/dev/null 2>&1 &&
+         [ -n "$(systemctl show -p FragmentPath --value "${unit}.service" 2>/dev/null)" ]; then
+        $SUDO systemctl restart "${unit}.service" || true
+      fi
+    done
+  else
+    echo ">>> No systemd here; registering directly."
+  fi
+
+  # Last resort: feed the interpreter's own binfmt.d line straight to the
+  # kernel. This is exactly what systemd-binfmt does with the same file, so it
+  # is not a workaround so much as doing it without the unit — which matters on
+  # a host with no systemd, and on one where the unit ran at boot before the
+  # package existed and nothing has re-run it since.
+  if ! binfmt_handler_ok "qemu-${want}"; then
+    local conf
+    for conf in "/usr/lib/binfmt.d/qemu-${want}-static.conf" "/usr/lib/binfmt.d/qemu-${want}.conf"; do
+      [ -r "$conf" ] || continue
+      echo ">>> Registering qemu-${want} directly from ${conf}..."
+      $SUDO sh -c "cat '$conf' > /proc/sys/fs/binfmt_misc/register" 2>/dev/null || true
+      break
+    done
+  fi
+
+  if binfmt_handler_ok "qemu-${want}"; then
+    echo ">>> binfmt handler qemu-${want} registered; cross builds to that arch are available."
+    return 0
+  fi
+
+  # Not fatal: everything except a cross-arch release works without this, and
+  # failing the whole deps run over it would block a machine that only ever
+  # builds natively.
+  echo ">>> WARNING: no usable qemu-${want} binfmt handler (missing, disabled, or registered without the F flag)."
+  echo "    Native builds are unaffected; only \`make <release target> TARGET=${want}\` needs it."
+  echo "    Retry with: sudo systemctl restart systemd-binfmt"
 }
 
 enable_podman_socket() {
