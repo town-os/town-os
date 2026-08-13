@@ -236,6 +236,16 @@ require_native_target() {
 #   it does not exist. That is also why the interpreter must be the STATIC
 #   qemu-user build — a dynamically linked one still needs its shared libraries
 #   present in the target rootfs.
+#
+#   Two distinct failures wear this same missing-handler symptom, and the fix
+#   for one is useless for the other, so the message below distinguishes them:
+#   the packages are absent, or they are installed and the REGISTRATION is
+#   gone. binfmt_misc is global kernel state that anything on the box can wipe
+#   (a `--reset` from a multiarch/qemu-user-static container unregisters every
+#   handler, not just its own), and systemd-binfmt does not re-run on its own
+#   afterwards — so a host that ran `make deps` weeks ago can sit here with
+#   every package installed and no handler. Sending that host to pacman/apt
+#   gets "already installed" and leaves it exactly where it started.
 require_cross_binfmt() {
   cross_building || return 0
 
@@ -258,10 +268,24 @@ require_cross_binfmt() {
   echo "  Compilation is native (the builder stages are pinned to the build platform)," >&2
   echo "  but the runtime stages still exec a few ${want} binaries (apt-get, groupadd)." >&2
   echo >&2
-  echo "  Register one, as root, by whichever route fits the host:" >&2
-  echo "    Arch:    pacman -S qemu-user-static qemu-user-static-binfmt" >&2
-  echo "    Debian:  apt-get install qemu-user-static binfmt-support" >&2
-  echo "    Either:  podman run --rm --privileged docker.io/multiarch/qemu-user-static --reset -p yes" >&2
+
+  if [ -e "/usr/lib/binfmt.d/qemu-${want}-static.conf" ] ||
+     [ -e "/usr/lib/binfmt.d/qemu-${want}.conf" ] ||
+     [ -e "/var/lib/binfmts/qemu-${want}" ] ||
+     command -v "qemu-${want}-static" >/dev/null 2>&1; then
+    echo "  qemu-${want} IS installed here — it is the registration that is missing," >&2
+    echo "  so installing the packages again will report them up to date and change" >&2
+    echo "  nothing. Re-register it (either works):" >&2
+    echo "    make deps                               # installs and re-registers" >&2
+    echo "    sudo systemctl restart systemd-binfmt   # registration only" >&2
+  else
+    echo "  Install it and register the handler:" >&2
+    echo "    make deps" >&2
+    echo >&2
+    echo "  deps.sh installs the STATIC qemu-user build for this distro and restarts" >&2
+    echo "  systemd-binfmt. By hand that is qemu-user-static plus the registration" >&2
+    echo "  package: qemu-user-static-binfmt on Arch, binfmt-support on Debian." >&2
+  fi
   echo >&2
   echo "  Note it must be the STATIC qemu build; a dynamically linked interpreter" >&2
   echo "  cannot find its shared libraries inside the build container." >&2
