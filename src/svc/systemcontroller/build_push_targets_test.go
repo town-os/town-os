@@ -198,6 +198,94 @@ func TestPushTargetsHaveBuildPrerequisites(t *testing.T) {
 	}
 }
 
+// localArms are the build arms that produce images for the test and dev
+// harnesses, and releaseArms the ones that produce images for a push.
+var localArms = []string{"ui-local", "nc-local", "ingress-local", "gfeh-local"}
+
+var releaseArms = []string{"release", "release-ui", "release-nc", "release-ingress", "release-gfeh"}
+
+// TestBuildArmsKeepLocalAndReleaseImagesApart asserts the CLAUDE.md rule that
+// test and dev build `localhost/` images while push targets always build a fresh
+// release image.
+//
+// A push arm that re-tagged a local image would ship bits built for the harness
+// — per-instance tags, --pull=never bases, host arch only, never cross-built —
+// under a release name. On a fresh checkout that fails; on a developer's box it
+// succeeds, which is the worse of the two and the reason this is a test rather
+// than a convention.
+func TestBuildArmsKeepLocalAndReleaseImagesApart(t *testing.T) {
+	t.Parallel()
+
+	script := readRepoFile(t, buildScript)
+
+	// A local arm may only build a local image variable, and a release arm may
+	// only build a RELEASE_* one. The -t flag is what decides which.
+	tagged := regexp.MustCompile(`-t "\$\{([A-Z_]+)\}`)
+	for _, arm := range localArms {
+		for _, m := range tagged.FindAllStringSubmatch(caseArm(t, script, arm), -1) {
+			if strings.HasPrefix(m[1], "RELEASE_") {
+				t.Errorf("local arm %s builds %s; test and dev images must be localhost/ images", arm, m[1])
+			}
+		}
+	}
+	for _, arm := range releaseArms {
+		for _, m := range tagged.FindAllStringSubmatch(caseArm(t, script, arm), -1) {
+			if !strings.HasPrefix(m[1], "RELEASE_") {
+				t.Errorf("release arm %s builds %s, which is not a RELEASE_* image", arm, m[1])
+			}
+		}
+	}
+
+	// No push arm may touch a localhost image, by any route: building one,
+	// tagging from one, or naming one at all.
+	for _, target := range []string{"push-rc", "push-release", "push-tag", "push-ui-rc", "push-ui-release", "push-nc-rc", "push-nc-release", "push-ingress-rc", "push-ingress-release", "push-gfeh-rc", "push-gfeh-release"} {
+		body := caseArm(t, script, target)
+		if strings.Contains(body, "localhost/") {
+			t.Errorf("%s references a localhost/ image; push targets must build and push release images only", target)
+		}
+		for _, m := range tagged.FindAllStringSubmatch(body, -1) {
+			if !strings.HasPrefix(m[1], "RELEASE_") {
+				t.Errorf("%s builds %s, which is not a RELEASE_* image", target, m[1])
+			}
+		}
+	}
+}
+
+// TestLocalImageVarsAreLocalhostScoped asserts the Makefile keeps the harness
+// image variables on localhost/ and per-instance, and the release ones on
+// quay.io/town. The build arms above are checked by variable name, so this is
+// what stops the names themselves from drifting underneath them.
+func TestLocalImageVarsAreLocalhostScoped(t *testing.T) {
+	t.Parallel()
+
+	makefile := readRepoFile(t, "Makefile")
+	for _, v := range []string{"UI_IMAGE", "NC_IMAGE", "INGRESS_IMAGE", "GFEH_IMAGE"} {
+		re := regexp.MustCompile(`(?m)^` + v + ` \?= (.*)$`)
+		m := re.FindStringSubmatch(makefile)
+		if m == nil {
+			t.Errorf("Makefile has no %s ?= line", v)
+			continue
+		}
+		if !strings.HasPrefix(m[1], "localhost/") {
+			t.Errorf("%s is %q; harness images must be localhost/ so nothing tries to pull them", v, m[1])
+		}
+		if !strings.Contains(m[1], "$(INSTANCE_ID)") {
+			t.Errorf("%s is %q; harness images must be per-instance so concurrent runs cannot collide", v, m[1])
+		}
+	}
+	for _, v := range releaseImageVars {
+		re := regexp.MustCompile(`(?m)^` + v + `\s*:= (.*)$`)
+		m := re.FindStringSubmatch(makefile)
+		if m == nil {
+			t.Errorf("Makefile has no %s := line", v)
+			continue
+		}
+		if !strings.HasPrefix(strings.TrimSpace(m[1]), "quay.io/town/") {
+			t.Errorf("%s is %q; release images must be quay.io/town/*", v, m[1])
+		}
+	}
+}
+
 // prerequisiteLine returns the first `<target>: ...` rule line for target,
 // skipping any line where the name appears as a prerequisite rather than as the
 // rule's own target.

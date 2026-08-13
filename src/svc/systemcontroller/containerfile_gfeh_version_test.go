@@ -19,9 +19,10 @@ import (
 // through make was 0.1.1 — the version the Containerfile documented as fatal —
 // and the documentation saying so was sitting in the file being overridden.
 //
-// Nothing caught it. cargo installs 0.1.1 happily, the image builds, the push
-// succeeds, and both suites stand in a fake gfehd. It surfaces only as object
-// storage that never starts on a real box.
+// Nothing caught it. cargo installs 0.1.1 happily, the image builds, and the
+// push succeeds. The unit suite stands in a fake gfehd and never runs the
+// daemon; the integration and UI suites do run it, but an old daemon still
+// starts. It surfaces only as object storage that never starts on a real box.
 //
 // Static analysis, like containerfile_bun_cache_test.go: no build, no network,
 // no podman. The failure being guarded is silent by construction.
@@ -81,32 +82,83 @@ func TestGfehInstallTakesTheCurrentRelease(t *testing.T) {
 	}
 }
 
-// TestGfehReleaseBuildBypassesTheLayerCache asserts the release build passes
-// --no-cache, and that the local fixture build does not.
+// withoutComments strips `#` comment lines from a build.sh case arm, so a flag
+// named in prose is not mistaken for one on a command line. Both gfeh arms
+// discuss --no-cache at length in their comments, which is exactly the trap.
+func withoutComments(arm string) string {
+	var b strings.Builder
+	for line := range strings.SplitSeq(arm, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "#") {
+			continue
+		}
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
+// TestGfehBuildsDefeatTheLayerCache asserts both gfeh builds break the cache,
+// each the way it should.
 //
 // This is the invariant that makes "current release" true rather than
 // aspirational. `cargo install gfehd` is a byte-identical RUN line on every
-// build, so its layer is a permanent cache hit: without --no-cache the release
-// image would ship whatever crate was current the first time anyone built it,
-// and would keep doing so indefinitely, silently, with the build logs showing a
-// clean successful build every time.
+// build, so its layer is a permanent cache hit. Left alone it would serve
+// whatever crate was current the first time anyone built it, indefinitely,
+// silently, with the build logs showing a clean successful build every time.
 //
-// The local fixture is asserted to stay cached on purpose. It is a prerequisite
-// of every test-integration and dev run, it only needs a real gfehd rather than
-// today's, and rebuilding the Rust dependency tree per run would cost minutes
-// per invocation.
-func TestGfehReleaseBuildBypassesTheLayerCache(t *testing.T) {
+// The two builds want different things, so they break it differently:
+//
+//   - release-gfeh passes --no-cache. Nothing weaker is acceptable in something
+//     that ships.
+//   - gfeh-local passes a day-granularity GFEH_CACHE_DATE build-arg. It is a
+//     prerequisite of every test-integration and dev run, so --no-cache there
+//     would recompile the Rust dependency tree on each one — but a pure cache
+//     hit would freeze it on whatever gfehd was current the first time it was
+//     built on that machine, and the integration and UI suites start real
+//     partitions against it.
+func TestGfehBuildsDefeatTheLayerCache(t *testing.T) {
 	t.Parallel()
 
 	script := readRepoFile(t, buildScript)
 
-	release := caseArm(t, script, "release-gfeh")
+	release := withoutComments(caseArm(t, script, "release-gfeh"))
 	if !strings.Contains(release, "--no-cache") {
 		t.Error("release-gfeh does not pass --no-cache; podman would serve the first build's crate forever and a release would ship a stale gfehd")
 	}
 
-	local := caseArm(t, script, "gfeh-local")
+	local := withoutComments(caseArm(t, script, "gfeh-local"))
 	if strings.Contains(local, "--no-cache") {
 		t.Error("gfeh-local passes --no-cache; it is a prerequisite of every test-integration and dev run and would rebuild the Rust dependency tree each time")
+	}
+	if !strings.Contains(local, `--build-arg "GFEH_CACHE_DATE=`) {
+		t.Error("gfeh-local passes no GFEH_CACHE_DATE build-arg; its cargo layer is a permanent cache hit and the fixture would freeze on an old gfehd")
+	}
+}
+
+// TestGfehCacheDateActuallyBustsTheLayer asserts Containerfile.gfeh both
+// declares GFEH_CACHE_DATE and references it inside the cargo RUN.
+//
+// The reference is the whole mechanism. An ARG that is declared but never used
+// does not invalidate the layer it precedes, so a bare declaration would look
+// exactly like a working cache-bust, pass a build, and do nothing — the same
+// class of silent no-op as the version pin this file's other tests guard.
+func TestGfehCacheDateActuallyBustsTheLayer(t *testing.T) {
+	t.Parallel()
+
+	body := readRepoFile(t, "Containerfile.gfeh")
+	if !strings.Contains(body, "ARG GFEH_CACHE_DATE") {
+		t.Error("Containerfile.gfeh does not declare ARG GFEH_CACHE_DATE")
+	}
+
+	_, afterARG, found := strings.Cut(body, "ARG GFEH_CACHE_DATE")
+	if !found {
+		return // already reported above
+	}
+	runBody, _, ok := strings.Cut(afterARG, "cargo install gfehd")
+	if !ok {
+		t.Fatal("Containerfile.gfeh has no cargo install after ARG GFEH_CACHE_DATE")
+	}
+	if !strings.Contains(runBody, "${GFEH_CACHE_DATE}") {
+		t.Error("Containerfile.gfeh declares GFEH_CACHE_DATE but never references it before the cargo install; an unused ARG does not invalidate the layer, so the daily bust would silently do nothing")
 	}
 }

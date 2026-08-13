@@ -16,9 +16,10 @@
 # the Makefile's and the number documented here was decoration. The two drifted
 # — this file said 0.1.2 and explained at length why anything older cannot run
 # under Town OS, while the Makefile quietly built 0.1.1 — and nothing caught it,
-# because both suites stand in a fake gfehd and a wrong-but-real gfehd builds,
-# pushes, and installs perfectly. It only shows up as object storage that never
-# starts on a real box.
+# because a wrong-but-real gfehd builds, pushes, and installs perfectly. The
+# unit suite stands in a fake daemon; the integration and UI suites run the real
+# one, but an old daemon still starts. It only shows up as object storage that
+# never starts on a real box.
 #
 # For the record, since it is the reason the pin existed: 0.1.1 cannot parse a
 # partition config carrying any SMB user (every gfehd config struct is
@@ -61,13 +62,19 @@ RUN set -eux; \
 # The layer this produces is the one podman would happily serve from cache
 # forever, which for a build whose whole contract is "whatever crates.io holds
 # today" would quietly freeze the crate at whatever was current the first time.
-# make/build.sh passes --no-cache on the release build for exactly that reason;
-# the local test-fixture build keeps the cache, because it is rebuilt on every
-# test run and only needs a real gfehd, not the newest one.
+# Both builds defeat that: release-gfeh passes --no-cache, and gfeh-local passes
+# GFEH_CACHE_DATE so the fixture rebuilds once a day instead of recompiling the
+# dependency tree on every test-integration and dev run.
 #
+# GFEH_CACHE_DATE is a cache key, not a version knob — it never reaches cargo.
+# It must be referenced in the RUN, not merely declared: an unused ARG does not
+# invalidate the layer.
+ARG GFEH_CACHE_DATE
+
 # cargo install writes to <root>/bin regardless of --target, so the COPY below
 # is the same path either way.
 RUN set -eux; \
+    : "cache key ${GFEH_CACHE_DATE}"; \
     if [ -f /rust-target ]; then \
       rust_target="$(cat /rust-target)"; \
       linker_var="CARGO_TARGET_$(echo "${rust_target}" | tr 'a-z-' 'A-Z_')_LINKER"; \

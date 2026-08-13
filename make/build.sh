@@ -159,11 +159,16 @@ case "$1" in
     # No --pull=never: rust:1-bookworm is the builder base and is deliberately
     # NOT in BASE_IMAGES (it is ~1.5G and only this target needs it), so the
     # host store may not have it on a fresh checkout.
-    # Cached, unlike the release build below: this is a test fixture that needs
-    # a real gfehd, not necessarily today's, and it is a prerequisite of every
-    # test-integration and dev run — rebuilding the Rust dependency tree on
-    # each one would cost minutes per invocation.
+    # Busted daily rather than --no-cache'd like the release build below. This
+    # fixture is a prerequisite of every test-integration and dev run, so
+    # --no-cache would recompile the Rust dependency tree on each one. It cannot
+    # stay purely cached either: the NC, ingress and UI fixtures take their
+    # content from repo source, so a source change busts their layer, but this
+    # one takes gfehd from crates.io behind a byte-identical RUN line. A pure
+    # cache hit freezes it on whatever was current the first time it was built
+    # here, and the integration and UI suites start real partitions against it.
     ${SUDO} podman build --network=host \
+      --build-arg "GFEH_CACHE_DATE=$(date +%Y%m%d)" \
       --volume "$(pwd)/.cache/cargo-registry:/usr/local/cargo/registry:z" \
       -t "${GFEH_IMAGE}" -f Containerfile.gfeh .
     save_image_cache "${GFEH_IMAGE}"
@@ -252,8 +257,8 @@ case "$1" in
     # build is for.
     #
     # The cargo registry volume survives --no-cache, so this re-compiles the
-    # dependency tree but does not re-download it. Only the release path pays
-    # it; the local fixture above stays cached.
+    # dependency tree but does not re-download it. Only the release path pays it
+    # on every build; the local fixture above pays it once a day.
     ${SUDO} podman build --network=host --no-cache "${BUILD_PLATFORM_ARGS[@]}" \
       --volume "$(pwd)/.cache/cargo-registry:/usr/local/cargo/registry:z" \
       -t "${RELEASE_GFEH_IMAGE}" -f Containerfile.gfeh .
