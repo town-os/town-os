@@ -108,9 +108,10 @@ type boot struct {
 	dnsTLD string
 
 	// Monitoring.
-	monPorts    monitoring.Ports
-	monBackend  string
-	diskDevices []string
+	monPorts       monitoring.Ports
+	monBackend     string
+	diskDevices    []string
+	swapCapability monitoring.SwapCapability
 
 	// System services.
 	tlsCA      *townostls.CA
@@ -569,6 +570,21 @@ func (b *boot) readMonitoringSettings(ctx context.Context) {
 		fmt.Fprintf(os.Stderr, "btrfs disk device discovery: %v\n", diskErr)
 	}
 	b.diskDevices = diskDevices
+
+	// Whether this pool can host a swapfile at all. Probed ONCE here, with the
+	// device list just discovered, because it cannot change without
+	// re-formatting the pool and the alternative is a `btrfs filesystem df`
+	// subprocess on every status poll. Live usage is read per request from
+	// /proc/swaps instead; only this static half is cached.
+	//
+	// It is worth reporting because on any multi-disk box the answer is a
+	// permanent no — btrfs cannot swap on a multi-device filesystem — and
+	// without this the user just finds no swap and no explanation.
+	b.swapCapability = monitoring.ProbeSwapCapability(b.btrfsPath, diskDevices) //nolint:contextcheck // ProbeSwapCapability accepts no context
+	if !b.swapCapability.Supported {
+		fmt.Fprintf(os.Stderr, "swapfile unavailable on %s: %s (devices=%d profiles=%v)\n",
+			b.btrfsPath, b.swapCapability.Reason, b.swapCapability.Devices, b.swapCapability.DataProfiles)
+	}
 }
 
 // bootServices is the boot_services stage: pull the core images, start
@@ -915,6 +931,7 @@ func (b *boot) serve(ctx context.Context) error {
 		TLSCA:                      b.tlsCA,
 		MonitoringBackend:          b.monBackend,
 		DiskDevices:                b.diskDevices,
+		SwapCapability:             b.swapCapability,
 		MonitoringPorts:            b.monPorts,
 		Rolodex:                    b.rolMgr,
 		Ingress:                    b.ingressMgr,

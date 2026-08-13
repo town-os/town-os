@@ -176,6 +176,20 @@ const mockRemovePackageVolumeGroup = vi.fn(() => Promise.resolve())
 const mockCreateFilesystem = vi.fn(() => Promise.resolve())
 const mockModifyFilesystem = vi.fn(() => Promise.resolve())
 const mockRemoveFilesystem = vi.fn(() => Promise.resolve())
+// The swap panel polls ping. Default to a pool that cannot swap, because that
+// is what a multi-disk Town OS looks like and it is the case the panel exists
+// to explain; individual tests override it.
+const mockPing = vi.fn(() =>
+  Promise.resolve({
+    swap: {
+      supported: false,
+      reason: 'multi_device',
+      devices: 4,
+      data_profiles: ['RAID5'],
+      active: false,
+    },
+  }),
+)
 
 vi.mock('@/lib/client-instance.js', () => ({
   default: () => ({
@@ -189,6 +203,7 @@ vi.mock('@/lib/client-instance.js', () => ({
     downloadArchive: vi.fn(() => Promise.resolve({ body: null, blob: () => Promise.resolve(new Blob()) })),
     uploadArchive: vi.fn(() => Promise.resolve({ message: 'ok' })),
     getSetting: vi.fn(() => Promise.resolve('53687091200')),
+    ping: mockPing,
   }),
 }))
 
@@ -221,6 +236,17 @@ describe('StorageManagement component', () => {
       }),
     )
     mockListPackageVolumes.mockImplementation(() => Promise.resolve([]))
+    mockPing.mockImplementation(() =>
+      Promise.resolve({
+        swap: {
+          supported: false,
+          reason: 'multi_device',
+          devices: 4,
+          data_profiles: ['RAID5'],
+          active: false,
+        },
+      }),
+    )
   })
 
   it('renders the Storage heading', async () => {
@@ -768,5 +794,86 @@ describe('parseQuotaFromForm logic', () => {
 
   it('handles fractional TB values', () => {
     expect(parseQuotaFromForm('0.25', 'TB')).toBe(Math.round(0.25 * 1024 * 1024 * 1024 * 1024))
+  })
+})
+
+describe('StorageManagement swap panel', () => {
+  beforeEach(() => {
+    mockListFilesystems.mockImplementation(() =>
+      Promise.resolve({ entries: [], has_more: false, total_pages: 1, total_count: 0 }),
+    )
+    mockListPackageVolumes.mockImplementation(() => Promise.resolve([]))
+  })
+
+  it('explains WHY a multi-disk pool has no swap, and names the layout', async () => {
+    // The whole point of the panel: without it a user with several disks just
+    // finds no swap and no reason. "Unsupported" alone would not be enough
+    // either, so the device count and profile have to be on screen too.
+    mockPing.mockImplementation(() =>
+      Promise.resolve({
+        swap: { supported: false, reason: 'multi_device', devices: 4, data_profiles: ['RAID5'], active: false },
+      }),
+    )
+    renderStorageManagement()
+
+    await waitFor(() => {
+      expect(screen.getByText(/btrfs can only place a swapfile on a single-device filesystem/i)).toBeTruthy()
+    })
+    expect(screen.getByText(/4 device\(s\), data profile: RAID5/)).toBeTruthy()
+  })
+
+  it('reports usage when swap is active', async () => {
+    mockPing.mockImplementation(() =>
+      Promise.resolve({
+        swap: {
+          supported: true,
+          devices: 1,
+          data_profiles: ['single'],
+          active: true,
+          size_bytes: 2 * 1024 * 1024 * 1024,
+          used_bytes: 512 * 1024 * 1024,
+        },
+      }),
+    )
+    renderStorageManagement()
+
+    await waitFor(() => {
+      expect(screen.getByText(/512.*MB.*\/.*2.*GB.*used/)).toBeTruthy()
+    })
+  })
+
+  it('distinguishes supported-but-not-yet-active from unsupported', async () => {
+    mockPing.mockImplementation(() =>
+      Promise.resolve({
+        swap: { supported: true, devices: 1, data_profiles: ['single'], active: false },
+      }),
+    )
+    renderStorageManagement()
+
+    await waitFor(() => {
+      expect(screen.getByText('Set up, but not active yet')).toBeTruthy()
+    })
+    expect(screen.queryByText(/runs without swap/i)).toBeNull()
+  })
+
+  it('falls back to the probe-failed wording when reason is absent', async () => {
+    // An unsupported capability with no reason must not render a raw
+    // "storage.swap_reason_" key at the user.
+    mockPing.mockImplementation(() =>
+      Promise.resolve({ swap: { supported: false, devices: 0, active: false } }),
+    )
+    renderStorageManagement()
+
+    await waitFor(() => {
+      expect(screen.getByText(/storage layout could not be read/i)).toBeTruthy()
+    })
+  })
+
+  it('renders nothing when the server reports no swap field', async () => {
+    mockPing.mockImplementation(() => Promise.resolve({}))
+    renderStorageManagement()
+
+    await waitFor(() => expect(mockPing).toHaveBeenCalled())
+    expect(screen.queryByText('Swap')).toBeNull()
   })
 })

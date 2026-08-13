@@ -109,6 +109,7 @@ type serviceBackend interface {
 	GetMonitoringBackend() string
 	GetMonitoringPorts() monitoring.Ports
 	GetDiskDevices() []string
+	GetSwapCapability() monitoring.SwapCapability
 	RefreshMonitoringBackend(ctx context.Context, backend string) error
 }
 
@@ -445,6 +446,13 @@ type ServerConfig struct {
 	// Grafana dashboard can sum node_disk_* metrics over only those
 	// devices. Nil when discovery fails.
 	DiskDevices []string
+	// SwapCapability records whether the btrfs pool at BtrfsBasePath can host
+	// a swapfile at all, probed once at startup (the layout cannot change
+	// without re-formatting). Reported through /status/ping so a box that can
+	// never have swap — any multi-disk pool, since btrfs refuses to swap on a
+	// multi-device filesystem — explains itself instead of silently having
+	// none. Live usage is read per request; only this static half is cached.
+	SwapCapability monitoring.SwapCapability
 	// MonitoringPorts are the host ports the three monitoring system services
 	// bind. The zero value means the documented defaults (9100/9090/5308); the
 	// integration harness sets ephemeral ports so a test box never collides

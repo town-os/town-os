@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"gitea.com/town-os/town-os/src/account"
+	"gitea.com/town-os/town-os/src/monitoring"
 	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/storage"
 	"gitea.com/town-os/town-os/src/systemd"
@@ -43,6 +44,10 @@ type PingResponse struct {
 	InstalledVolumes   int                `json:"installed_volumes"`
 	UninstalledVolumes int                `json:"uninstalled_volumes"`
 	DiskUsage          *storage.DiskUsage `json:"disk_usage,omitempty"`
+	// Swap reports whether this box can have a swapfile, and its usage if it
+	// does. Present so a pool that can never host one — any multi-disk btrfs —
+	// says so rather than silently showing no swap.
+	Swap *monitoring.SwapCapability `json:"swap,omitempty"`
 	UpgradesAvailable  int                `json:"upgrades_available"`
 	UpgradesDismissed  bool               `json:"upgrades_dismissed,omitempty"`
 	RepositoryErrors   map[string]string  `json:"repository_errors,omitempty"`
@@ -133,6 +138,22 @@ func (s *SystemControllerHandlers) ping(c *echo.Context) error {
 		if err == nil {
 			resp.DiskUsage = &du
 		}
+
+		// Swap capability. The static half (can this pool host a swapfile at
+		// all) was probed once at startup — it cannot change without
+		// re-formatting, and re-running `btrfs filesystem df` on every poll
+		// would be a subprocess per ping. Only the live usage is read here,
+		// and that is one small procfs read.
+		swap := s.Controller.GetSwapCapability()
+		if swap.Path != "" {
+			active, size, used, swapErr := monitoring.SwapUsage(swap.Path)
+			if swapErr != nil {
+				slog.Debug("reading swap usage", "error", swapErr)
+			} else {
+				swap.Active, swap.SizeBytes, swap.UsedBytes = active, size, used
+			}
+		}
+		resp.Swap = &swap
 	}
 
 	if rr := s.Controller.GetRepositoryRoot(); rr != nil {

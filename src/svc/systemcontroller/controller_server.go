@@ -180,6 +180,9 @@ func (s *serverBase) GetPagesManager() account.PagesManager       { return s.Pag
 func (s *serverBase) GetNetworkManager() account.NetworkManager   { return s.NetworkMgr }
 func (s *serverBase) GetMonitoringBackend() string                { return s.MonitoringBackend }
 func (s *serverBase) GetDiskDevices() []string              { return s.DiskDevices }
+func (s *serverBase) GetSwapCapability() monitoring.SwapCapability {
+	return s.SwapCapability
+}
 func (s *serverBase) GetMonitoringPorts() monitoring.Ports  { return s.MonitoringPorts }
 
 // RefreshMonitoringBackend switches the monitoring UI to the given backend

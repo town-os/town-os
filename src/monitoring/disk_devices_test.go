@@ -82,3 +82,90 @@ func TestBtrfsDevicesEmptyMountpoint(t *testing.T) {
 		t.Fatal("expected error for empty mountpoint")
 	}
 }
+
+func TestParseBtrfsDataProfiles(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		in   string
+		want []string
+	}{
+		{
+			name: "single device, single profile",
+			in: `Data, single: total=1.15TiB, used=1.13TiB
+System, single: total=32.00MiB, used=144.00KiB
+Metadata, single: total=12.00GiB, used=6.45GiB
+GlobalReserve, single: total=512.00MiB, used=0.00B
+`,
+			want: []string{"single"},
+		},
+		{
+			name: "raid5 data, raid1c3 metadata",
+			in: `Data, RAID5: total=150.00GiB, used=1.80GiB
+System, RAID1C3: total=32.00MiB, used=16.00KiB
+Metadata, RAID1C3: total=1.00GiB, used=25.00MiB
+GlobalReserve, single: total=512.00MiB, used=0.00B
+`,
+			// Only the Data row counts: metadata and GlobalReserve profiles
+			// are irrelevant to where a swapfile's extents land, and the
+			// GlobalReserve row is "single" on a RAID filesystem, so reading
+			// any row but Data would call this swappable.
+			want: []string{"RAID5"},
+		},
+		{
+			name: "mid-convert filesystem carrying two data profiles",
+			in: `Data, single: total=10.00GiB, used=9.00GiB
+Data, RAID1: total=20.00GiB, used=1.00GiB
+Metadata, RAID1: total=1.00GiB, used=25.00MiB
+`,
+			want: []string{"RAID1", "single"},
+		},
+		{
+			name: "mixed block groups report Data+Metadata",
+			in: `Data+Metadata, single: total=8.00MiB, used=1.00MiB
+System, single: total=4.00MiB, used=16.00KiB
+`,
+			want: []string{"single"},
+		},
+		{
+			name: "repeated identical profile is reported once",
+			in: `Data, single: total=10.00GiB, used=9.00GiB
+Data, single: total=20.00GiB, used=1.00GiB
+`,
+			want: []string{"single"},
+		},
+		{
+			name: "empty output",
+			in:   "",
+			want: nil,
+		},
+		{
+			name: "no data rows",
+			in:   "Metadata, RAID1: total=1.00GiB, used=25.00MiB\n",
+			want: nil,
+		},
+		{
+			name: "malformed rows are ignored",
+			in:   "Data single total=1\nData,\ngarbage\n",
+			want: nil,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := parseBtrfsDataProfiles([]byte(tc.in))
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("parseBtrfsDataProfiles = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestBtrfsDataProfilesEmptyMountpoint(t *testing.T) {
+	t.Parallel()
+	if _, err := BtrfsDataProfiles(""); err == nil {
+		t.Fatal("expected an error for an empty mountpoint")
+	}
+}

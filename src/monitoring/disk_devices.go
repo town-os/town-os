@@ -16,7 +16,8 @@ import (
 	"time"
 )
 
-// btrfsShowTimeout caps the fallback `btrfs filesystem show` invocation.
+// btrfsShowTimeout caps the `btrfs filesystem show` fallback and the
+// `btrfs filesystem df` probe below.
 const btrfsShowTimeout = 10 * time.Second
 
 // BtrfsDevices returns the kernel device basenames (e.g., "sda3",
@@ -133,6 +134,79 @@ func parseBtrfsShowOutput(out []byte) []string {
 	}
 	sort.Strings(devices)
 	return devices
+}
+
+// BtrfsDataProfiles returns every DISTINCT data block-group profile in use on
+// the btrfs filesystem mounted at mountpoint — "single", "RAID1", "RAID5" and
+// so on — sorted for determinism.
+//
+// It returns a slice rather than one string because a filesystem caught
+// part-way through a `btrfs balance -dconvert` genuinely carries two data
+// profiles at once, and a caller that assumed one would silently read only the
+// first. Anything that cares about swap must treat that as "not a single data
+// profile", which is only expressible if the plural case survives the API.
+//
+// There is no sysfs equivalent to read the way BtrfsDevices has one: the
+// allocation profile per block-group type is only reported by the CLI.
+func BtrfsDataProfiles(mountpoint string) ([]string, error) {
+	if mountpoint == "" {
+		return nil, errors.New("monitoring: empty mountpoint")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), btrfsShowTimeout)
+	defer cancel()
+	//nolint:gosec // G204 -- mountpoint comes from the systemcontroller's -btrfs flag, not user input
+	out, err := exec.CommandContext(ctx, "btrfs", "filesystem", "df", mountpoint).CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("monitoring: btrfs filesystem df %s: %w (%s)", mountpoint, err, strings.TrimSpace(string(out)))
+	}
+	profiles := parseBtrfsDataProfiles(out)
+	if len(profiles) == 0 {
+		return nil, fmt.Errorf("monitoring: no data block groups reported for %s", mountpoint)
+	}
+	return profiles, nil
+}
+
+// parseBtrfsDataProfiles extracts the distinct data profiles from
+// `btrfs filesystem df` output, whose lines look like:
+//
+//	Data, single: total=1.15TiB, used=1.13TiB
+//	Metadata, RAID1: total=1.00GiB, used=25.00MiB
+//
+// Only the data rows are of interest, and "Data+Metadata" counts as one of
+// them: a filesystem made with mixed block groups (which mkfs.btrfs still does
+// for small devices) reports data that way, and its profile governs data
+// extents just the same.
+//
+// Pure parser so it is testable without a real btrfs.
+func parseBtrfsDataProfiles(out []byte) []string {
+	seen := map[string]struct{}{}
+	var profiles []string
+	scanner := bufio.NewScanner(bytes.NewReader(out))
+	for scanner.Scan() {
+		kind, rest, ok := strings.Cut(scanner.Text(), ",")
+		if !ok {
+			continue
+		}
+		kind = strings.TrimSpace(kind)
+		if kind != "Data" && kind != "Data+Metadata" {
+			continue
+		}
+		profile, _, ok := strings.Cut(rest, ":")
+		if !ok {
+			continue
+		}
+		profile = strings.TrimSpace(profile)
+		if profile == "" {
+			continue
+		}
+		if _, dup := seen[profile]; dup {
+			continue
+		}
+		seen[profile] = struct{}{}
+		profiles = append(profiles, profile)
+	}
+	sort.Strings(profiles)
+	return profiles
 }
 
 // parseMajorMinor parses a "major:minor" string as written in the

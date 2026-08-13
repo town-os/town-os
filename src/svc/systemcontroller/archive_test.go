@@ -168,6 +168,9 @@ func (b *archiveTestBackend) GetInternalIP() string                             
 func (b *archiveTestBackend) GetInternalIPv6() string                             { return "" }
 func (b *archiveTestBackend) GetMonitoringBackend() string { return "" }
 func (b *archiveTestBackend) GetDiskDevices() []string     { return nil }
+func (b *archiveTestBackend) GetSwapCapability() monitoring.SwapCapability {
+	return monitoring.SwapCapability{}
+}
 func (b *archiveTestBackend) GetMonitoringPorts() monitoring.Ports {
 	return monitoring.Ports{}
 }

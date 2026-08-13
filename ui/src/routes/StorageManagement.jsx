@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import getClient from '@/lib/client-instance.js'
 import { usePolling } from '@/lib/hooks.js'
-import { PAGE_SIZE } from '@/lib/utils.js'
+import { PAGE_SIZE, formatBytes } from '@/lib/utils.js'
 import { UNITS, formatQuota, decomposeQuota, deriveServiceName } from '@/lib/storage-utils.jsx'
 import { useI18n } from '@/i18n/I18nContext.jsx'
 import DataTable from '@/components/DataTable.jsx'
@@ -21,7 +21,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog'
-import { Plus, Trash2, Pencil, HardDrive } from 'lucide-react'
+import { Plus, Trash2, Pencil, HardDrive, ArrowDownUp } from 'lucide-react'
 
 export default function StorageManagement() {
   const { t } = useI18n()
@@ -63,6 +63,12 @@ export default function StorageManagement() {
     [],
     [refreshKey, showAll],
   )
+
+  // Swap lives with the pool because it is a property of the pool: on a
+  // multi-disk box btrfs refuses to swap at all, and this panel is the only
+  // place a user is told that rather than just finding no swap.
+  const [ping] = usePolling(() => getClient().ping(), null, [], 60000)
+  const swap = ping?.swap
 
   const loading = userLoading || pkgLoading
 
@@ -350,6 +356,43 @@ export default function StorageManagement() {
 
       {loading && userFilesystems.length === 0 && packageGroups.length === 0 && (
         <div className="text-center py-8 text-muted-foreground animate-pulse">{t('storage.loading')}</div>
+      )}
+
+      {/* Swap section */}
+      {swap && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <ArrowDownUp className="h-4 w-4 text-muted-foreground" />
+            <h3 className="text-lg font-semibold">{t('storage.swap_title')}</h3>
+          </div>
+          <div className="rounded-md border p-4 text-sm">
+            {swap.supported ? (
+              <p>
+                {swap.active
+                  ? t('storage.swap_active', {
+                      used: formatBytes(swap.used_bytes || 0),
+                      total: formatBytes(swap.size_bytes || 0),
+                    })
+                  : t('storage.swap_inactive')}
+              </p>
+            ) : (
+              <>
+                <p className="text-muted-foreground">
+                  {t(`storage.swap_reason_${swap.reason || 'probe_failed'}`)}
+                </p>
+                {/* The layout is what makes the reason actionable — "your pool
+                    is 4 devices of RAID5" explains it in a way "unsupported"
+                    never could. */}
+                <p className="text-muted-foreground mt-1">
+                  {t('storage.swap_layout', {
+                    devices: swap.devices || 0,
+                    profiles: (swap.data_profiles || []).join(', ') || '—',
+                  })}
+                </p>
+              </>
+            )}
+          </div>
+        </div>
       )}
 
       {/* User filesystems section */}
