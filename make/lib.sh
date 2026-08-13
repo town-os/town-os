@@ -477,9 +477,25 @@ ensure_image_cache_dir() {
   mkdir -p "${IMAGE_CACHE}"
 }
 
-# image_cache_tar IMAGE — path to the cached tar for an image.
+# image_cache_tar IMAGE [ARCH] — path to the cached tar for an image, for ARCH
+#   (OCI form: amd64/arm64). Defaults to the host's architecture.
+#
+# The arch is IN THE FILENAME, and that is the whole point. Podman's storage is
+# keyed by name:tag with no room for two architectures at once, so pulling
+# docker.io/library/debian:bookworm-slim for arm64 repoints that name at the
+# arm64 image and the amd64 one becomes dangling. That part is unavoidable. What
+# is avoidable is the CACHE having the same problem: with one tar per image
+# name, a cross build's `podman save` overwrote the host-arch tar, so the two
+# architectures evicted each other and every switch between them cost a full
+# network re-pull of every base image.
+#
+# Keyed by arch, each architecture keeps its own tar, storage is restored from a
+# local load instead of a pull, and a wrong-arch image can no longer be handed
+# out under a name that claims otherwise.
 image_cache_tar() {
-  printf '%s/%s.tar' "${IMAGE_CACHE}" "$(image_safe_name "$1")"
+  local arch="${2:-}"
+  [ -n "${arch}" ] || arch="$(host_arch)" || return 1
+  printf '%s/%s-%s.tar' "${IMAGE_CACHE}" "$(image_safe_name "$1")" "${arch}"
 }
 
 # save_image_cache IMAGE — save an image to the checkout's cache, replacing any existing tar.
@@ -490,9 +506,20 @@ image_cache_tar() {
 # pull leaves at most a stray .tmp file, never a truncated cache entry. The
 # temp name is per-PID unique so concurrent writers don't collide, and `mv` on the same
 # filesystem atomically replaces the target — IRON RULE.
+#
+# The arch is read back OFF THE IMAGE rather than taken on trust, so a tar can
+# only ever land under the architecture it actually contains. Passing the wrong
+# arch (or defaulting to the host's while holding a cross-built image) would
+# poison the cache in the one way that is expensive to notice: a load that
+# succeeds and produces an image nothing on this machine can execute.
 save_image_cache() {
-  local tar tmp
-  tar="$(image_cache_tar "$1")"
+  local tar tmp arch
+  arch="$(${SUDO} podman image inspect "$1" --format '{{.Architecture}}' 2>/dev/null)"
+  if [ -z "${arch}" ]; then
+    warn "$1: cannot read architecture; not caching"
+    return 1
+  fi
+  tar="$(image_cache_tar "$1" "${arch}")" || return 1
   tmp="${tar}.tmp.$$"
   ${SUDO} podman save -o "${tmp}" "$1"
   ${SUDO} mv -f "${tmp}" "${tar}"
@@ -509,16 +536,26 @@ image_arch_matches() {
   [ "${have}" = "${want}" ]
 }
 
-# ensure_image IMAGE — make sure a HOST-ARCH image is in podman storage.
+# ensure_image IMAGE [ARCH] — make sure an image of ARCH (OCI form, default the
+#   host's) is the one in podman storage under that name.
 #   Checks podman storage first (validating architecture), then the cache,
-#   then pulls (pinned to the host platform). A wrong-architecture image found
-#   in storage or in the cache is purged and re-pulled so the host always ends
+#   then pulls (pinned to that platform). A wrong-architecture image found
+#   in storage or in the cache is purged and replaced so the caller always ends
 #   up with an image podman can actually build FROM.
 #   Returns 1 if the pull fails (caller can decide to continue or abort).
+#
+# ARCH exists because storage holds one image per name and a cross build needs
+# the OTHER one. Calling this before a build makes the store's contents a
+# decision rather than a side effect of whichever build pulled last: previously
+# a cross build let podman fetch the target-arch base implicitly, silently
+# repointing the name, and the next native build found the wrong architecture
+# there. With per-arch cache tars the swap back is a local load, so alternating
+# between architectures no longer re-pulls anything.
 ensure_image() {
   local img="$1" tar arch
-  tar="$(image_cache_tar "${img}")"
-  arch="$(host_arch)" || return 1
+  arch="${2:-}"
+  [ -n "${arch}" ] || arch="$(host_arch)" || return 1
+  tar="$(image_cache_tar "${img}" "${arch}")" || return 1
 
   if ${SUDO} podman image exists "${img}" 2>/dev/null; then
     if image_arch_matches "${img}" "${arch}"; then
@@ -529,9 +566,14 @@ ensure_image() {
       [ -f "${tar}" ] || save_image_cache "${img}"
       return 0
     fi
-    warn "${img}: wrong architecture in storage (want ${arch}) — re-pulling"
+    # Drop the image, KEEP the tar. The tar is keyed by the architecture we
+    # want, so it is not the thing that is wrong here — storage simply holds the
+    # other arch, because the last build that touched this name was for the
+    # other arch. Deleting it would re-pull over the network on every switch
+    # between architectures, which is precisely what per-arch tars exist to
+    # stop; the cache load below is the fast path this falls into.
+    warn "${img}: wrong architecture in storage (want ${arch}) — replacing"
     ${SUDO} podman rmi -f "${img}" 2>/dev/null || true
-    ${SUDO} rm -f "${tar}"
   fi
 
   if [ -f "${tar}" ]; then
@@ -555,19 +597,25 @@ ensure_image() {
 
 # load_images_into_container CONTAINER IMAGE... — copy cached image tars into
 #   a container and load them with the container's inner podman.
+#
+# Always the HOST-arch tar, never a cross target's: these containers are run
+# here, on this machine, so a foreign-arch image loaded into one is an
+# `exec format error` waiting for whatever starts it. require_native_target
+# already refuses a cross TARGET for every target that calls this, so asking
+# for the host arch here is stating that constraint rather than adding one.
 load_images_into_container() {
   local container="$1"; shift
   for img in "$@"; do
     local safe tar
     safe="$(image_safe_name "${img}")"
-    tar="${IMAGE_CACHE}/${safe}.tar"
+    tar="$(image_cache_tar "${img}")" || return 1
     if [ -f "${tar}" ]; then
       substep "Loading ${img}"
       ${SUDO} podman cp "${tar}" "${container}:/tmp/${safe}.tar"
       ${SUDO} podman exec "${container}" podman load -i "/tmp/${safe}.tar"
       ${SUDO} podman exec "${container}" rm -f "/tmp/${safe}.tar"
     else
-      warn "Missing cached image ${safe}.tar for ${img}"
+      warn "Missing cached image $(basename "${tar}") for ${img}"
     fi
   done
 }

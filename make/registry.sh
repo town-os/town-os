@@ -9,7 +9,7 @@ case "$1" in
     step "Starting local registry"
     # Start a local registry:2 container.
     remove_container "${REGISTRY_CONTAINER}"
-    ${SUDO} podman load -i "${IMAGE_CACHE}/registry-2.tar"
+    ${SUDO} podman load -i "$(image_cache_tar docker.io/library/registry:2)"
     # --replace: ensure concurrent make test-full runs never conflict on container names
     # --net host: bridge-network containers get broken DNS on captive networks
     # (public resolvers blocked); the registry needs outbound access for its

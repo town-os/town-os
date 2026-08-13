@@ -17,7 +17,7 @@ test -n "${TOWN_OS_REPO_USERNAME}" || { echo "ERROR: TOWN_OS_REPO_USERNAME not s
 test -n "${TOWN_OS_REPO_PASSWORD}" || { echo "ERROR: TOWN_OS_REPO_PASSWORD not set"; exit 1; }
 
 substep "Checking bridge networking"
-${SUDO} podman load -i "${IMAGE_CACHE}/nginx-1.27-alpine.tar"
+${SUDO} podman load -i "$(image_cache_tar docker.io/library/nginx:1.27-alpine)"
 port=$(cat "${STATE_DIR}/.integration-port")
 if ${SUDO} podman run --replace --pull=never --rm -d --name "${PREFLIGHT_CONTAINER}" -p "${port}:80" docker.io/library/nginx:1.27-alpine >/dev/null 2>&1 && \
    sleep 2 && \

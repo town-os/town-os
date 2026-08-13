@@ -27,9 +27,17 @@ ARCH="$(build_arch_tag)"
 # BUILD_PLATFORM_ARGS sets the platform every *runtime* stage resolves to; the
 # toolchain stages override it back with FROM --platform=$BUILDPLATFORM and
 # cross-compile, so nothing large is ever emulated. PULL_ARGS drops the
-# --pull=never that the native release path relies on: the image cache holds
-# host-arch bases only (its tars are keyed by image name, not by arch), so on a
-# cross build podman has to be allowed to fetch the target-arch base itself.
+# --pull=never that the native release path relies on, so podman may fetch the
+# target-arch runtime base itself.
+#
+# That fetch repoints the name in podman storage at the target arch, and it has
+# to: storage holds one image per name:tag and the runtime stage needs the other
+# one. What it no longer does is destroy anything. The cache tars are keyed by
+# architecture (image_cache_tar in lib.sh), so the host-arch copy survives
+# untouched, and the next native build's ensure_image sees the wrong arch in
+# storage and restores its own from a local `podman load` rather than a network
+# pull. Before that keying the two architectures evicted each other from a
+# single tar, and every alternation between them re-pulled every base image.
 BUILD_PLATFORM_ARGS=()
 PULL_ARGS=(--pull=never)
 if cross_building; then

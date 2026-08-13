@@ -17,7 +17,7 @@ case "$1" in
     # If any cached image tar is missing, pull everything.
     for img in ${ALL_IMAGES}; do
       if [ ! -f "$(image_cache_tar "${img}")" ]; then
-        warn "Image cache incomplete (missing $(image_safe_name "${img}").tar) — running pull-images"
+        warn "Image cache incomplete (missing $(basename "$(image_cache_tar "${img}")")) — running pull-images"
         ${MAKE} pull-images
         break
       fi

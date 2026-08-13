@@ -9,7 +9,7 @@ case "$1" in
     step "Starting Gitea"
     # Start a local Gitea container and create the admin user.
     remove_container "${GITEA_CONTAINER}"
-    ${SUDO} podman load -i "${IMAGE_CACHE}/gitea-latest.tar"
+    ${SUDO} podman load -i "$(image_cache_tar docker.io/gitea/gitea:latest)"
     # --replace: ensure concurrent make test-full runs never conflict on container names
     # --net host: bridge-network containers get broken DNS on captive networks
     # (public resolvers blocked); Gitea needs outbound access for repository
