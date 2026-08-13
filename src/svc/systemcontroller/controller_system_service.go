@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
 	"os/exec"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	"gitea.com/town-os/town-os/src/account"
 	"gitea.com/town-os/town-os/src/monitoring"
 	"gitea.com/town-os/town-os/src/systemd"
 	"github.com/labstack/echo/v5"
@@ -230,8 +232,44 @@ var pullImage = func(ctx context.Context, image string) error {
 	return nil
 }
 
+// autoUpdateDisabled reports whether a SCHEDULED refresh should be skipped.
+//
+// Only the timer's refresh consults this. An operator who presses the update
+// button is making an explicit request, and a setting named "update
+// automatically" has nothing to say about it — disabling the daily update must
+// not disable the ability to update.
+//
+// Unreadable settings fall through to enabled, which is the safe direction: the
+// installer ships only the systemcontroller and rolodex images, so a box that
+// stops pulling is a box missing most of its services. A broken settings read
+// should not quietly strand one there.
+func (s *SystemControllerHandlers) autoUpdateDisabled(ctx context.Context) bool {
+	mgr := s.Controller.GetSettingsManager()
+	if mgr == nil {
+		return false
+	}
+	v, err := mgr.Get(ctx, account.AutoUpdateKey)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "auto-update setting read: %v\n", err)
+		return false
+	}
+	return autoUpdateDisabledValue(v)
+}
+
 func (s *SystemControllerHandlers) refreshSystemServices(c *echo.Context) error {
 	ctx := c.Request().Context()
+
+	// The daily timer marks its own call so the setting can gate it without
+	// gating the operator (see autoUpdateDisabled). 200 rather than an error:
+	// the timer asked whether to update and got a valid answer of "not now",
+	// which is not a failure for `systemctl status` to show in red.
+	if c.Request().URL.Query().Get(ScheduledRefreshQuery) != "" && s.autoUpdateDisabled(ctx) {
+		return c.JSON(200, map[string]string{
+			"status": "skipped",
+			"reason": account.AutoUpdateKey + " is disabled",
+		})
+	}
+
 	svcs := s.collectSystemServices()
 
 	// Pull every system-service image, in dependency order: the systemcontroller

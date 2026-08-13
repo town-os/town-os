@@ -54,6 +54,11 @@ var DefaultSettings = map[string]string{
 	// per-user volume default would surprise somebody the first time a photo
 	// library outgrew it. An operator who wants a limit sets one.
 	"gfeh_partition_quota": "0",
+
+	// Whether the daily update timer is allowed to run. See settings_update.go
+	// for the key and what its values mean, and DESIGN.md's "Automatic updates"
+	// for the timer that reads it.
+	AutoUpdateKey: AutoUpdateDefault,
 }
 
 // Object storage has no on/off setting. Storing files is what the box is for,

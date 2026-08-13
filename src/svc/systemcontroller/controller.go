@@ -370,7 +370,12 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 	// System Services
 	e.Add("GET", "/system-services", s.listSystemServices, s.localhostOrAuth)
 	e.Add("POST", "/system-services/status", s.setSystemServiceStatus, s.requireAdmin)
-	e.Add("POST", "/system-services/refresh", s.refreshSystemServices, s.requireAdmin)
+	// localhostOrAdmin, not requireAdmin: the daily update timer
+	// (maintenance_update.go) POSTs here over loopback with no credentials to
+	// hold. Off-box callers still need admin. The exemption is sound only
+	// because the source address cannot be spoofed onto loopback from the
+	// network — the same reasoning the metrics route above relies on.
+	e.Add("POST", "/system-services/refresh", s.refreshSystemServices, s.localhostOrAdmin)
 
 	// DNS
 	e.Add("GET", "/dns/status", s.dnsStatus, s.requireAuth)

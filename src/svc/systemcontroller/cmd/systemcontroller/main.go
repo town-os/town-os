@@ -360,13 +360,22 @@ var ensureImage = func(ctx context.Context, image string) error {
 // An empty string means the service is disabled for this build (the LookupEnv
 // convention UI_IMAGE, INGRESS_IMAGE and GFEH_IMAGE share), and there is
 // nothing to pull for something that will not run.
-func coreBootImages(ncImage, uiImage, gfehImage, monBackend string) []string {
+func coreBootImages(ncImage, uiImage, gfehImage, ingressImage, monBackend string) []string {
 	images := []string{
 		ncImage,
 		monitoring.PrometheusImage,
 		monitoring.NodeExporterImage,
 	}
-	for _, optional := range []string{uiImage, gfehImage} {
+	// The ingress belongs here for the same reason gfeh does, and was missing
+	// for just as long: it is started at boot, its unit runs --pull=missing, and
+	// on a cold box that means the ingress pulls itself inside `podman run`
+	// while its own readiness wait counts down. The pages service runs on this
+	// image too, so one omission stalls both.
+	//
+	// The monitoring UI needs no entry of its own: on the uPlot backend it runs
+	// the NC image (monitoring.DefaultSocatImage), which is already first in
+	// this list.
+	for _, optional := range []string{uiImage, gfehImage, ingressImage} {
 		if optional != "" {
 			images = append(images, optional)
 		}

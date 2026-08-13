@@ -19,7 +19,7 @@ import (
 // reliably not up by the time boot finished asking whether they were.
 
 func TestCoreBootImagesIncludesGfeh(t *testing.T) {
-	images := coreBootImages("nc:test", "ui:test", "gfeh:test", monitoring.BackendUPlot)
+	images := coreBootImages("nc:test", "ui:test", "gfeh:test", "ingress:test", monitoring.BackendUPlot)
 
 	if !slices.Contains(images, "gfeh:test") {
 		t.Fatalf("the object-storage image is not pulled at boot, so its unit pulls it "+
@@ -31,12 +31,13 @@ func TestCoreBootImagesIncludesGfeh(t *testing.T) {
 // assertion over the whole set so adding a service and forgetting the pull is a
 // failing test rather than a slow boot nobody traces back here.
 func TestCoreBootImagesCoversEveryEnabledService(t *testing.T) {
-	images := coreBootImages("nc:test", "ui:test", "gfeh:test", monitoring.BackendGrafana)
+	images := coreBootImages("nc:test", "ui:test", "gfeh:test", "ingress:test", monitoring.BackendGrafana)
 
 	for _, want := range []string{
 		"nc:test",
 		"ui:test",
 		"gfeh:test",
+		"ingress:test",
 		monitoring.PrometheusImage,
 		monitoring.NodeExporterImage,
 		monitoring.GrafanaImage,
@@ -47,11 +48,29 @@ func TestCoreBootImagesCoversEveryEnabledService(t *testing.T) {
 	}
 }
 
-// An empty image is the explicit off switch (GFEH_IMAGE="" / UI_IMAGE="", the
-// dev-mode convention). Pulling "" would fail every boot with a confusing
-// podman error for a service that is not going to run.
+// The ingress was the second image to go missing from this set, after gfeh and
+// for the same reason — it is started at boot, its unit runs --pull=missing, and
+// a cold box therefore pulls it from inside `podman run` while the readiness
+// wait counts down. The pages service runs on the same image, so the one
+// omission stalled two services.
+//
+// Called out separately from the coverage test above because that one runs
+// under the Grafana backend; this asserts the ingress is pulled on the default
+// backend, which is what almost every box actually runs.
+func TestCoreBootImagesIncludesIngress(t *testing.T) {
+	images := coreBootImages("nc:test", "ui:test", "gfeh:test", "ingress:test", monitoring.BackendUPlot)
+
+	if !slices.Contains(images, "ingress:test") {
+		t.Fatalf("the ingress image is not pulled at boot, so it and the pages service "+
+			"pull it themselves while their readiness waits time out. images = %v", images)
+	}
+}
+
+// An empty image is the explicit off switch (GFEH_IMAGE="" / UI_IMAGE="" /
+// INGRESS_IMAGE="", the dev-mode convention). Pulling "" would fail every boot
+// with a confusing podman error for a service that is not going to run.
 func TestCoreBootImagesSkipsDisabledServices(t *testing.T) {
-	images := coreBootImages("nc:test", "", "", monitoring.BackendUPlot)
+	images := coreBootImages("nc:test", "", "", "", monitoring.BackendUPlot)
 
 	if slices.Contains(images, "") {
 		t.Errorf("an empty image reached the pull set: %v", images)
@@ -64,7 +83,7 @@ func TestCoreBootImagesSkipsDisabledServices(t *testing.T) {
 // Grafana is ~771 MB and only one of the two backends. Pulling it under uplot
 // would cost every box that never opens Grafana most of a gigabyte.
 func TestCoreBootImagesSkipsGrafanaUnderUPlot(t *testing.T) {
-	images := coreBootImages("nc:test", "ui:test", "gfeh:test", monitoring.BackendUPlot)
+	images := coreBootImages("nc:test", "ui:test", "gfeh:test", "ingress:test", monitoring.BackendUPlot)
 
 	if slices.Contains(images, monitoring.GrafanaImage) {
 		t.Errorf("Grafana was pulled under the uplot backend: %v", images)

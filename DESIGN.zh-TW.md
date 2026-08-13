@@ -61,8 +61,8 @@ Town OS 如何運作：架構、各子系統的行為、API 介面，以及維�
 14. **啟動後台倉庫重新整理** —— goroutine 每 5 分鐘輪詢一次。
 15. **階段 `boot_dns`：寫入 Rolodex 配置，內容變化則重啟** **(非致命)** —— Rolodex 是由 systemd 管理的啟動服務。systemcontroller 寫出 `rolodex.yml`（冪等：若該檔案比二進位制更新且內容未變則跳過），並且僅在檔案確實被寫入時才重啟服務。`resolution.mode` 來自 `dns_resolution_mode` 設定；儲存值無法解析時回退到預設值，而不是渲染出一份 rolodex 會拒絕的配置。`forwarders:` 來自 `dns_local_forwarders` 設定：開啟時，該列表在每次啟動時從宿主機的解析器中發現，因此換了網路的機器無需操作者做任何事就能用上新的解析器（參見 [Local forwarders](#本地轉發器)）。rolodex 容器以 `--net host` 執行，並直接把 DNS 繫結到 `127.0.0.2:{port}`。隨後等待 DNS 就緒（TCP 連線輪詢），並配置 systemd-resolved 把該 TLD 路由到 rolodex——**當 `TOWN_OS_DNS_PORT` 已把 rolodex 從 `:53` 遷走時，這一步被跳過**，因為 resolved 的按域名伺服器地址不攜帶埠，那樣會讓該 TLD 下的每一次查詢都被黑洞吞掉。
 16. **讀取監控後端並發現 btrfs 磁碟裝置** —— `monitoring_backend`（預設 `uplot`）；`monitoring.BtrfsDevices(btrfsPath)` **(非致命)** 通過 `/monitoring/status` 暴露底層塊裝置。
-17. **階段 `boot_services`：拉取核心容器鏡像** **(非致命)** —— NC 鏡像、Prometheus、Node Exporter、UI 鏡像，以及在選中該後端時的 Grafana，通過 `parallelEnsureImages` 並行拉取（鏡像已載入時跳過拉取）。
-18. **啟動監控系統服務** **(全部非致命)** —— 先拆除上一版設計遺留的 NC/socket 監控單元（它們仍佔用 `-p 9090`/`-p 5308`，會讓新服務不斷崩潰重啟）。Node Exporter、Prometheus 與監控 UI 都以 `--net host` 執行；node-exporter 與 Prometheus 繫結環回地址，只有監控 UI 的 `:5308` 面向區域網。這三個埠都來自 `monitoringPortsFromEnv()`，其零值即為生產預設值（[System-service host ports](#系統服務的宿主機埠)）。隨後安裝每夜執行的 podman prune 定時器 **(非致命)**。
+17. **階段 `boot_services`：拉取核心容器鏡像** **(非致命)** —— NC 鏡像、Prometheus、Node Exporter、UI 鏡像、物件儲存（gfeh）鏡像、ingress 鏡像，以及在選中該後端時的 Grafana，通過 `parallelEnsureImages` 並行拉取（鏡像已載入時跳過拉取）。凡是被啟動期單元參照的鏡像都屬於這裡：鏡像不在本地的單元會在 `podman run` 內部自行拉取，於是它的就緒等待要與一次 registry 下載賽跑。gfeh 與隨後的 ingress 曾先後從這份清單中缺席，而每一次看上去都只是某個服務沒起來。監控 UI 無需單獨條目——在 uPlot 後端下它執行的就是 NC 鏡像，而後者已在集合的首位。
+18. **啟動監控系統服務** **(全部非致命)** —— 先拆除上一版設計遺留的 NC/socket 監控單元（它們仍佔用 `-p 9090`/`-p 5308`，會讓新服務不斷崩潰重啟）。Node Exporter、Prometheus 與監控 UI 都以 `--net host` 執行；node-exporter 與 Prometheus 繫結環回地址，只有監控 UI 的 `:5308` 面向區域網。這三個埠都來自 `monitoringPortsFromEnv()`，其零值即為生產預設值（[System-service host ports](#系統服務的宿主機埠)）。隨後安裝每夜執行的 podman prune 定時器 **(非致命)**。每日的更新定時器不在這裡安裝——它隨安裝器一同交付，參見[自動更新](#自動更新)。
 19. **確保本地 TLS CA 存在** **(非致命)** —— 在 reconcile 之前執行 `tls.EnsureCA(<btrfsPath>/tls)`，這樣 reconcile 遍歷已安裝包時才能簽發葉子證書。
 20. **啟動 ingress 與 pages 服務** **(非致命)** —— `ingressctl.Manager` 安裝並啟動 `town-os-system--ingress`（共享的 `:443` SNI + `:80` Host 路由器），僅當宿主機擁有全域 IPv6 時才啟用雙棧。pages 的 Caddy 服務隨之啟動。當 `INGRESS_IMAGE` 被顯式設為空時（開發模式），兩者都會跳過。
 21. **Reconcile 物件儲存** **(非致命)** —— `ReconcileGfeh` 確保每個網路有一個 gfeh 分割槽：`gfeh/<network>` 子卷（chown 給 uid 2000）、渲染出的 `gfehd.yaml`，以及 `town-os-system--gfeh-<network>` 單元，且僅在渲染內容發生變化時才重啟。當 `GFEH_IMAGE` 被顯式置空時整體跳過；當 ingress 被停用時也跳過（四個 HTTP 檢視只能經由它訪問）。分割槽的*名稱*會在稍後非同步釋出——見第 30 步。參見 [Object Storage (gfeh)](#物件儲存gfeh)。
@@ -1800,6 +1800,18 @@ system controller 通過 `ui.Manager` 把一個獨立的 UI 容器（`quay.io/to
 系統服務是由 systemd 管理的基礎設施容器（區別於使用者安裝的包服務）。它們使用 `town-os-system--` 單元名字首。
 
 這一集合是：rolodex、ingress、pages、UI、node-exporter、Prometheus、監控 UI（socat 轉發器或 Grafana），以及**每個網路一個 gfeh 分割槽**（`town-os-system--gfeh-<network>`）。該清單中的每一項都必須在 `collectSystemServices()` 中註冊，這樣 `POST /system-services/refresh` 才會重新拉取並重啟它——那裡的遺漏是不可見的，直到某次升級悄悄把該服務留在舊鏡像上。
+
+### 自動更新
+
+**安裝器只交付兩個映象，其餘由控制器自行取得。** `install.sh` 只把兩個映象參照寫進它佈置的單元檔案——`quay.io/town/town`（systemcontroller）與 `quay.io/town/rolodex`——並且完全不把任何映象內容烘焙進 squashfs。其餘每一個系統服務映象（UI、ingress、網路控制器、物件儲存）都由控制器**在本機上**拉取：啟動時經由 `coreBootImages` 交給 `parallelEnsureImages`，按需時經由 `POST /system-services/refresh`。這正是那些倉庫必須允許匿名讀取的原因：機器本身不攜帶任何 registry 憑證，控制器中也沒有任何程式碼會寫出 `auth.json` 或執行 `podman login`。倉庫私有的映象就是這套設計取不到的映象，而其表現形式是一個不斷以 `unauthorized` 崩潰重啟的單元，而不是任何會點明真正原因的東西。
+
+**一個每日定時器執行的，正是 UI 上那個按鈕所執行的同一套更新流程，而它隨安裝器一同交付。** `town-os-update.timer` 及其 service 位於 `../install/systemd/`，並在映像檔構建期就被啟用（`make/install.sh` 中的 `ENABLE_UNITS` 清單），因此機器從首次開機起就擁有它們，而不是要向一個必須先跑起來的控制器索取。該定時器在 `04:23` 觸發，並向 `/system-services/refresh` 發起 POST——刻意複用同一個端點，而不是再實作一遍「拉取全部」，這樣排程路徑就不可能與手動路徑發生漂移。單元只決定*何時*，控制器決定*做什麼*。它是 `Persistent=true` 的，因此在 04:23 處於關機狀態的機器會在下次啟動時補做更新，而不是再等一天——對於關機時間多過開機時間的機器，這個補做就是它唯一會得到的更新。該時刻刻意避開 podman prune 的 `03:17`：一邊回收未被參照的映象、一邊拉取新映象，是一場毫無收益的競爭。
+
+**定時器的 POST 不帶憑證，這正是該路由為 `localhostOrAdmin` 的原因。** 該單元沒有任何權杖可以出示，因此 `/system-services/refresh` **僅**接納來自回送位址的未認證呼叫，而來自其他任何位置的呼叫仍需管理員權限——這與 `GET /metrics` 所依賴的豁免相同，理由也相同：來源位址為 `127.0.0.0/8` 的封包無法從網路被路由到本機。因此產生的單元明確指向 `127.0.0.1`，而絕不指向本機的可路由位址；後者既會把一個未認證的 POST 送上區域網路，又會在對端被拒絕。連線埠會跟隨控制器的 `-listen` 位址，因此被重新定位連線埠的控制器（整合測試框架為每次執行分配各自的連線埠）依然能夠自我更新。
+
+**`auto_update_enabled` 約束的是定時器，而不是操作者。** 定時器會用 `?scheduled=1` 標記自己的呼叫；只有帶該標記的呼叫才會去查閱該設定。管理員按下更新按鈕時總是會更新，因為一個名為「自動更新」的開關，對一次明確的請求無話可說。被跳過的排程執行回傳 `200` 與 `{"status":"skipped"}` 而非錯誤——定時器詢問了是否該更新，並得到了「現在不用」這個有效答覆，這不是該讓 `systemctl status` 標紅的失敗。即便設定為關閉，定時器依然保持安裝並執行，因此翻轉該設定會在下一次觸發時生效，無需改動單元，也不存在單元狀態與設定各執一詞的可能。
+
+該設定預設為**開啟**，且無法辨識的值一律視為開啟。關閉是一個封閉清單（`0`、`false`、`off`、`no`，不分大小寫）；其餘一切——包括手滑的錯字與讀取失敗的設定列——都讓更新繼續執行。這種不對稱是刻意的：正因為安裝器只交付兩個映象，一台停止拉取的機器就是一台永遠無法取得其餘大部分服務的機器，所以把「關閉」猜錯的代價，遠高於多拉取一次的代價。
 
 ### 系統服務單元生成
 

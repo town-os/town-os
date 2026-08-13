@@ -576,7 +576,7 @@ func (b *boot) readMonitoringSettings(ctx context.Context) {
 // object-storage partitions. Everything here is non-fatal.
 func (b *boot) bootServices(ctx context.Context) {
 	b.bs.Step("boot_services")
-	parallelEnsureImages(ctx, coreBootImages(b.ncImage, b.uiImage, b.gfehImage, b.monBackend))
+	parallelEnsureImages(ctx, coreBootImages(b.ncImage, b.uiImage, b.gfehImage, b.ingressImage, b.monBackend))
 
 	// Tear down obsolete monitoring units from the previous (NC + socket)
 	// design before starting the new host-net services. On an in-place
@@ -594,6 +594,13 @@ func (b *boot) bootServices(ctx context.Context) {
 	if err := systemcontroller.InstallPodmanPruneUnits(ctx, b.sd); err != nil {
 		fmt.Fprintf(os.Stderr, "podman prune timer: %v\n", err)
 	}
+
+	// There is deliberately no daily-update timer installed here. That timer
+	// (town-os-update.timer) ships with the installer and is enabled at image
+	// build time, so a box has it from first boot rather than acquiring it from
+	// a controller that must already be running. The controller's half of that
+	// contract is the ScheduledRefreshQuery marker and the auto_update_enabled
+	// setting, both in maintenance_update.go.
 
 	// Ensure the local TLS CA exists. This has to happen before reconcile
 	// so reconcile can issue leaf certs for HTTP-supplying packages as it
