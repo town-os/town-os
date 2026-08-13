@@ -132,8 +132,60 @@ test-integration-rerun:
 test-full:
 	@make/test.sh full
 
-test-full-log:
-	@bash -c 'set -o pipefail; mkdir -p "$(LOG_DIR)"; logfile="$(LOG_DIR)/test-full-$$(date +%s).log"; echo "Logging to: $$logfile"; rc=0; $(MAKE) test-full 2>&1 | tee "$$logfile" || rc=$$?; echo "Log file: $$logfile"; exit $$rc'
+# `make <target>-log` runs `make <target>` with the whole transcript tee'd into a
+# timestamped file under $(LOG_DIR) — `make test-full-log`, `make push-rc-log`,
+# `make dev-log`. A pattern rule, so a new target gets its logged variant for
+# free; it replaces the single hand-written test-full-log, which was the only
+# one that existed and left `make push-rc-log` failing with "No rule to make
+# target".
+#
+# The log is always written even when the build FAILS, which is the case that
+# matters: `set -o pipefail` makes the pipeline carry make's exit status rather
+# than tee's, so it is captured in $$rc, the path is printed, and only then is
+# the failure re-raised — tee has already flushed the full transcript by then.
+#
+# The name carries BUILD_ARCH so a cross build and a native build of the same
+# target don't leave two indistinguishable logs, and the shell's PID so two
+# concurrent runs in one checkout cannot tee into the same file. That second one
+# is the IRON RULE: INSTANCE_ID is derived from CURDIR and so is identical for
+# concurrent runs here, and the timestamp only resolves to the second, so
+# without the PID two `make test-full-log` runs started together would truncate
+# each other's transcript.
+#
+# The timestamp is sortable rather than epoch seconds so `ls` orders the runs,
+# and a `<target>-<arch>-latest.log` symlink tracks the newest. That symlink is
+# placed BEFORE the build runs, not after: its whole purpose is `tail -F` from
+# another terminal while the build is still going. tee creates the file
+# immediately, so there is nothing to race.
+#
+# Pattern rules are skipped for .PHONY targets, so nothing matched by this may be
+# listed there — see the NOTE next to PHONY_TARGETS in the Makefile.
+#
+# The stem is checked against $(LOGGABLE_TARGETS) FIRST, before the log file or
+# the -latest symlink are created — this is the Makefile's only wildcard and
+# matches ANY name ending in `-log`, so a stem that is no target here reaches the
+# recipe too. Such a stem exits 2 pointing at `make help`, and leaves nothing
+# behind, rather than creating a log and printing two lines that read like a run
+# that had started. Pointing at `make help` is the whole reason this doesn't just
+# forward the stem to a sub-make: make's own "No rule to make target" names the
+# STEM, not what was typed, and says nothing about where the real target list is.
+%-log:
+	@bash -c 'set -o pipefail; \
+	  if [ -z "$(filter $*,$(LOGGABLE_TARGETS))" ]; then \
+	    echo "make: $* is not a target here, so there is nothing for $*-log to log." >&2; \
+	    echo "make: run \"make help\" for the targets, loggable ones included." >&2; \
+	    exit 2; \
+	  fi; \
+	  mkdir -p "$(LOG_DIR)"; \
+	  stem="$*-$(BUILD_ARCH)"; \
+	  logfile="$(LOG_DIR)/$$stem-$$(date +%Y%m%d-%H%M%S)-$$$$.log"; \
+	  : > "$$logfile"; \
+	  ln -sfn "$$logfile" "$(LOG_DIR)/$$stem-latest.log"; \
+	  echo "Logging to: $$logfile"; \
+	  echo "Follow it with: tail -F $(LOG_DIR)/$$stem-latest.log"; \
+	  rc=0; $(MAKE) $* 2>&1 | tee "$$logfile" || rc=$$?; \
+	  echo "Log file: $$logfile"; \
+	  exit $$rc'
 
 test-image:
 	@make/build.sh test

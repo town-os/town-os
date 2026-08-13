@@ -97,7 +97,11 @@ export STATE_DIR
 BTRFS_IMAGE_DIR ?= $(CURDIR)/.cache/btrfs
 export BTRFS_IMAGE_DIR
 
-LOG_DIR := /tmp/town-os/log
+# Where `make <target>-log` tees its transcript (see the %-log pattern rule in
+# make/include.mk). `?=` rather than `:=` because .env is included above: a `:=`
+# here would silently clobber a LOG_DIR set there or in the environment, leaving
+# only the command line able to override it.
+LOG_DIR ?= /tmp/town-os/log
 export LOG_DIR
 
 # Per-run ephemeral port files. Pure bookkeeping (no data), so STATE_DIR is the
@@ -266,21 +270,37 @@ include make/include.mk
 # Dependencies
 # ---------------------------------------------------------------------------
 
-.PHONY: help deps
-.PHONY: check-go check-bun check-podman check-runc check-btrfs check-binfmt check-golangci-lint check-python3 check-libsystemd
-.PHONY: test test-race test-ui-unit test-ui-integration-local docker-login ensure-image-cache pull-images pull-images-daily
-.PHONY: ui-image nc-image nc-image-dev ingress-image gfeh-image ui-integration-image production-image test-image dev-production-image dev-image
-.PHONY: registry registry-populate registry-stop
-.PHONY: gitea gitea-populate gitea-stop
-.PHONY: test-ui-integration test-integration-build test-integration test-integration-rerun test-full
-.PHONY: dev dev-logs dev-stop dev-stop-all dev-restore-dns dev-btrfs btrfs-dev clean-btrfs-dev
-.PHONY: preflight-dev clean-dev auto-test auto-test-full build-networkcontroller lint test-full-log
-.PHONY: ssh
-.PHONY: release-build release-image release-ui-image release-nc-image release-ingress-image release-gfeh-image push push-rc manifest-rc push-release manifest-release push-ui-rc push-ui-release push-nc-rc push-nc-release push-ingress-rc push-ingress-release push-gfeh-rc push-gfeh-release push-tag quay-login
+# Held in a variable rather than written straight onto `.PHONY` so the `%-log`
+# pattern rule can check its stem against it (see LOGGABLE_TARGETS below) — a
+# target added here keeps getting its `-log` variant for free.
+PHONY_TARGETS := help deps
+PHONY_TARGETS += check-go check-bun check-podman check-runc check-btrfs check-binfmt check-golangci-lint check-python3 check-libsystemd
+PHONY_TARGETS += test test-race test-ui-unit test-ui-integration-local docker-login ensure-image-cache pull-images pull-images-daily
+PHONY_TARGETS += ui-image nc-image nc-image-dev ingress-image gfeh-image ui-integration-image production-image test-image dev-production-image dev-image
+PHONY_TARGETS += registry registry-populate registry-stop
+PHONY_TARGETS += gitea gitea-populate gitea-stop
+PHONY_TARGETS += test-ui-integration test-integration-build test-integration test-integration-rerun test-full
+PHONY_TARGETS += dev dev-logs dev-stop dev-stop-all dev-restore-dns dev-btrfs btrfs-dev clean-btrfs-dev
+PHONY_TARGETS += preflight-dev clean-dev auto-test auto-test-full build-networkcontroller lint
+PHONY_TARGETS += ssh
+PHONY_TARGETS += release-build release-image release-ui-image release-nc-image release-ingress-image release-gfeh-image push push-rc manifest-rc push-release manifest-release push-ui-rc push-ui-release push-nc-rc push-nc-release push-ingress-rc push-ingress-release push-gfeh-rc push-gfeh-release push-tag quay-login
 ifeq ($(PROTON_ENABLED),1)
-.PHONY: release-proton-image push-proton-rc push-proton-release
+PHONY_TARGETS += release-proton-image push-proton-rc push-proton-release
 endif
-.PHONY: btrfs clean-btrfs clean-integration clean clean-build-cache clean-cache clean-image-cache clean-bun-cache clean-containers clean-all
+PHONY_TARGETS += btrfs clean-btrfs clean-integration clean clean-build-cache clean-cache clean-image-cache clean-bun-cache clean-containers clean-all
+
+.PHONY: $(PHONY_TARGETS)
+# NOTE: no *-log target may be listed above. `make <target>-log` is served by the
+# `%-log` pattern rule in make/include.mk, and GNU make skips the
+# implicit-rule search entirely for .PHONY targets — listing test-full-log here
+# makes it match nothing and fail with "No rule to make target 'test-full-log'".
+
+# What `make <target>-log` will log. The `%-log` rule matches ANY name ending in
+# `-log` (a pattern rule with no prerequisites matches anything), so a stem that
+# is no target here still reaches the recipe; anything not in this list is
+# refused before a log file is created, rather than logged into a transcript of
+# make failing to find it.
+LOGGABLE_TARGETS := $(PHONY_TARGETS)
 
 test: lint check-bun check-libsystemd
 # check-bun is not listed because this target runs no UI tests, but lint does
@@ -317,7 +337,6 @@ test-integration: test-integration-build
 # and no registry login. The recursive pull-images it runs on a stale stamp
 # brings those in for the pass that actually needs them.
 test-full: pull-images-daily test ui-integration-image
-test-full-log:
 test-image: production-image
 dev-production-image: $(STATE_DIR)/.images-pulled
 dev-image: dev-production-image

@@ -58,7 +58,6 @@ Tests
                           behind by test-integration (no rebuild).
   test-ui-integration     Run UI integration tests against a backend container.
   test-full               Run lint + unit + integration + UI integration.
-  test-full-log           Same as test-full, tee'd into a timestamped log file.
   auto-test               Watch .go/.js files and re-run `make test`.
   auto-test-full          Watch .go/.js files and re-run `make test-full`.
 
@@ -129,6 +128,18 @@ Cleanup
   clean-containers        Remove all town-os-* containers on the host.
   clean-integration       Stop registry and Gitea containers.
 
+Logging
+  <target>-log            Run any target above with the whole transcript tee'd
+                          into a timestamped log under LOG_DIR — test-full-log,
+                          push-rc-log, dev-log, release-build-log, and so on.
+                          The log is kept when the run FAILS, which is the case
+                          that matters; the exit status is the target's, not
+                          tee's. Named for the target and arch, with a
+                          <target>-<arch>-latest.log symlink created before the
+                          run starts so `tail -F` from another terminal follows
+                          it live. Any name ending in -log that is not a target
+                          here is an error, not an empty log.
+
 Variables
   Pass on the command line (`make VAR=value <target>`) or set in .env, which
   the Makefile includes if present.
@@ -141,6 +152,8 @@ Variables
   TEST_RUN=<regex>        Restrict the integration run to matching tests.
   TEST_TIMEOUT=<dur>      Integration test timeout (default 60m).
   PUSH_TAG=<tag>          Tag used by push-tag.
+  LOG_DIR=<dir>           Where <target>-log writes its transcripts
+                          (default /tmp/town-os/log).
   TARGET=<arch>           Architecture the release/push targets build for,
                           spelled as ../install spells it: x86_64|aarch64, or
                           an image flavor (rpi, rg35xxpro) that folds to
