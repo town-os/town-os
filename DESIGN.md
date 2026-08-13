@@ -800,9 +800,13 @@ Partitions register in `collectSystemServices()`, so `POST /system-services/refr
 
 ### Version coupling
 
-**Town OS pins a gfehd floor, and it is a floor rather than a preference.** `Containerfile.gfeh` builds from crates.io at `GFEH_VERSION` (override, or `GFEH_LATEST` non-empty to take whatever crates.io holds today — the same shape as `TTYFORCE_LATEST` in the install repo). The current floor is **0.1.2**.
+**Town OS builds the current gfehd, and there is deliberately no version knob.** `Containerfile.gfeh` runs a bare `cargo install gfehd` — no `--version`, no `--locked` — so the image carries whatever crates.io holds at build time, resolved against current dependencies.
 
-Neither failure is visible to `make test` — the unit and integration suites both stand in a **fake gfehd**, so pinning below the floor buys a green suite and a box where object storage is silently dead. Raise the pin when Town OS starts depending on new daemon behavior, and let the image build fail loudly if that version is not published yet.
+There used to be a knob (`GFEH_VERSION`, with a `GFEH_LATEST` escape hatch) and it did active harm. The Makefile passed the version on every build as a `--build-arg`, which **wins over an `ARG` default**, so the number that shipped was the Makefile's and the number in the Containerfile was decoration. The two drifted: the Containerfile said `0.1.2` and explained at length why anything older cannot run under Town OS, while the Makefile quietly built `0.1.1`. Taking the current release clears the floor by construction and removes the second place for the answer to live.
+
+Neither failure is visible to `make test` — the unit and integration suites both stand in a **fake gfehd**, so a wrong-but-real daemon builds, pushes, and installs perfectly, and shows up only as object storage that never starts on a real box. For the record, since it is why the floor existed: 0.1.1 cannot parse a partition config carrying any SMB user (every gfehd config struct is `#[serde(deny_unknown_fields)]` and its `SmbConfig` has no `users` field), and it authenticates the instant it starts, which during boot is the `:5309` stub answering 403 to everything but the ping.
+
+**The release build passes `--no-cache`, and that is load-bearing.** `cargo install gfehd` is a byte-identical `RUN` line on every build, so its layer is a permanent cache hit — without it, a build whose whole contract is "whatever crates.io holds today" would serve the first build's crate forever, silently, with clean logs every time. There is no cheaper cache key: knowing when the crate changed means asking crates.io, which is the thing the build is for. The cargo registry volume survives `--no-cache`, so the dependency tree is re-compiled but not re-downloaded. The local `gfeh-image` fixture stays cached on purpose — it is a prerequisite of every integration and dev run, and only needs a real gfehd rather than today's.
 
 ### UI
 

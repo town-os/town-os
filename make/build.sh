@@ -159,9 +159,11 @@ case "$1" in
     # No --pull=never: rust:1-bookworm is the builder base and is deliberately
     # NOT in BASE_IMAGES (it is ~1.5G and only this target needs it), so the
     # host store may not have it on a fresh checkout.
+    # Cached, unlike the release build below: this is a test fixture that needs
+    # a real gfehd, not necessarily today's, and it is a prerequisite of every
+    # test-integration and dev run — rebuilding the Rust dependency tree on
+    # each one would cost minutes per invocation.
     ${SUDO} podman build --network=host \
-      --build-arg "GFEH_VERSION=${GFEH_VERSION:-}" \
-      --build-arg "GFEH_LATEST=${GFEH_LATEST:-}" \
       --volume "$(pwd)/.cache/cargo-registry:/usr/local/cargo/registry:z" \
       -t "${GFEH_IMAGE}" -f Containerfile.gfeh .
     save_image_cache "${GFEH_IMAGE}"
@@ -241,9 +243,18 @@ case "$1" in
     step "Building gfeh image"
     require_cross_binfmt
     mkdir -p .cache/cargo-registry
-    ${SUDO} podman build --network=host "${BUILD_PLATFORM_ARGS[@]}" \
-      --build-arg "GFEH_VERSION=${GFEH_VERSION:-}" \
-      --build-arg "GFEH_LATEST=${GFEH_LATEST:-}" \
+    # --no-cache is load-bearing, not caution. The image takes whatever gfehd
+    # crates.io holds today, and `cargo install gfehd` is a byte-identical RUN
+    # line on every build — so podman's layer cache would serve the first
+    # build's crate forever and a release would silently ship a version that
+    # was current months ago. There is no cheaper cache key available: knowing
+    # when the crate changed means asking crates.io, which is the thing this
+    # build is for.
+    #
+    # The cargo registry volume survives --no-cache, so this re-compiles the
+    # dependency tree but does not re-download it. Only the release path pays
+    # it; the local fixture above stays cached.
+    ${SUDO} podman build --network=host --no-cache "${BUILD_PLATFORM_ARGS[@]}" \
       --volume "$(pwd)/.cache/cargo-registry:/usr/local/cargo/registry:z" \
       -t "${RELEASE_GFEH_IMAGE}" -f Containerfile.gfeh .
     ;;
@@ -315,6 +326,16 @@ case "$1" in
     ${SUDO} podman push "${RELEASE_INGRESS_IMAGE}:rc.${DATE_TAG}-${ARCH}"
     substep "Pushing ${RELEASE_INGRESS_IMAGE}:rc.latest-${ARCH}"
     ${SUDO} podman push "${RELEASE_INGRESS_IMAGE}:rc.latest-${ARCH}"
+
+    # Object storage (gfeh) image.
+    substep "Tagging ${RELEASE_GFEH_IMAGE}:rc.${DATE_TAG}-${ARCH}"
+    ${SUDO} podman tag "${RELEASE_GFEH_IMAGE}" "${RELEASE_GFEH_IMAGE}:rc.${DATE_TAG}-${ARCH}"
+    substep "Tagging ${RELEASE_GFEH_IMAGE}:rc.latest-${ARCH}"
+    ${SUDO} podman tag "${RELEASE_GFEH_IMAGE}" "${RELEASE_GFEH_IMAGE}:rc.latest-${ARCH}"
+    substep "Pushing ${RELEASE_GFEH_IMAGE}:rc.${DATE_TAG}-${ARCH}"
+    ${SUDO} podman push "${RELEASE_GFEH_IMAGE}:rc.${DATE_TAG}-${ARCH}"
+    substep "Pushing ${RELEASE_GFEH_IMAGE}:rc.latest-${ARCH}"
+    ${SUDO} podman push "${RELEASE_GFEH_IMAGE}:rc.latest-${ARCH}"
 
     ;;
   manifest-rc)
@@ -389,6 +410,26 @@ case "$1" in
     ${SUDO} podman push "${RELEASE_NC_IMAGE}:release.${DATE_TAG}-${ARCH}"
     substep "Pushing ${RELEASE_NC_IMAGE}:latest-${ARCH}"
     ${SUDO} podman push "${RELEASE_NC_IMAGE}:latest-${ARCH}"
+
+    # Ingress image.
+    substep "Tagging ${RELEASE_INGRESS_IMAGE}:release.${DATE_TAG}-${ARCH}"
+    ${SUDO} podman tag "${RELEASE_INGRESS_IMAGE}" "${RELEASE_INGRESS_IMAGE}:release.${DATE_TAG}-${ARCH}"
+    substep "Tagging ${RELEASE_INGRESS_IMAGE}:latest-${ARCH}"
+    ${SUDO} podman tag "${RELEASE_INGRESS_IMAGE}" "${RELEASE_INGRESS_IMAGE}:latest-${ARCH}"
+    substep "Pushing ${RELEASE_INGRESS_IMAGE}:release.${DATE_TAG}-${ARCH}"
+    ${SUDO} podman push "${RELEASE_INGRESS_IMAGE}:release.${DATE_TAG}-${ARCH}"
+    substep "Pushing ${RELEASE_INGRESS_IMAGE}:latest-${ARCH}"
+    ${SUDO} podman push "${RELEASE_INGRESS_IMAGE}:latest-${ARCH}"
+
+    # Object storage (gfeh) image.
+    substep "Tagging ${RELEASE_GFEH_IMAGE}:release.${DATE_TAG}-${ARCH}"
+    ${SUDO} podman tag "${RELEASE_GFEH_IMAGE}" "${RELEASE_GFEH_IMAGE}:release.${DATE_TAG}-${ARCH}"
+    substep "Tagging ${RELEASE_GFEH_IMAGE}:latest-${ARCH}"
+    ${SUDO} podman tag "${RELEASE_GFEH_IMAGE}" "${RELEASE_GFEH_IMAGE}:latest-${ARCH}"
+    substep "Pushing ${RELEASE_GFEH_IMAGE}:release.${DATE_TAG}-${ARCH}"
+    ${SUDO} podman push "${RELEASE_GFEH_IMAGE}:release.${DATE_TAG}-${ARCH}"
+    substep "Pushing ${RELEASE_GFEH_IMAGE}:latest-${ARCH}"
+    ${SUDO} podman push "${RELEASE_GFEH_IMAGE}:latest-${ARCH}"
 
     ;;
   manifest-release)
@@ -590,13 +631,25 @@ case "$1" in
     ${SUDO} podman tag "${RELEASE_NC_IMAGE}" "${RELEASE_NC_IMAGE}:${TAG}"
     substep "Pushing ${RELEASE_NC_IMAGE}:${TAG}"
     ${SUDO} podman push "${RELEASE_NC_IMAGE}:${TAG}"
+
+    # Ingress image.
+    substep "Tagging ${RELEASE_INGRESS_IMAGE}:${TAG}"
+    ${SUDO} podman tag "${RELEASE_INGRESS_IMAGE}" "${RELEASE_INGRESS_IMAGE}:${TAG}"
+    substep "Pushing ${RELEASE_INGRESS_IMAGE}:${TAG}"
+    ${SUDO} podman push "${RELEASE_INGRESS_IMAGE}:${TAG}"
+
+    # Object storage (gfeh) image.
+    substep "Tagging ${RELEASE_GFEH_IMAGE}:${TAG}"
+    ${SUDO} podman tag "${RELEASE_GFEH_IMAGE}" "${RELEASE_GFEH_IMAGE}:${TAG}"
+    substep "Pushing ${RELEASE_GFEH_IMAGE}:${TAG}"
+    ${SUDO} podman push "${RELEASE_GFEH_IMAGE}:${TAG}"
     ;;
   networkcontroller)
     step "Building network controller binary"
     CGO_ENABLED=0 go build -o town-os-networkcontroller ./src/networkcontroller/cmd/town-os-networkcontroller
     ;;
   *)
-    echo "Usage: $0 {production|test|dev-base|dev|ui-integration|ui-local|nc-local [src-image]|networkcontroller|release|release-ui|release-proton|release-nc|push-rc|manifest-rc|push-release|manifest-release|push-ui-rc|push-ui-release|push-proton-rc|push-proton-release|push-nc-rc|push-nc-release|push-tag <tag>}"
+    echo "Usage: $0 {production|test|dev-base|dev|ui-integration|ui-local|nc-local [src-image]|ingress-local|gfeh-local|networkcontroller|release|release-ui|release-proton|release-nc|release-ingress|release-gfeh|push-rc|manifest-rc|push-release|manifest-release|push-ui-rc|push-ui-release|push-proton-rc|push-proton-release|push-nc-rc|push-nc-release|push-ingress-rc|push-ingress-release|push-gfeh-rc|push-gfeh-release|push-tag <tag>}"
     exit 1
     ;;
 esac

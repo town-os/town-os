@@ -247,16 +247,14 @@ UI_IMAGE ?= localhost/town-os-ui:$(INSTANCE_ID)
 NC_IMAGE ?= localhost/town-os-networkcontroller:$(INSTANCE_ID)
 INGRESS_IMAGE ?= localhost/town-os-ingress:$(INSTANCE_ID)
 GFEH_IMAGE ?= localhost/town-os-gfeh:$(INSTANCE_ID)
-# The gfeh crate version the image is built from. GFEH_LATEST non-empty takes
-# whatever crates.io holds today instead, mirroring TTYFORCE_LATEST in the
-# install repo.
-GFEH_VERSION ?= 0.1.1
-GFEH_LATEST ?=
+# There is deliberately no gfeh crate version knob. Containerfile.gfeh always
+# builds the current crates.io release; see the comment there for why the old
+# GFEH_VERSION / GFEH_LATEST pair was removed rather than corrected.
 # The networkcontroller and UI images are pulled from quay in production but
 # test and dev harnesses build them locally and inject NC_IMAGE/UI_IMAGE at
 # container start, so their quay tags are intentionally NOT in ALL_IMAGES.
 ALL_IMAGES := $(BASE_IMAGES) docker.io/library/registry:2 docker.io/gitea/gitea:latest docker.io/library/nginx:1.27-alpine docker.io/library/alpine:latest $(MONITORING_IMAGES) $(ROLODEX_IMAGE)
-export BASE_IMAGES MONITORING_IMAGES ALL_IMAGES ROLODEX_IMAGE_TAG ROLODEX_IMAGE UI_IMAGE NC_IMAGE INGRESS_IMAGE GFEH_IMAGE GFEH_VERSION GFEH_LATEST
+export BASE_IMAGES MONITORING_IMAGES ALL_IMAGES ROLODEX_IMAGE_TAG ROLODEX_IMAGE UI_IMAGE NC_IMAGE INGRESS_IMAGE GFEH_IMAGE
 export TEST_RUN TEST_TIMEOUT PUSH_TAG
 
 .DEFAULT_GOAL := help

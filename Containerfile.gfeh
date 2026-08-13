@@ -7,34 +7,31 @@
 # Build (rootful podman via make/build.sh, with --network=host; see CLAUDE.md):
 #   sudo podman build -f Containerfile.gfeh -t quay.io/town/gfeh:latest .
 #
-# Pinned by default and overridable, the same shape as TTYFORCE_LATEST in the
-# install repo: GFEH_LATEST non-empty takes whatever crates.io holds today,
-# which is what you want when tracking an unreleased fix and not what you want
-# in a release.
-
-# 0.1.2 is the floor, not a preference. Town OS renders two things a 0.1.1
-# daemon cannot survive:
+# The build always takes the current crates.io release of gfehd. There is no
+# version knob, deliberately.
 #
-#   * smb.users -- every gfehd config struct is #[serde(deny_unknown_fields)],
-#     and 0.1.1's SmbConfig has no users field, so a partition with any enrolled
-#     SMB credential fails to parse its config and never starts.
-#   * the readiness wait -- 0.1.1 authenticates to Town OS the instant it comes
-#     up, which during boot is the :5309 stub answering 403 to everything but
-#     the ping, so it dies before the control plane is ready to talk to it.
+# There used to be one (GFEH_VERSION, with a GFEH_LATEST escape hatch), and it
+# was worse than nothing: the Makefile passed GFEH_VERSION on every build as a
+# --build-arg, which WINS over an ARG default, so the number that shipped was
+# the Makefile's and the number documented here was decoration. The two drifted
+# — this file said 0.1.2 and explained at length why anything older cannot run
+# under Town OS, while the Makefile quietly built 0.1.1 — and nothing caught it,
+# because both suites stand in a fake gfehd and a wrong-but-real gfehd builds,
+# pushes, and installs perfectly. It only shows up as object storage that never
+# starts on a real box.
 #
-# Neither is visible to `make test` (the unit and integration suites both stand
-# in a fake gfehd), so pinning low buys a green suite and a box where object
-# storage is silently dead. If this version is not on crates.io yet the build
-# fails here, loudly, which is the outcome to want.
-ARG GFEH_VERSION=0.1.2
-ARG GFEH_LATEST=
+# For the record, since it is the reason the pin existed: 0.1.1 cannot parse a
+# partition config carrying any SMB user (every gfehd config struct is
+# #[serde(deny_unknown_fields)] and its SmbConfig has no users field), and it
+# authenticates to Town OS the instant it starts, which during boot is the :5309
+# stub answering 403 to everything but the ping. Taking the current release
+# clears both by construction and cannot silently regress to a version that
+# does not.
 
 # Pinned to the BUILD platform: rustc runs natively and cross-compiles, because
 # emulating a full dependency-tree Rust build is the slowest thing in this repo
 # by a wide margin.
 FROM --platform=$BUILDPLATFORM docker.io/library/rust:1-bookworm AS builder
-ARG GFEH_VERSION
-ARG GFEH_LATEST
 ARG TARGETARCH
 ARG BUILDARCH
 # Cross needs three things: the rustup target, a linker for it, and (for any
@@ -58,8 +55,15 @@ RUN set -eux; \
       echo "${rust_target}" > /rust-target; \
     fi
 
-# --locked for the pinned build so the image is reproducible; omitted for the
-# latest build, where the point is to take current dependencies.
+# No --version and no --locked: the point is the current release, resolved
+# against current dependencies.
+#
+# The layer this produces is the one podman would happily serve from cache
+# forever, which for a build whose whole contract is "whatever crates.io holds
+# today" would quietly freeze the crate at whatever was current the first time.
+# make/build.sh passes --no-cache on the release build for exactly that reason;
+# the local test-fixture build keeps the cache, because it is rebuilt on every
+# test run and only needs a real gfehd, not the newest one.
 #
 # cargo install writes to <root>/bin regardless of --target, so the COPY below
 # is the same path either way.
@@ -77,11 +81,7 @@ RUN set -eux; \
     else \
       set --; \
     fi; \
-    if [ -n "$GFEH_LATEST" ]; then \
-      cargo install gfehd --root /out "$@" ; \
-    else \
-      cargo install gfehd --version "$GFEH_VERSION" --locked --root /out "$@" ; \
-    fi
+    cargo install gfehd --root /out "$@"
 
 FROM docker.io/library/debian:bookworm-slim
 # ca-certificates is mandatory for any runtime image making outbound HTTPS

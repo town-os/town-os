@@ -248,10 +248,10 @@ push-gfeh-release: release-gfeh-image quay-login
 	@make/build.sh push-gfeh-release
 
 ifeq ($(PROTON_ENABLED),1)
-push-tag: release-image release-ui-image release-proton-image release-nc-image quay-login
+push-tag: release-image release-ui-image release-proton-image release-nc-image release-ingress-image release-gfeh-image quay-login
 	@make/build.sh push-tag $(PUSH_TAG)
 else
-push-tag: release-image release-ui-image release-nc-image quay-login
+push-tag: release-image release-ui-image release-nc-image release-ingress-image release-gfeh-image quay-login
 	@make/build.sh push-tag $(PUSH_TAG)
 endif
 

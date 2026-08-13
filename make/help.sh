@@ -87,7 +87,8 @@ Local infrastructure
 
 Release
   release-build           Run test-full and build all release images
-                          (sc, ui, nc, ingress; proton when PROTON_ENABLED=1).
+                          (sc, ui, nc, ingress, gfeh; proton when
+                          PROTON_ENABLED=1).
   release-image           Build the system controller release image.
   release-ui-image        Build the UI release image.
   release-nc-image        Build the network controller release image.
@@ -137,11 +138,6 @@ Variables
                           above, adds the runner image to release-build /
                           push-rc / push-release, and exposes the Proton
                           settings card in the UI.
-  GFEH_VERSION=<semver>   The gfeh crate the object-storage image is built from
-                          (default pinned). Ignored when GFEH_LATEST is set.
-  GFEH_LATEST=1           Build the object-storage image from whatever crates.io
-                          holds today instead of the pin. For tracking an
-                          unreleased fix; not for a release.
   TEST_RUN=<regex>        Restrict the integration run to matching tests.
   TEST_TIMEOUT=<dur>      Integration test timeout (default 60m).
   PUSH_TAG=<tag>          Tag used by push-tag.

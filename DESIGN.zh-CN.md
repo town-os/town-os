@@ -782,9 +782,13 @@ SMB **不提供服务**。它是唯一无法置于 ingress 之后的视图，也
 
 ### 版本耦合
 
-**Town OS 固定的是 gfehd 的下限，而这是下限而非偏好。** `Containerfile.gfeh` 依据 `GFEH_VERSION` 从 crates.io 构建（可覆盖，或将 `GFEH_LATEST` 置为非空以采用 crates.io 当前的最新版——与 install 仓库中的 `TTYFORCE_LATEST` 是同一形状）。当前下限是 **0.1.2**。
+**Town OS 构建的是当前的 gfehd，并且刻意不提供版本旋钮。** `Containerfile.gfeh` 执行的是一条光秃秃的 `cargo install gfehd`——没有 `--version`，也没有 `--locked`——因此镜像携带的是构建时 crates.io 上的版本，并针对当前的依赖解析。
 
-这两种失败对 `make test` 都不可见——单元测试与集成测试套件都用一个**假的 gfehd** 顶替，因此把版本固定到下限之下换来的是一套全绿的测试和一台对象存储悄然死亡的机器。当 Town OS 开始依赖守护进程的新行为时，请提高这个固定版本，并让镜像构建在该版本尚未发布时大声失败。
+曾经有过一个旋钮（`GFEH_VERSION`，外加一个 `GFEH_LATEST` 的逃生舱），而它造成的是实际的伤害。Makefile 在每次构建时都以 `--build-arg` 传入版本，而 `--build-arg` **会压过 `ARG` 的默认值**，因此真正发布出去的是 Makefile 里的数字，而 Containerfile 里的那个只是摆设。两者随后漂移开了：Containerfile 写着 `0.1.2` 并长篇解释了为什么更旧的版本无法在 Town OS 下运行，而 Makefile 却在悄悄地构建 `0.1.1`。采用当前发布版，等于在构造上就满足了下限，也消除了答案的第二个栖身之处。
+
+这两种失败对 `make test` 都不可见——单元测试与集成测试套件都用一个**假的 gfehd** 顶替，因此一个错误但真实的守护进程能够完美地构建、推送与安装，只会表现为真实机器上对象存储永远起不来。为存档起见，这也正是当初存在下限的原因：0.1.1 无法解析任何带有 SMB 用户的分区配置（gfehd 的每个配置结构体都是 `#[serde(deny_unknown_fields)]`，而它的 `SmbConfig` 没有 `users` 字段），并且它一启动就去认证，而那时在启动过程中回应的是 `:5309` 存根，除 ping 之外一律 403。
+
+**发布构建会传入 `--no-cache`，而这是承重的。** `cargo install gfehd` 在每次构建时都是逐字节相同的一行 `RUN`，因此它那一层是永久的缓存命中——若没有 `--no-cache`，一个全部契约就是"采用今天 crates.io 上的版本"的构建，会永远提供第一次构建时的那个 crate，悄无声息，而且每次的日志都干干净净。也不存在更廉价的缓存键：想知道 crate 何时变化就得去问 crates.io，而那正是这次构建要做的事。cargo 的 registry 卷在 `--no-cache` 下依然留存，因此依赖树会被重新编译，但不会被重新下载。本地的 `gfeh-image` 夹具则刻意保持缓存——它是每一次集成与 dev 运行的前置条件，而且只需要一个真实的 gfehd，不必是今天的。
 
 ### UI
 

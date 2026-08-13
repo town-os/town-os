@@ -769,9 +769,13 @@ SMB **不提供服務**。它是唯一無法置於 ingress 之後的檢視，也
 
 ### 版本耦合
 
-**Town OS 固定的是 gfehd 的下限，而這是下限而非偏好。** `Containerfile.gfeh` 依據 `GFEH_VERSION` 從 crates.io 構建（可覆蓋，或將 `GFEH_LATEST` 置為非空以採用 crates.io 當前的最新版——與 install 倉庫中的 `TTYFORCE_LATEST` 是同一形狀）。當前下限是 **0.1.2**。
+**Town OS 構建的是當前的 gfehd，並且刻意不提供版本旋鈕。** `Containerfile.gfeh` 執行的是一條光禿禿的 `cargo install gfehd`——沒有 `--version`，也沒有 `--locked`——因此鏡像攜帶的是構建時 crates.io 上的版本，並針對當前的依賴解析。
 
-這兩種失敗對 `make test` 都不可見——單元測試與整合測試套件都用一個**假的 gfehd** 頂替，因此把版本固定到下限之下換來的是一套全綠的測試和一台物件儲存悄然死亡的機器。當 Town OS 開始依賴守護程序的新行為時，請提高這個固定版本，並讓鏡像構建在該版本尚未釋出時大聲失敗。
+曾經有過一個旋鈕（`GFEH_VERSION`，外加一個 `GFEH_LATEST` 的逃生艙），而它造成的是實際的傷害。Makefile 在每次構建時都以 `--build-arg` 傳入版本，而 `--build-arg` **會壓過 `ARG` 的預設值**，因此真正發布出去的是 Makefile 裡的數字，而 Containerfile 裡的那個只是擺設。兩者隨後漂移開了：Containerfile 寫著 `0.1.2` 並長篇解釋了為什麼更舊的版本無法在 Town OS 下執行，而 Makefile 卻在悄悄地構建 `0.1.1`。採用當前發布版，等於在構造上就滿足了下限，也消除了答案的第二個棲身之處。
+
+這兩種失敗對 `make test` 都不可見——單元測試與整合測試套件都用一個**假的 gfehd** 頂替，因此一個錯誤但真實的守護程序能夠完美地構建、推送與安裝，只會表現為真實機器上物件儲存永遠起不來。為存檔起見，這也正是當初存在下限的原因：0.1.1 無法解析任何帶有 SMB 使用者的分割區設定（gfehd 的每個設定結構體都是 `#[serde(deny_unknown_fields)]`，而它的 `SmbConfig` 沒有 `users` 欄位），並且它一啟動就去認證，而那時在啟動過程中回應的是 `:5309` 樁，除 ping 之外一律 403。
+
+**發布構建會傳入 `--no-cache`，而這是承重的。** `cargo install gfehd` 在每次構建時都是逐位元組相同的一行 `RUN`，因此它那一層是永久的快取命中——若沒有 `--no-cache`，一個全部契約就是「採用今天 crates.io 上的版本」的構建，會永遠提供第一次構建時的那個 crate，悄無聲息，而且每次的日誌都乾乾淨淨。也不存在更廉價的快取鍵：想知道 crate 何時變化就得去問 crates.io，而那正是這次構建要做的事。cargo 的 registry 卷在 `--no-cache` 下依然留存，因此相依樹會被重新編譯，但不會被重新下載。本地的 `gfeh-image` 夾具則刻意保持快取——它是每一次整合與 dev 執行的前置條件，而且只需要一個真實的 gfehd，不必是今天的。
 
 ### UI
 
