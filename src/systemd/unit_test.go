@@ -4,6 +4,7 @@
 package systemd
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -1623,5 +1624,69 @@ func TestSystemServiceKeyDescriptionFormat(t *testing.T) {
 	// Socket description should use the key.
 	if !strings.Contains(units.Sockets[0].Content, "Description=Town OS Socket: prometheus port 9090/tcp") {
 		t.Fatalf("expected socket description with key, got:\n%s", units.Sockets[0].Content)
+	}
+}
+
+// TestEveryGeneratedUnitSetsRestartSec holds the invariant that a unit which
+// declares Restart= also declares RestartSec=. It is a package-wide sweep
+// rather than a per-generator assertion because the failure it guards against
+// is a NEW generator, or a new branch in an old one, that emits Restart= and
+// silently inherits systemd's 100ms default — which is how one unpullable
+// image turned into 1398 restarts in 55 minutes and 69% of a boot's journal.
+// See RestartSecDefault. A unit that deliberately wants a different delay
+// should set its own value and be listed here.
+func TestEveryGeneratedUnitSetsRestartSec(t *testing.T) {
+	base := PackageUnitConfig{
+		RepoName:               "test-repo",
+		PkgName:                "app",
+		Version:                "1.0",
+		Image:                  "test:latest",
+		External:               packages.PortMap{8080: 80},
+		Internal:               packages.PortMap{},
+		Environment:            map[string]string{},
+		Volumes:                map[string]packages.PackageVolume{},
+		BtrfsBase:              "/town-os",
+		NetworkControllerImage: "quay.io/town/networkcontroller:test",
+		NetworkStatePath:       "/run/town-os",
+	}
+
+	vm := base
+	vm.Runtime = packages.RuntimeVM
+	vm.VM = &packages.PackageVM{Image: "debian.raw", Memory: 2147483648, CPUs: 2}
+	vm.VMImagePath = "/town-os/vm-images/debian.raw"
+
+	sys := base
+	sys.SystemServiceKey = "test-svc"
+	sys.RestartAlways = true
+	sys.StartLimitIntervalZero = true
+
+	units := map[string]string{}
+	add := func(label string, u PackageUnits) {
+		units[label+" service"] = u.Service.Content
+		if u.NetworkController.Content != "" {
+			units[label+" network controller"] = u.NetworkController.Content
+		}
+	}
+	add("package", GeneratePackageUnits(base))
+	add("vm package", GeneratePackageUnits(vm))
+	add("system service", GeneratePackageUnits(sys))
+	units["system service unit"] = GenerateSystemServiceUnit(SystemServiceUnitConfig{
+		Key:         "gfeh-home",
+		Description: "Object storage (gfeh partition home)",
+		Image:       "quay.io/town/gfeh:test",
+	}).Content
+	units["network unit"] = GenerateNetworkUnit(NetworkUnitConfig{
+		Name:       "office",
+		ConfigPath: "/run/town-os/town1a2b.conf",
+	}).Content
+
+	want := fmt.Sprintf("RestartSec=%d\n", RestartSecDefault)
+	for label, content := range units {
+		if !strings.Contains(content, "Restart=") {
+			continue // no restart policy, nothing to pace
+		}
+		if !strings.Contains(content, want) {
+			t.Errorf("%s declares Restart= without %s:\n%s", label, strings.TrimSpace(want), content)
+		}
 	}
 }

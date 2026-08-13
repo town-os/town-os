@@ -148,6 +148,7 @@ func GeneratePagesUnit(cfg PagesUnitConfig) systemd.UnitFile {
 	fmt.Fprintf(&b, " \\\n  %s\n", cfg.CaddyImage)
 	fmt.Fprintf(&b, "ExecStop=/usr/bin/podman stop -t 10 %s\n", containerName)
 	b.WriteString("Restart=on-failure\n")
+	fmt.Fprintf(&b, "RestartSec=%d\n", systemd.RestartSecDefault)
 
 	// [Install]
 	b.WriteString("\n[Install]\n")

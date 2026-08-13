@@ -341,6 +341,33 @@ func allPortMappings(external, internal packages.PortMap) []string {
 // each backend by container name via podman's built-in DNS.
 const IngressNetworkName = "town-os-ingress"
 
+// RestartSecDefault is the delay every unit we generate puts between a failed
+// start and the next attempt. EVERY generated unit that carries a Restart=
+// line must also carry this, and the reason is that the two defaults compose
+// into a retry storm.
+//
+// Units here pair Restart=always with StartLimitIntervalSec=0, which is the
+// behavior we want: a service that cannot start must retry FOREVER, so a
+// transient failure at boot (an image not pulled yet, a network not up) never
+// leaves the box permanently degraded until someone SSHes in. But systemd's
+// default RestartSec is 100ms, so "forever" meant "once a second". An
+// unpullable image ran one unit to 1398 restarts in 55 minutes — each a podman
+// run plus four ExecStartPre — and buried that boot's journal under 14205
+// lines from that single unit, 69% of everything logged.
+//
+// The storm is also the reason the failure was invisible: with an unbounded
+// start limit the unit is never placed in `failed`, and it reads `active
+// (running)` at whatever instant you sample it, so it appears in neither
+// `systemctl --failed` nor a glance at `list-units`. The only symptom was the
+// noise, and the noise drowned out the signal it was made of.
+//
+// 30s keeps the retry loop indefinite and cuts the churn ~300x, while still
+// recovering within half a minute of whatever broke being fixed. Units with a
+// tighter recovery requirement set their own value instead — the getty units
+// use RestartSec=0 because a login prompt has to come back the moment the
+// previous session exits.
+const RestartSecDefault = 30
+
 // GeneratePackageUnits produces the full set of systemd unit files for a
 // package based on its configuration. For VM packages (Runtime == RuntimeVM),
 // it generates a QEMU service unit instead of a podman container unit.
@@ -691,6 +718,7 @@ func generateServiceUnit(cfg PackageUnitConfig, ports []uint16, needsNetworkCont
 	} else {
 		b.WriteString("Restart=on-failure\n")
 	}
+	fmt.Fprintf(&b, "RestartSec=%d\n", RestartSecDefault)
 
 	// [Install]
 	b.WriteString("\n[Install]\n")
@@ -812,6 +840,11 @@ func generateNetworkControllerUnit(cfg PackageUnitConfig, ports []uint16) UnitFi
 	} else {
 		b.WriteString("Restart=on-failure\n")
 	}
+	// The ExecStartPre `podman image exists` check above deliberately fails
+	// until the systemcontroller finishes building the NC image, so on a cold
+	// boot this unit is EXPECTED to restart its way to readiness — exactly the
+	// loop that must not spin at 100ms.
+	fmt.Fprintf(&b, "RestartSec=%d\n", RestartSecDefault)
 
 	// [Install]
 	b.WriteString("\n[Install]\n")
@@ -880,6 +913,10 @@ func GenerateSystemServiceUnit(cfg SystemServiceUnitConfig) UnitFile {
 		fmt.Fprintf(&b, "ExecStopPost=%s\n", cmd)
 	}
 	b.WriteString("Restart=always\n")
+	// Paired with the unconditional StartLimitIntervalSec=0 above, this is the
+	// exact combination RestartSecDefault documents — the gfeh-home storm came
+	// from this generator.
+	fmt.Fprintf(&b, "RestartSec=%d\n", RestartSecDefault)
 
 	// [Install]
 	b.WriteString("\n[Install]\n")
@@ -922,6 +959,7 @@ func GenerateNetworkUnit(cfg NetworkUnitConfig) UnitFile {
 	fmt.Fprintf(&b, "ExecStart=%s up %s\n", WireGuardQuickPath, cfg.ConfigPath)
 	fmt.Fprintf(&b, "ExecStop=-%s down %s\n", WireGuardQuickPath, cfg.ConfigPath)
 	b.WriteString("Restart=on-failure\n")
+	fmt.Fprintf(&b, "RestartSec=%d\n", RestartSecDefault)
 
 	b.WriteString("\n[Install]\n")
 	b.WriteString("WantedBy=multi-user.target\n")

@@ -132,6 +132,7 @@ func generateVMServiceUnit(cfg PackageUnitConfig, ports []uint16, needsNetworkCo
 	}
 
 	b.WriteString("Restart=on-failure\n")
+	fmt.Fprintf(&b, "RestartSec=%d\n", RestartSecDefault)
 
 	// [Install]
 	b.WriteString("\n[Install]\n")

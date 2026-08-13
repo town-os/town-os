@@ -4,6 +4,7 @@
 package systemcontroller
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -102,6 +103,14 @@ func TestGeneratePagesUnit(t *testing.T) {
 
 	if !strings.Contains(unit.Content, "Restart=on-failure") {
 		t.Fatal("expected unit content to contain Restart=on-failure")
+	}
+
+	// Restart= without RestartSec= inherits systemd's 100ms default and turns a
+	// unit that cannot start into a retry storm. The systemd package sweeps its
+	// own generators for this (TestEveryGeneratedUnitSetsRestartSec); this one
+	// lives out here, so it needs its own assertion.
+	if !strings.Contains(unit.Content, fmt.Sprintf("RestartSec=%d", systemd.RestartSecDefault)) {
+		t.Fatalf("expected unit content to contain RestartSec, got:\n%s", unit.Content)
 	}
 
 	if !strings.Contains(unit.Content, "docker.io/library/caddy:latest") {
