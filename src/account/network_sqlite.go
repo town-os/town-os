@@ -258,6 +258,15 @@ func (m *SQLiteNetworkManager) AddPeer(ctx context.Context, p *NetworkPeer) (*Ne
 		return nil, ErrNetworkPeerKeyReq
 	}
 
+	// The home network is DNS-only: it carries no subnet, no keypair, and no
+	// interface, so a peer row on it describes a tunnel that does not exist and
+	// never will. Refused at the manager, not only at the API, because the row
+	// would otherwise be reachable by any caller holding a NetworkManager --
+	// and because the API's own guard is the kind that gets moved.
+	if p.Network == DefaultNetworkName {
+		return nil, ErrNetworkDNSOnly
+	}
+
 	// Ensure the network exists so we return a clean error instead of a
 	// foreign-key violation string.
 	if _, err := m.Get(ctx, p.Network); err != nil {

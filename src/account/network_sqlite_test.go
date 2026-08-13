@@ -350,3 +350,43 @@ func TestNetworkRemoveCascadesPeers(t *testing.T) {
 		t.Fatalf("expected peers cascade-deleted, got %+v", peers)
 	}
 }
+
+// The home network is DNS-only: no subnet, no keypair, no interface. A peer row
+// on it would describe a tunnel that does not exist, and every account is a
+// member of home -- so the manager refuses it rather than leaving the rule to
+// whichever caller happens to be in front of it.
+func TestAddPeerRefusesHomeNetwork(t *testing.T) {
+	mgr := initNetworkTestDB(t)
+
+	if _, err := mgr.AddPeer(t.Context(), &NetworkPeer{
+		Network:   DefaultNetworkName,
+		PublicKey: "KEY1",
+		AllowedIP: "10.90.12.2/32",
+	}); !errors.Is(err, ErrNetworkDNSOnly) {
+		t.Fatalf("AddPeer on the home network = %v, want ErrNetworkDNSOnly", err)
+	}
+
+	peers, err := mgr.ListPeers(t.Context(), DefaultNetworkName)
+	if err != nil {
+		t.Fatalf("ListPeers: %v", err)
+	}
+	if len(peers) != 0 {
+		t.Fatalf("home network has peers after a refused AddPeer: %+v", peers)
+	}
+}
+
+// The refusal must be about the home network specifically, not about peers.
+func TestAddPeerStillWorksOnRealNetwork(t *testing.T) {
+	mgr := initNetworkTestDB(t)
+
+	if _, err := mgr.Create(t.Context(), sampleNetwork("lab")); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if _, err := mgr.AddPeer(t.Context(), &NetworkPeer{
+		Network:   "lab",
+		PublicKey: "KEY1",
+		AllowedIP: "10.90.12.2/32",
+	}); err != nil {
+		t.Fatalf("AddPeer on a real network: %v", err)
+	}
+}

@@ -29,6 +29,7 @@ var (
 	ErrNetworkNameRequired  = errors.New("network name is required")
 	ErrNetworkNameInvalid   = errors.New("network name must be lowercase alphanumeric with dashes")
 	ErrNetworkProtected     = errors.New("the default network cannot be removed")
+	ErrNetworkDNSOnly       = errors.New("the default network is DNS-only and cannot carry peers")
 	ErrNetworkPeerNotFound  = errors.New("network peer not found")
 	ErrNetworkPeerKeyReq    = errors.New("peer public key is required")
 	ErrDuplicateNetworkPeer = errors.New("peer already exists on this network")

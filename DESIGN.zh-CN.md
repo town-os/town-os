@@ -1274,6 +1274,10 @@ dependencies:
 
 它是**仅 DNS 的**：`applyNetworkTransport` 不给它 WireGuard 接口、不给 overlay 子网、也不给 peer，因此它永远不可能有隧道设备。所播种的那一行因此**完全不携带传输字段**——空子网、无密钥对、端口 0。这是事实而非占位符；推导出的子网与密钥会是没有任何东西读取的字段。
 
+**在它上面登记 peer 会被拒绝——这是刻意的，而且在两层上都拒绝。** `POST /networks/peers/add` 对 `home` 返回 400，而 `NetworkManager.AddPeer` 无论被谁调用都返回 `ErrNetworkDNSOnly`。这很重要，因为[每个账户都属于 home 网络](#每个账户都属于-home-网络)：如果在那里的登记被接受，仅凭成员身份就等于拿到了一条上隧道的路，而存下来的 peer 描述的是一条并不存在、也永远不会存在的隧道。peer 是在真实 overlay 上动态创建的，所以想要隧道的调用者要指名一个。
+
+这条拒绝过去是**偶然的**：没有任何地方检查网络，处理器一路落到 `netip.ParsePrefix`，对播种行的空 `Subnet` 解析失败，最后以 **500** 冒出来。那读起来像是机器坏了而不是一次拒绝，它没有告诉调用者任何原因，而且只要有什么东西往那一行写入了子网，它就会不再拒绝。这道守卫按名字进行，位于服务端生成密钥对之前，后面还跟着一道针对"无传输行"的检查，以覆盖子网因其他原因为空的网络。
+
 **它的 TLD 来自 `dns_tld`，并由控制器保持二者同步。** 播种时无法知道该值（account 包没有设置 manager），因此该行以裸默认值出现，再由 `ensureDefaultNetwork` 在启动时对齐，且仅在两者不一致时才写入。`POST /dns/tld` 在写入设置的同时也会重新指向它。两者都经由 `NetworkManager.SetTLD`，它的存在正是为此。搞错它不是外观问题：`applyNetworkTransport` 会把 `n.TLD` 交给 `rolodex.EnsureNetworkScope`，由后者决定 home 作用域拥有哪个区域。
 
 ### 编址与接口
@@ -1328,7 +1332,7 @@ systemcontroller 以 `--net host` 运行，因此它本来就与 wg-quick 创建
 - `POST /networks/enable` / `POST /networks/disable`（需要管理员）—— 拉起或关闭 overlay 接口。
 - `GET /networks/peers?network=<name>`（需要鉴权，并受 `requireNetworkScope` 限制）—— 列出某个网络上已登记的 peer。该路由在 `wireguard` 授权的白名单上，因此受限账户可以访问它；而 peer 列表会指明设备、登记它们的账户以及它们的 overlay 地址——授权是对调用者自己网络的权限，而读操作恰恰是最容易忘记这一点的地方。
 - `GET /networks/peers/connected`（**需要管理员**）—— 所有 WireGuard 网络上的每一个 peer，联接实时隧道状态。它刻意比 `requireAuth` 的同类更严，并且不在 `grantRoutes` 中。
-- `POST /networks/peers/add`（`requirePeerEnroll`：管理员或 `wireguard` 授权，且限定在调用者的网络内）—— 登记一个 peer。当 `public_key` 为空时，服务器生成密钥对并返回私钥以及一份可直接导入的设备配置。接受可选的 `endpoint` 与一个 `rolodex` 标志。
+- `POST /networks/peers/add`（`requirePeerEnroll`：管理员或 `wireguard` 授权，且限定在调用者的网络内）—— 登记一个 peer。当 `public_key` 为空时，服务器生成密钥对并返回私钥以及一份可直接导入的设备配置。接受可选的 `endpoint` 与一个 `rolodex` 标志。**home 网络是 400** —— 它是仅 DNS 的，不承载 peer，无论谁来请求（参见[home 网络永远存在](#home-网络始终存在)）。
 - `POST /networks/peers/refresh`（`requirePeerEnroll`，且只能针对调用者自己登记的 peer）—— 把某个 peer 的 TTL 延长 `peer_ttl` 并返回新的过期时间，使客户端能在 TTL 到期之前从容安排下一次心跳。
 - `POST /networks/peers/remove`（需要管理员）—— 按公钥移除 peer。
 

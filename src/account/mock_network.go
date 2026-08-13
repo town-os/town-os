@@ -73,6 +73,23 @@ func (m *MockNetworkManager) Seed(n *Network) {
 	m.networks[n.Name] = &stored
 }
 
+// SeedPeer installs a peer row directly, skipping every rule AddPeer enforces
+// and recording no call.
+//
+// It exists for rows AddPeer would refuse but a real database can still hold: a
+// peer on the home network, written by an install that predates the DNS-only
+// refusal. Code that reads peers has to keep coping with those rows, so a test
+// of that coping needs a way to put one there -- Seed is the same argument one
+// table over.
+func (m *MockNetworkManager) SeedPeer(p *NetworkPeer) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	stored := *p
+	stored.CreatedAt = time.Now()
+	m.peers[p.Network] = append(m.peers[p.Network], &stored)
+}
+
 func (m *MockNetworkManager) Create(_ context.Context, n *Network) (*Network, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -203,6 +220,12 @@ func (m *MockNetworkManager) AddPeer(_ context.Context, p *NetworkPeer) (*Networ
 	}
 	if p == nil || p.PublicKey == "" {
 		return nil, ErrNetworkPeerKeyReq
+	}
+	// Mirrors SQLiteNetworkManager.AddPeer: the home network is DNS-only and
+	// carries no peers. A mock that accepted one would let a unit test assert
+	// behavior the real manager refuses.
+	if p.Network == DefaultNetworkName {
+		return nil, ErrNetworkDNSOnly
 	}
 	if _, ok := m.networks[p.Network]; !ok {
 		return nil, ErrNetworkNotFound

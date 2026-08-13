@@ -5,6 +5,7 @@ package integration_test
 
 import (
 	"context"
+	"database/sql"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,6 +21,7 @@ import (
 type connectedPeersEnv struct {
 	client   *systemcontroller.SystemdClient
 	nm       *account.SQLiteNetworkManager
+	db       *sql.DB
 	sd       *systemd.MockManager
 	stateDir string
 }
@@ -31,7 +33,7 @@ type connectedPeersEnv struct {
 func initConnectedPeersTest(t *testing.T) connectedPeersEnv {
 	t.Helper()
 
-	nm := initNetworkDB(t)
+	nm, db := initNetworkDBHandle(t)
 	sd := systemd.InitMockManager()
 	stateDir := t.TempDir()
 
@@ -47,7 +49,23 @@ func initConnectedPeersTest(t *testing.T) connectedPeersEnv {
 	if err != nil {
 		t.Fatalf("could not create client: %v", err)
 	}
-	return connectedPeersEnv{client: c, nm: nm, sd: sd, stateDir: stateDir}
+	return connectedPeersEnv{client: c, nm: nm, db: db, sd: sd, stateDir: stateDir}
+}
+
+// insertLegacyPeer writes a peer row straight into the table, around every rule
+// AddPeer enforces. It exists for exactly one row: a peer on the DNS-only home
+// network, which AddPeer refuses now but which an install predating that
+// refusal still has on disk. Readers must keep filtering those rows out, and
+// there is no supported call that can produce one to test against.
+func insertLegacyPeer(t *testing.T, db *sql.DB, network, publicKey, name, allowedIP string) {
+	t.Helper()
+	if _, err := db.ExecContext(t.Context(), `INSERT INTO network_peers
+		(network_name, public_key, name, allowed_ip, created_by, created_at)
+		VALUES (?, ?, ?, ?, ?, ?)`,
+		network, publicKey, name, allowedIP, "admin", time.Now().UTC().Format(time.RFC3339Nano),
+	); err != nil {
+		t.Fatalf("insert legacy peer on %s: %v", network, err)
+	}
 }
 
 // findConnectedPeer returns the view for a peer by network and name.
@@ -165,12 +183,10 @@ func TestConnectedPeersHTTPExcludesHomeNetwork(t *testing.T) {
 	if _, err := c.CreateNetwork(ctx, "office", "office"); err != nil {
 		t.Fatalf("CreateNetwork office: %v", err)
 	}
-	if _, err := nm.AddPeer(t.Context(), &account.NetworkPeer{
-		Network: account.DefaultNetworkName, PublicKey: "k-legacy",
-		Name: "legacy", AllowedIP: "10.90.1.2/32", CreatedBy: "admin",
-	}); err != nil {
-		t.Fatalf("seed home peer: %v", err)
-	}
+	// Written around AddPeer, which refuses the home network now: this row is
+	// the legacy install, and the filter under test is what keeps it out of the
+	// panel.
+	insertLegacyPeer(t, env.db, account.DefaultNetworkName, "k-legacy", "legacy", "10.90.1.2/32")
 	if _, err := nm.AddPeer(t.Context(), &account.NetworkPeer{
 		Network: "office", PublicKey: "k-laptop",
 		Name: "laptop", AllowedIP: "10.90.12.2/32", CreatedBy: "alice",

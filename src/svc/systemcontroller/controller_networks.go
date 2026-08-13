@@ -370,6 +370,31 @@ func (s *SystemControllerHandlers) addNetworkPeer(c *echo.Context) error {
 		return echo.NewHTTPError(500, fmt.Sprintf("get network: %v", err))
 	}
 
+	// The home network is DNS-only. `applyNetworkTransport` gives it no
+	// WireGuard interface, no overlay subnet, and no keypair (DESIGN.md, "The
+	// home network always exists"), so there is no tunnel for a device to join
+	// and no address space to allocate one from. Peers are created dynamically
+	// on a real network, so a caller that wants a tunnel names one -- and every
+	// account being a member of `home` must not amount to every account holding
+	// a way onto a tunnel.
+	//
+	// Rejected here, by name, rather than left to fall through: the subnet parse
+	// below fails on the seeded row's empty Subnet and surfaces as a 500, which
+	// reads as a broken box rather than "this network does not carry peers" --
+	// and it would stop rejecting the moment anything wrote a subnet onto that
+	// row. `nm.AddPeer` carries the same refusal as the backstop.
+	if n.Name == account.DefaultNetworkName {
+		return echo.NewHTTPError(400, account.ErrNetworkDNSOnly.Error())
+	}
+	// Any other transportless row cannot carry a peer either. `POST
+	// /networks/create` always derives a subnet, so this is a guard against a
+	// row written around it rather than a live path -- but it is the condition
+	// that actually matters, and reaching the parse below with it unmet is the
+	// 500 this is here to prevent.
+	if strings.TrimSpace(n.Subnet) == "" {
+		return echo.NewHTTPError(400, "network has no WireGuard transport")
+	}
+
 	// Generate a keypair server-side when the device did not supply a public key.
 	publicKey := strings.TrimSpace(req.PublicKey)
 	var privateKey string
@@ -468,6 +493,11 @@ func (s *SystemControllerHandlers) addNetworkPeer(c *echo.Context) error {
 	if err != nil {
 		if errors.Is(err, account.ErrDuplicateNetworkPeer) {
 			return echo.NewHTTPError(409, "peer already exists on this network")
+		}
+		// Unreachable while the guard above stands, and mapped anyway so the
+		// manager's refusal cannot degrade into a 500 if it is ever moved.
+		if errors.Is(err, account.ErrNetworkDNSOnly) {
+			return echo.NewHTTPError(400, err.Error())
 		}
 		return echo.NewHTTPError(500, fmt.Sprintf("add peer: %v", err))
 	}

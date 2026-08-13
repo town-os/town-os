@@ -5,6 +5,7 @@ package integration_test
 
 import (
 	"context"
+	"database/sql"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,6 +20,16 @@ import (
 
 func initNetworkDB(t *testing.T) *account.SQLiteNetworkManager {
 	t.Helper()
+	nm, _ := initNetworkDBHandle(t)
+	return nm
+}
+
+// initNetworkDBHandle is initNetworkDB with the raw connection returned
+// alongside the manager, for the few tests that must write a row the manager
+// itself refuses to write -- a peer on the DNS-only home network, as an install
+// predating that refusal would still have on disk.
+func initNetworkDBHandle(t *testing.T) (*account.SQLiteNetworkManager, *sql.DB) {
+	t.Helper()
 	db, err := account.OpenDB(t.Context(), filepath.Join(t.TempDir(), "networks.db"))
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
@@ -32,7 +43,7 @@ func initNetworkDB(t *testing.T) *account.SQLiteNetworkManager {
 	if err != nil {
 		t.Fatalf("InitNetworkManager: %v", err)
 	}
-	return nm
+	return nm, db
 }
 
 // TestReconcileNetworksSeedsHomeAndAppliesTransport drives the boot-time

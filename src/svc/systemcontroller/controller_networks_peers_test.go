@@ -182,13 +182,14 @@ func TestListConnectedPeersExcludesDefaultNetwork(t *testing.T) {
 		Name: account.DefaultNetworkName, TLD: "home", Subnet: "10.90.1.0/24",
 		Address: "10.90.1.1/24", PublicKey: "HOMEPUB", ListenPort: 51999, Enabled: true,
 	})
-	// A legacy row on home, which must still not surface.
-	if _, err := mock.AddPeer(t.Context(), &account.NetworkPeer{
+	// A legacy row on home, which must still not surface. Seeded rather than
+	// added: AddPeer refuses the home network now, but rows written before that
+	// refusal existed are still sitting in real databases, and this filter is
+	// what keeps them out of the panel.
+	mock.SeedPeer(&account.NetworkPeer{
 		Network: account.DefaultNetworkName, PublicKey: "k-legacy",
 		Name: "legacy", AllowedIP: "10.90.1.2/32",
-	}); err != nil {
-		t.Fatalf("add home peer: %v", err)
-	}
+	})
 	stubWGDump(t, map[string]string{
 		wireguard.InterfaceName(wireGuardSalt, "office"): ifaceHeader,
 	})
