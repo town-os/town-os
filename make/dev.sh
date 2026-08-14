@@ -51,6 +51,32 @@ ensure_wireguard_module() {
   return 0
 }
 
+# dev_teardown ends a dev run: the host gets its resolver back, the services
+# inside the dev container are stopped, and the container itself is removed.
+#
+# The stop-before-remove ordering is load-bearing: the monitoring containers
+# share the host's network and PID namespaces, so removing the dev container out
+# from under them orphans conmon processes that keep holding the ports.
+#
+# This is reached from two directions -- the UI dev server returning on its own,
+# and the INT/HUP/TERM trap below -- so nothing in it may fail the script.
+# restore_host_dns is documented as safe with nothing to restore, and the
+# container removal goes through remove_container, which tolerates a container
+# that is already gone. A `podman rm -f` that returned non-zero here would set
+# the script's exit status from inside a trap and hand make a failure to print,
+# which is the exact thing the trap exists to avoid.
+dev_teardown() {
+  restore_host_dns
+  ${SUDO} podman exec "${PODMAN_DEV_CONTAINER}" systemctl stop \
+    town-os-system--node-exporter.service \
+    town-os-system--prometheus.service \
+    town-os-system--prometheus-network.service \
+    town-os-system--monitoring-ui.service \
+    town-os-system--monitoring-ui-network.service \
+    2>/dev/null || true
+  remove_container "${PODMAN_DEV_CONTAINER}"
+}
+
 # Sourcing this file pulls in make/dns.sh and stops here, without dispatching
 # and without requiring an argument. That is what lets the DNS restore logic be
 # tested through dev.sh (see src/rolodex/dev_restore_dns_test.go) rather than
@@ -151,8 +177,25 @@ case "$1" in
     # Ctrl-C on the UI dev server below is the normal way to stop dev — a missed
     # restore leaves the host resolving through a rolodex that is about to be
     # torn down.
+    #
+    # The two traps deliberately do different things, because the two ways out
+    # of here are not the same event:
+    #
+    #   EXIT is the failure path — bun_install or the dev server itself dying.
+    #   It restores DNS and stops there, leaving the container up so whatever
+    #   just broke can still be inspected (`make dev-logs`), and lets the
+    #   non-zero status through so make reports the real error.
+    #
+    #   INT/HUP/TERM is the OPERATOR STOPPING DEV, which is a success. It runs
+    #   the same full teardown the normal return below does and exits 0. Exiting
+    #   130 here — as this did — made every single Ctrl-C end in
+    #   `make: *** [make/include.mk:211: dev] Error 130`, reporting a failure
+    #   for the documented way to stop, and skipped the teardown entirely: the
+    #   dev container and its monitoring containers were left running with the
+    #   host's ports still held. The EXIT trap is cleared first so the teardown
+    #   cannot be re-entered on the way out.
     trap restore_host_dns EXIT
-    trap 'restore_host_dns; exit 130' INT HUP TERM
+    trap 'trap - EXIT; dev_teardown; exit 0' INT HUP TERM
     redirect_host_dns
     step "Starting UI dev server"
     substep "API server: http://$(hostname):5309"
@@ -163,20 +206,10 @@ case "$1" in
     fi
     bun_install ui
     cd ui && bun run dev -- --host
-    # The dev server has stopped: give the host its resolver back before the
-    # container teardown below, which is slow and needs no DNS of ours.
-    restore_host_dns
-    # Stop services inside the dev container before removing it so
-    # monitoring containers (which share the host network/PID namespace)
-    # do not orphan conmon processes that hold ports.
-    ${SUDO} podman exec "${PODMAN_DEV_CONTAINER}" systemctl stop \
-      town-os-system--node-exporter.service \
-      town-os-system--prometheus.service \
-      town-os-system--prometheus-network.service \
-      town-os-system--monitoring-ui.service \
-      town-os-system--monitoring-ui-network.service \
-      2>/dev/null || true
-    ${SUDO} podman rm -f "${PODMAN_DEV_CONTAINER}"
+    # The dev server returned on its own rather than being interrupted. Same
+    # teardown either way — dev_teardown restores the host's resolver first,
+    # before the slow container half that needs no DNS of ours.
+    dev_teardown
     ;;
   logs)
     step "Streaming dev container logs"
@@ -184,17 +217,9 @@ case "$1" in
     ;;
   stop)
     step "Stopping dev container"
-    restore_host_dns
-    # Stop services inside the container before removal.
-    ${SUDO} podman exec "${PODMAN_DEV_CONTAINER}" systemctl stop \
-      town-os-system--node-exporter.service \
-      town-os-system--prometheus.service \
-      town-os-system--prometheus-network.service \
-      town-os-system--monitoring-ui.service \
-      town-os-system--monitoring-ui-network.service \
-      2>/dev/null || true
-    # Stop and remove the dev container for this working directory.
-    remove_container "${PODMAN_DEV_CONTAINER}"
+    # The same teardown `make dev` runs when it ends: restore the host's
+    # resolver, stop the services inside, remove this checkout's container.
+    dev_teardown
     # Clean up orphaned monitoring containers on the host.
     for c in town-os-system--node-exporter \
              town-os-system--prometheus town-os-system--prometheus-network \
