@@ -223,7 +223,10 @@ export BUN_CACHE BUN_INSTALL_CACHE_DIR
 # debian:bookworm (non-slim) is still the Proton runner base (Containerfile.proton).
 # Both must be pre-pulled because release builds run podman with --pull=never.
 # caddy:2-alpine is the donor stage the ingress and NC images copy the caddy
-# binary out of (Containerfile.ingress, Containerfile.networkcontroller);
+# binary out of (Containerfile.ingress, Containerfile.networkcontroller), and
+# the test image copies the same binary so the ingress suite validates rendered
+# Caddyfiles against the caddy that actually serves them rather than skipping
+# (integration/testdata/Containerfile.systemd);
 # caddy:latest is the UI runtime base (Containerfile.ui). The only FROM base
 # deliberately left out is rust:1-bookworm (~1.5G, gfeh builder only) — see
 # the release-gfeh comment in make/build.sh.

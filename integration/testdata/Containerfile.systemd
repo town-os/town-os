@@ -36,11 +36,32 @@ RUN printf '[engine]\nruntime = "runc"\n\n[network]\ndefault_subnet_pools = [{"b
 
 FROM ${TOWN_OS_IMAGE} AS town-os
 
+# The same caddy the ingress image ships (Containerfile.ingress), for the same
+# reason it is pinned there: a test that validates a rendered Caddyfile against a
+# *different* caddy than the one serving it is a test that can pass while the box
+# refuses to boot.
+#
+# Without it `findCaddy` (src/ingress/integration_test.go) finds nothing and four
+# tests skip — the two that drive a real caddy over real sockets, the one that
+# proves a bad hostname cannot take the whole config down, and the one that
+# proves path-scoped `handle` blocks are config caddy accepts. All four skipped
+# in every harness run, which reads identically to passing in the summary line.
+FROM docker.io/library/caddy:2-alpine AS caddy
+
 FROM runtime-deps
 COPY --from=town-os /systemcontroller /systemcontroller
 COPY --from=town-os /town-os-networkcontroller /town-os-networkcontroller
 COPY --from=town-os /ui /ui
 COPY --from=builder /integration-test /integration-test
+# /usr/bin/caddy exactly, because that is caddysup.DefaultCaddyBinary and so the
+# second place findCaddy looks after $PATH.
+COPY --from=caddy /usr/bin/caddy /usr/bin/caddy
+# Proves the binary can exec in this rootfs at BUILD time. It comes from an
+# alpine image into a debian one, which is only safe because caddy is built
+# CGO-free and therefore static; if that ever stops being true the failure must
+# land here, naming itself, rather than turning four skipped tests into four
+# failing ones that look like the ingress broke.
+RUN /usr/bin/caddy version
 COPY integration/testdata/town-os-systemcontroller.service /etc/systemd/system/
 COPY integration/testdata/town-os-package--repo-test-1.0.service /etc/systemd/system/
 RUN printf 'nameserver 127.0.0.2\n' > /etc/resolv.conf \
