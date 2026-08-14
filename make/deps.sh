@@ -277,10 +277,11 @@ install_ui_deps() {
 #
 # Installing the packages is NOT the same as having a handler, and this is the
 # common state rather than an edge case. binfmt_misc is global kernel state
-# that survives no reboot and that anything on the box can clear (a `--reset`
-# from a multiarch/qemu-user-static container unregisters every handler, not
-# just its own), while the units that populate it run once at boot and never
-# again. So a host can carry every package and still have an empty
+# that survives no reboot and that anything on the box can clear — including a
+# --privileged container, which shares /proc/sys/fs/binfmt_misc with the host
+# and whose own binfmt tooling happily registers into it (this repo's own test
+# container did exactly that; see integration/testdata/Containerfile.systemd) —
+# while the units that populate it run once at boot and never again. So a host can carry every package and still have an empty
 # /proc/sys/fs/binfmt_misc — at which point `pacman -S` reports "up to date"
 # and changes nothing. That is why this function VERIFIES rather than assumes,
 # and registers by hand as a last resort.

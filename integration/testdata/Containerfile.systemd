@@ -68,6 +68,34 @@ RUN printf 'nameserver 127.0.0.2\n' > /etc/resolv.conf \
     && mkdir -p /etc/systemd/resolved.conf.d \
     && printf '[Resolve]\nDNS=127.0.0.2\n' > /etc/systemd/resolved.conf.d/rolodex.conf
 RUN systemctl enable town-os-systemcontroller.service town-os-package--repo-test-1.0.service podman.socket
+# binfmt_misc is global kernel state and this container is --privileged in the
+# host's user namespace, so nothing separates its /proc/sys/fs/binfmt_misc from
+# the machine's. Both of Debian's binfmt paths therefore write to the HOST:
+# systemd-binfmt (whose ExecStop is `--unregister`, which clears EVERY handler
+# rather than only the ones it registered) and binfmt-support's update-binfmts,
+# which mounts binfmt_misc itself if it is not already mounted — which is why
+# masking the mount units alone is not enough.
+#
+# This is not a hypothetical. An x86_64 Manjaro host running this suite was
+# found with all 35 of its qemu-* handlers gone and a single entry left in
+# their place:
+#
+#   /proc/sys/fs/binfmt_misc/python3.11 -> interpreter /usr/bin/python3.11
+#
+# That host runs Python 3.14 and has no /usr/bin/python3.11, no update-binfmts,
+# and no /var/lib/binfmts — the entry is Debian's, registered from in here,
+# pointing at an interpreter that exists only in this rootfs. The cost is that
+# `TARGET=aarch64 make push-rc` stops working after any test run, because the
+# qemu-aarch64 handler a cross build needs is collateral damage.
+#
+# Nothing in the suite runs a foreign-arch binary or a .pyc through binfmt, so
+# there is nothing to lose by masking all of it.
+#
+# This is one direction of a general hazard: a privileged container is not
+# isolated from host kernel state that is not namespaced. Anything else this
+# image gains that reaches out that way belongs on this list.
+RUN systemctl mask systemd-binfmt.service binfmt-support.service \
+    proc-sys-fs-binfmt_misc.automount proc-sys-fs-binfmt_misc.mount
 RUN mkdir -p /test /etc/containers/registries.conf.d \
     && mkdir -p /data/repos/repo/packages/test /data/repos/installed/repo/test \
     && printf 'image: test:1.0\n' > /data/repos/repo/packages/test/1.0.yaml \

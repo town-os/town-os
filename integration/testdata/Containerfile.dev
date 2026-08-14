@@ -39,5 +39,15 @@ RUN test -n "${ROLODEX_IMAGE}" && \
     sed -i "s|@ROLODEX_IMAGE@|${ROLODEX_IMAGE}|" /etc/systemd/system/town-os-system--rolodex.service
 RUN printf 'nameserver 127.0.0.1\n' > /etc/resolv.conf
 RUN systemctl enable town-os-systemcontroller.service town-os-system--rolodex.service podman.socket
+# Masked for the same reason, and with the same list, as in
+# Containerfile.systemd: this container is --privileged in the host's user
+# namespace, binfmt_misc is not namespaced, and both Debian binfmt paths
+# (systemd-binfmt's `--unregister` ExecStop, and binfmt-support's
+# update-binfmts, which mounts binfmt_misc itself) therefore write to the host.
+# A `make dev` session would otherwise cost the host its qemu-<arch>
+# registration and break the next cross build. See Containerfile.systemd for
+# the observed failure.
+RUN systemctl mask systemd-binfmt.service binfmt-support.service \
+    proc-sys-fs-binfmt_misc.automount proc-sys-fs-binfmt_misc.mount
 EXPOSE 5309
 CMD ["/lib/systemd/systemd"]

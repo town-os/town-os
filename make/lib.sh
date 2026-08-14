@@ -282,12 +282,71 @@ require_native_target() {
   return 1
 }
 
+# binfmt_handler_present HANDLER — whether a /proc/sys/fs/binfmt_misc entry
+#   exists and is enabled. The F flag is checked separately by the caller: this
+#   answers "is there a handler", and a handler without F is a warning rather
+#   than an absence (deps.sh's binfmt_handler_ok is the stricter one, because
+#   re-registering correctly is free there).
+binfmt_handler_present() {
+  [ -e "$1" ] && grep -qx enabled "$1" 2>/dev/null
+}
+
+# reregister_cross_binfmt WANT HANDLER — put a missing qemu-WANT handler back,
+#   reporting whether it worked.
+#
+#   This is the same two steps make/deps.sh takes, in the same order and for the
+#   same reasons: restart whichever unit owns the registration on this distro
+#   (systemd-binfmt on Arch/Fedora, binfmt-support on Debian, where restarting
+#   systemd-binfmt is a no-op), then feed the interpreter's own binfmt.d line
+#   straight to the kernel — which is exactly what systemd-binfmt does with that
+#   file, so it is doing it without the unit rather than working around it.
+#
+#   Best-effort throughout. Everything here needs root, and a declined sudo is a
+#   perfectly ordinary answer: the caller then prints the full remediation and
+#   fails the build, which is what it did before this existed. It never installs
+#   anything — a host missing the packages is a different failure with a
+#   different fix, and `make deps` is where that lives.
+reregister_cross_binfmt() {
+  local want="$1" handler="$2"
+
+  # Nothing to re-register from means the packages are absent, which is the
+  # other failure entirely. Say nothing and let the caller explain it.
+  local conf conf_found=""
+  for conf in "/usr/lib/binfmt.d/qemu-${want}-static.conf" "/usr/lib/binfmt.d/qemu-${want}.conf"; do
+    [ -r "${conf}" ] && { conf_found="${conf}"; break; }
+  done
+  if [ -z "${conf_found}" ] && [ ! -e "/var/lib/binfmts/qemu-${want}" ]; then
+    return 1
+  fi
+
+  substep "cross build: binfmt handler qemu-${want} is missing; re-registering"
+
+  if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+    local unit
+    for unit in systemd-binfmt binfmt-support; do
+      if [ -n "$(systemctl show -p FragmentPath --value "${unit}.service" 2>/dev/null)" ]; then
+        ${SUDO} systemctl restart "${unit}.service" || true
+      fi
+    done
+  fi
+
+  if ! binfmt_handler_present "${handler}" && [ -n "${conf_found}" ]; then
+    ${SUDO} sh -c "cat '${conf_found}' > /proc/sys/fs/binfmt_misc/register" 2>/dev/null || true
+  fi
+
+  if binfmt_handler_present "${handler}"; then
+    substep "cross build: binfmt handler qemu-${want} re-registered"
+    return 0
+  fi
+  return 1
+}
+
 # require_cross_binfmt — a cross build compiles natively but still executes a
 #   handful of target-arch binaries in the runtime stages (apt-get, groupadd,
 #   apk), so the kernel needs a binfmt_misc handler for that arch. This is the
 #   one piece of the cross path that cannot be arranged from inside the build,
-#   and it needs root, so check it up front and print the remediation rather
-#   than letting podman fail with `exec format error` on a RUN line.
+#   so it is checked (and repaired) up front rather than letting podman fail
+#   with `exec format error` partway through a RUN line.
 #
 #   The F ("fix binary") flag matters as much as the registration: without it
 #   the interpreter is resolved inside the container's mount namespace, where
@@ -298,12 +357,26 @@ require_native_target() {
 #   Two distinct failures wear this same missing-handler symptom, and the fix
 #   for one is useless for the other, so the message below distinguishes them:
 #   the packages are absent, or they are installed and the REGISTRATION is
-#   gone. binfmt_misc is global kernel state that anything on the box can wipe
-#   (a `--reset` from a multiarch/qemu-user-static container unregisters every
-#   handler, not just its own), and systemd-binfmt does not re-run on its own
-#   afterwards — so a host that ran `make deps` weeks ago can sit here with
-#   every package installed and no handler. Sending that host to pacman/apt
-#   gets "already installed" and leaves it exactly where it started.
+#   gone. binfmt_misc is global kernel state that anything on the box can wipe,
+#   and systemd-binfmt does not re-run on its own afterwards — so a host that
+#   ran `make deps` weeks ago can sit here with every package installed and no
+#   handler. THIS SUITE was one of the things wiping it: a --privileged Debian
+#   container in the host's user namespace shares /proc/sys/fs/binfmt_misc with
+#   the machine, and both its binfmt paths (systemd-binfmt --unregister,
+#   binfmt-support's update-binfmts) wrote straight through to the host. See the
+#   masks in integration/testdata/Containerfile.systemd. Either way, sending
+#   that host to pacman/apt gets "already installed" and leaves it exactly where
+#   it started.
+#
+#   The handler is RE-REGISTERED here rather than only reported, because the
+#   registration is the half that goes missing and the half a human cannot be
+#   expected to notice. Everything needed to put it back is already installed;
+#   what is gone is kernel state that systemd-binfmt populates once at boot and
+#   never revisits. Sending the operator to `make deps` for that made a reboot
+#   look like the trigger — the handler is registered at every boot and wiped
+#   later by something else on the box — and cost a `make deps` run per cycle to
+#   restore state this function can restore in one systemctl call. Only when
+#   re-registration fails does it fall through to the message below.
 require_cross_binfmt() {
   cross_building || return 0
 
@@ -314,11 +387,15 @@ require_cross_binfmt() {
   esac
   handler="/proc/sys/fs/binfmt_misc/qemu-${want}"
 
-  if [ -e "${handler}" ] && grep -qx enabled "${handler}" 2>/dev/null; then
+  if binfmt_handler_present "${handler}"; then
     if ! grep -q '^flags:.*F' "${handler}" 2>/dev/null; then
       warn "binfmt handler qemu-${want} is registered without the F flag; runtime stages may fail inside the build container"
     fi
     substep "cross build: binfmt handler qemu-${want} present"
+    return 0
+  fi
+
+  if reregister_cross_binfmt "${want}" "${handler}"; then
     return 0
   fi
 
@@ -333,9 +410,11 @@ require_cross_binfmt() {
      command -v "qemu-${want}-static" >/dev/null 2>&1; then
     echo "  qemu-${want} IS installed here — it is the registration that is missing," >&2
     echo "  so installing the packages again will report them up to date and change" >&2
-    echo "  nothing. Re-register it (either works):" >&2
-    echo "    make deps                               # installs and re-registers" >&2
-    echo "    sudo systemctl restart systemd-binfmt   # registration only" >&2
+    echo "  nothing. Re-registering it was already attempted and did not take, which" >&2
+    echo "  means the root step itself failed — a declined sudo, a masked unit, or a" >&2
+    echo "  register write the kernel refused. Run it by hand to see the error:" >&2
+    echo "    sudo systemctl restart systemd-binfmt" >&2
+    echo "    cat /proc/sys/fs/binfmt_misc/qemu-${want}" >&2
   else
     echo "  Install it and register the handler:" >&2
     echo "    make deps" >&2
