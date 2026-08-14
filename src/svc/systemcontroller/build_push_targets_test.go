@@ -220,7 +220,13 @@ func TestBuildArmsKeepLocalAndReleaseImagesApart(t *testing.T) {
 
 	// A local arm may only build a local image variable, and a release arm may
 	// only build a RELEASE_* one. The -t flag is what decides which.
-	tagged := regexp.MustCompile(`-t "\$\{([A-Z_]+)\}`)
+	//
+	// Both spellings of -t count. Release arms build through staged_ref
+	// (`-t "$(staged_ref "${RELEASE_X_IMAGE}")"`, the arch-suffixed staging
+	// name) and local arms name their variable directly; a regex that read only
+	// the direct form would match nothing in a release arm and pass this test by
+	// checking nothing at all.
+	tagged := regexp.MustCompile(`-t "(?:\$\(staged_ref ")?\$\{([A-Z_]+)\}`)
 	for _, arm := range localArms {
 		for _, m := range tagged.FindAllStringSubmatch(caseArm(t, script, arm), -1) {
 			if strings.HasPrefix(m[1], "RELEASE_") {
