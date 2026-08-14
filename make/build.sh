@@ -62,8 +62,14 @@ esac
 # after the build, because a build that failed part-way has usually already
 # downloaded packages worth keeping, and leaving them root-owned would make the
 # next `make dev` re-fetch every one of them.
+#
+# The push targets are deliberately absent: they tag and push, and build
+# nothing. The bun-building work they ship happens in their make prerequisites
+# (release-image, release-ui-image), each its own build.sh invocation carrying
+# its own trap. A reclaim registered here would chown a cache this process never
+# touched.
 case "$1" in
-  production | dev-base | ui-integration | ui-local | release | release-ui | push-rc | push-release | push-tag)
+  production | dev-base | ui-integration | ui-local | release | release-ui)
     trap bun_cache_reclaim EXIT
     ;;
 esac
