@@ -102,6 +102,21 @@ API 界面、启动顺序、设置项，以及维系这些内容的不变量—�
 - 确保所有文件按 API 组织。它们应按子模块名称分层限定作用域。行数的参考指标大约为 500 行。
 
 
+## 发布镜像架构
+
+**两种架构必须能够在同一个检出目录中同时构建。每种架构同一时刻只需支持一个构建 —— 必须永远不能相互破坏的情形，是一个 x86_64 构建与一个 aarch64 构建并发运行。**
+
+这归结为一条规则：
+
+- **发布构建产出的任何东西都不得使用不带架构的名称，任何 push 目标也不得从缺少架构的名称打标签。** 构建到 `$(staged_ref "$IMAGE")`（`make/lib.sh`），即 `<image>:local-<arch>`，并用 `tag_from_staged` 从它打出每一个发布标签 —— 绝不要 `podman tag "${RELEASE_X_IMAGE}" ...`，它没有指明任何架构，因此会解析到 `:latest`。
+
+之所以强调，是因为这个问题真的发布出去过：除 systemcontroller 外，每个发布镜像都构建成裸的 `quay.io/town/<name>` —— 每个镜像只有一个 `:latest` 槽位，由两种架构共用 —— 而 push 目标只是把那一刻恰好占据该槽位的东西重新打标签。同一个检出目录中的 aarch64 构建与 x86_64 构建会互相覆盖对方的槽位，于是发布出去的 `rc.latest-x86_64` 里装的却是 **ingress、networkcontroller 和 ui** 的 arm64 二进制。这些服务在启动时全部以 `exec container process: Exec format error` 崩溃重启，而推送时没有任何环节报错来说明这一点。systemcontroller 幸免，只是因为 `push-rc` 恰好把它直接重建到了带架构后缀的标签上。
+
+`tag_from_staged` 在每次打标签前都会调用 `assert_image_arch`，因此这一类回归会在 push 时失败，并报出它找到的架构与它期望的架构，而不是等到在别人的机器上才发作。新增一个发布镜像意味着把它纳入 staged-ref 模式；从裸的 `${RELEASE_*_IMAGE}` 执行 `podman tag` 就是 bug。
+
+共享*缓存*保持共享是没问题的（`.cache/go-mod`、`.cache/go-build`、`.cache/cargo-registry`，以及 bun 缓存）：Go 和 cargo 会自行对各自的缓存加锁，镜像缓存的 tar 也已经按架构区分。会冲突的是镜像*名称*。
+
+
 ## 性能约定
 
 - **使用 `strings.Builder` 构造字符串** —— 绝不用 `string(append([]byte(s), c))` 逐字符构造字符串。使用 `strings.Builder` 配合 `WriteByte`/`WriteString`，把 O(n²) 的分配降为 O(n)。参见 `src/packages/packages_compile.go`（`applyTemplate`、`applyTemplates`）。

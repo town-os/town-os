@@ -102,6 +102,21 @@ API 介面、啟動順序、設定項，以及維繫這些內容的不變數—�
 - 確保所有檔案按 API 組織。它們應按子模組名稱分層限定作用域。行數的參考指標大約為 500 行。
 
 
+## 發布映象架構
+
+**兩種架構必須能夠在同一個檢出目錄中同時構建。每種架構同一時刻只需支援一個構建 —— 必須永遠不能相互破壞的情形，是一個 x86_64 構建與一個 aarch64 構建並發執行。**
+
+這歸結為一條規則：
+
+- **發布構建產出的任何東西都不得使用不帶架構的名稱，任何 push 目標也不得從缺少架構的名稱打標籤。** 構建到 `$(staged_ref "$IMAGE")`（`make/lib.sh`），即 `<image>:local-<arch>`，並用 `tag_from_staged` 從它打出每一個發布標籤 —— 絕不要 `podman tag "${RELEASE_X_IMAGE}" ...`，它沒有指明任何架構，因此會解析到 `:latest`。
+
+之所以強調，是因為這個問題真的發布出去過：除 systemcontroller 外，每個發布映象都構建成裸的 `quay.io/town/<name>` —— 每個映象只有一個 `:latest` 槽位，由兩種架構共用 —— 而 push 目標只是把那一刻恰好佔據該槽位的東西重新打標籤。同一個檢出目錄中的 aarch64 構建與 x86_64 構建會互相覆蓋對方的槽位，於是發布出去的 `rc.latest-x86_64` 裡裝的卻是 **ingress、networkcontroller 和 ui** 的 arm64 二進位。這些服務在啟動時全部以 `exec container process: Exec format error` 崩潰重啟，而推送時沒有任何環節報錯來說明這一點。systemcontroller 倖免，只是因為 `push-rc` 恰好把它直接重建到了帶架構後綴的標籤上。
+
+`tag_from_staged` 在每次打標籤前都會呼叫 `assert_image_arch`，因此這一類回歸會在 push 時失敗，並報出它找到的架構與它期望的架構，而不是等到在別人的機器上才發作。新增一個發布映象意味著把它納入 staged-ref 模式；從裸的 `${RELEASE_*_IMAGE}` 執行 `podman tag` 就是 bug。
+
+共享*快取*保持共享是沒問題的（`.cache/go-mod`、`.cache/go-build`、`.cache/cargo-registry`，以及 bun 快取）：Go 和 cargo 會自行對各自的快取加鎖，映象快取的 tar 也已經按架構區分。會衝突的是映象*名稱*。
+
+
 ## 效能約定
 
 - **使用 `strings.Builder` 構造字串** —— 絕不用 `string(append([]byte(s), c))` 逐字元構造字串。使用 `strings.Builder` 配合 `WriteByte`/`WriteString`，把 O(n²) 的分配降為 O(n)。參見 `src/packages/packages_compile.go`（`applyTemplate`、`applyTemplates`）。

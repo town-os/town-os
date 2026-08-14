@@ -107,6 +107,43 @@ the translations follow.
 - Ensure all files are organized by api. They should be scoped by subsection name, hierarchically. The metric for line count should be about 500 or so.
 
 
+## Release Image Architecture
+
+**Two architectures must be able to build at the same time, in the same
+checkout. One build per architecture at a time is all that has to work — an
+x86_64 build and an aarch64 build running concurrently is the case that must
+never corrupt either one.**
+
+That reduces to a single rule:
+
+- **Nothing a release build produces may be named without its architecture, and
+  no push target may tag from a name that lacks one.** Build to
+  `$(staged_ref "$IMAGE")` (`make/lib.sh`), which is `<image>:local-<arch>`, and
+  tag every published tag from it with `tag_from_staged` — never
+  `podman tag "${RELEASE_X_IMAGE}" ...`, which names no architecture and so
+  resolves to `:latest`.
+
+WHY, because this shipped: every release image except the systemcontroller was
+built as the bare `quay.io/town/<name>` — one `:latest` slot per image, shared
+by both architectures — and the push targets re-tagged whatever sat in that slot
+at that instant. An aarch64 build and an x86_64 build in the same checkout
+overwrite each other's slot, so `rc.latest-x86_64` was published holding arm64
+binaries for **ingress, networkcontroller and ui**. Every one of those services
+crash-looped on boot with `exec container process: Exec format error`, and
+nothing failed at push time to say so. The systemcontroller escaped only because
+`push-rc` happened to rebuild it straight into the arch-suffixed tag.
+
+`tag_from_staged` calls `assert_image_arch` before every tag, so a regression of
+this class fails at push with the arch it found and the arch it wanted, rather
+than on somebody's box. Adding a new release image means adding it to the
+staged-ref pattern; a `podman tag` from a bare `${RELEASE_*_IMAGE}` is the bug.
+
+Shared *caches* are fine to keep shared (`.cache/go-mod`, `.cache/go-build`,
+`.cache/cargo-registry`, the bun cache): Go and cargo lock their own caches, and
+the image cache tars are already keyed by architecture. It is the image *names*
+that collide.
+
+
 ## Performance Conventions
 
 - **Use `strings.Builder` for string construction** — never build strings character-by-character with `string(append([]byte(s), c))`. Use `strings.Builder` with `WriteByte`/`WriteString` for O(n) instead of O(n²) allocations. See `src/packages/packages_compile.go` (`applyTemplate`, `applyTemplates`).

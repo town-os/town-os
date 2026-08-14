@@ -109,6 +109,21 @@ el comportamiento, DESIGN.md es el archivo que hay que actualizar junto con él.
 - Asegúrate de que todos los archivos estén organizados por API. Deben acotarse por nombre de subsección, de forma jerárquica. La métrica de conteo de líneas es de unas 500 más o menos.
 
 
+## Arquitectura de las Imágenes de Release
+
+**Dos arquitecturas deben poder compilarse al mismo tiempo, en el mismo checkout. Basta con que funcione una compilación por arquitectura a la vez — el caso que nunca debe corromper ninguna de las dos es una compilación x86_64 y una aarch64 corriendo de forma concurrente.**
+
+Eso se reduce a una sola regla:
+
+- **Nada de lo que produce una compilación de release puede llevar un nombre sin su arquitectura, y ningún objetivo de push puede etiquetar a partir de un nombre al que le falte.** Compila hacia `$(staged_ref "$IMAGE")` (`make/lib.sh`), que es `<imagen>:local-<arch>`, y etiqueta desde ahí cada etiqueta publicada con `tag_from_staged` — nunca `podman tag "${RELEASE_X_IMAGE}" ...`, que no nombra arquitectura alguna y por eso resuelve a `:latest`.
+
+POR QUÉ: porque esto ya se distribuyó. Todas las imágenes de release salvo el systemcontroller se compilaban como el `quay.io/town/<nombre>` a secas — un solo espacio `:latest` por imagen, compartido por ambas arquitecturas — y los objetivos de push reetiquetaban lo que estuviera en ese espacio en ese instante. Una compilación aarch64 y una x86_64 en el mismo checkout se sobrescriben mutuamente el espacio, así que se publicó `rc.latest-x86_64` conteniendo binarios arm64 de **ingress, networkcontroller y ui**. Todos esos servicios entraban en bucle de caídas al arrancar con `exec container process: Exec format error`, y nada falló al momento del push para avisarlo. El systemcontroller se salvó nada más porque `push-rc` resultó que lo recompilaba directo en la etiqueta con sufijo de arquitectura.
+
+`tag_from_staged` llama a `assert_image_arch` antes de cada etiquetado, de modo que una regresión de esta clase falla en el push indicando la arquitectura que encontró y la que esperaba, en lugar de fallar en la máquina de alguien más. Agregar una imagen de release nueva significa agregarla al patrón de staged-ref; un `podman tag` desde un `${RELEASE_*_IMAGE}` a secas es el error.
+
+Las *cachés* compartidas pueden seguir siéndolo (`.cache/go-mod`, `.cache/go-build`, `.cache/cargo-registry`, la caché de bun): Go y cargo bloquean sus propias cachés, y los tar de la caché de imágenes ya están indexados por arquitectura. Lo que choca son los *nombres* de las imágenes.
+
+
 ## Convenciones de Rendimiento
 
 - **Usa `strings.Builder` para construir cadenas** — nunca construyas cadenas carácter por carácter con `string(append([]byte(s), c))`. Usa `strings.Builder` con `WriteByte`/`WriteString` para lograr O(n) en lugar de O(n²) reservas. Ve `src/packages/packages_compile.go` (`applyTemplate`, `applyTemplates`).

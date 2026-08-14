@@ -190,7 +190,7 @@ case "$1" in
       --volume "$(pwd)/.cache/go-mod:/go/pkg/mod:z" \
       --volume "$(pwd)/.cache/go-build:/root/.cache/go-build:z" \
       "${BUN_BUILD_ARGS[@]}" \
-      -t "${RELEASE_IMAGE}" -f Containerfile .
+      -t "$(staged_ref "${RELEASE_IMAGE}")" -f Containerfile .
     ;;
   release-ui)
     step "Building UI release image"
@@ -206,7 +206,7 @@ case "$1" in
     mkdir -p "${BUN_CACHE}"
     ${SUDO} podman build --network=host "${PULL_ARGS[@]}" "${BUILD_PLATFORM_ARGS[@]}" --no-cache \
       "${BUN_BUILD_ARGS[@]}" \
-      -t "${RELEASE_UI_IMAGE}" -f Containerfile.ui .
+      -t "$(staged_ref "${RELEASE_UI_IMAGE}")" -f Containerfile.ui .
     ;;
   release-proton)
     if [[ "${PROTON_ENABLED}" != "1" ]]; then
@@ -223,7 +223,7 @@ case "$1" in
     fi
     step "Building Proton runner image"
     ${SUDO} podman build --network=host "${BUILD_PLATFORM_ARGS[@]}" \
-      -t "${RELEASE_PROTON_IMAGE}" -f Containerfile.proton .
+      -t "$(staged_ref "${RELEASE_PROTON_IMAGE}")" -f Containerfile.proton .
     ;;
   release-nc)
     step "Building network controller image"
@@ -236,7 +236,7 @@ case "$1" in
     ${SUDO} podman build --network=host "${BUILD_PLATFORM_ARGS[@]}" \
       --volume "$(pwd)/.cache/go-mod:/go/pkg/mod:z" \
       --volume "$(pwd)/.cache/go-build:/root/.cache/go-build:z" \
-      -t "${RELEASE_NC_IMAGE}" -f Containerfile.networkcontroller .
+      -t "$(staged_ref "${RELEASE_NC_IMAGE}")" -f Containerfile.networkcontroller .
     ;;
   release-ingress)
     step "Building ingress image"
@@ -250,7 +250,7 @@ case "$1" in
     ${SUDO} podman build --network=host "${BUILD_PLATFORM_ARGS[@]}" \
       --volume "$(pwd)/.cache/go-mod:/go/pkg/mod:z" \
       --volume "$(pwd)/.cache/go-build:/root/.cache/go-build:z" \
-      -t "${RELEASE_INGRESS_IMAGE}" -f Containerfile.ingress .
+      -t "$(staged_ref "${RELEASE_INGRESS_IMAGE}")" -f Containerfile.ingress .
     ;;
   release-gfeh)
     step "Building gfeh image"
@@ -269,7 +269,7 @@ case "$1" in
     # on every build; the local fixture above pays it once a day.
     ${SUDO} podman build --network=host --no-cache "${BUILD_PLATFORM_ARGS[@]}" \
       --volume "$(pwd)/.cache/cargo-registry:/usr/local/cargo/registry:z" \
-      -t "${RELEASE_GFEH_IMAGE}" -f Containerfile.gfeh .
+      -t "$(staged_ref "${RELEASE_GFEH_IMAGE}")" -f Containerfile.gfeh .
     ;;
   push-rc)
     require_cross_binfmt
@@ -281,19 +281,22 @@ case "$1" in
     # natively from each host. The plain rc.<date> / rc.latest names are
     # multi-arch manifest lists assembled by manifest-rc once every arch
     # has pushed; they are never pushed as single-arch tags.
-    # Rebuild systemcontroller with the per-arch tag baked in so the runtime
-    # derives matching per-arch sibling image tags (UI, rolodex, NC).
     # All quay.io/town/* images MUST use the same tag within a release.
-    substep "Building ${RELEASE_IMAGE} with tag rc.${DATE_TAG}-${ARCH}"
-    mkdir -p .cache/go-mod .cache/go-build "${BUN_CACHE}"
-    ${SUDO} podman build --network=host "${PULL_ARGS[@]}" "${BUILD_PLATFORM_ARGS[@]}" \
-      --build-arg "TOWN_OS_GO_TAGS=${GO_BUILD_TAGS}" \
-      --volume "$(pwd)/.cache/go-mod:/go/pkg/mod:z" \
-      --volume "$(pwd)/.cache/go-build:/root/.cache/go-build:z" \
-      "${BUN_BUILD_ARGS[@]}" \
-      -t "${RELEASE_IMAGE}:rc.${DATE_TAG}-${ARCH}" -f Containerfile .
+    #
+    # The systemcontroller is tagged from the same staging image as everything
+    # else. It used to be REBUILT here, right after release-image had already
+    # built it — a second full Go+bun build of the identical Containerfile with
+    # the identical args, differing only in -t. That second build is also the
+    # only reason this image survived the shared-slot bug the other five did
+    # not: it wrote the arch-suffixed tag directly instead of re-tagging
+    # `quay.io/town/town:latest`. staged_ref fixes that for all six, so the
+    # duplicate build has nothing left to buy. The per-arch tag was never
+    # "baked in" by it either — the runtime derives sibling tags from the
+    # TOWN_OS_TAG env var on the systemd unit, not from anything in the image.
+    substep "Tagging ${RELEASE_IMAGE}:rc.${DATE_TAG}-${ARCH}"
+    tag_from_staged "${RELEASE_IMAGE}" "rc.${DATE_TAG}-${ARCH}"
     substep "Tagging ${RELEASE_IMAGE}:rc.latest-${ARCH}"
-    ${SUDO} podman tag "${RELEASE_IMAGE}:rc.${DATE_TAG}-${ARCH}" "${RELEASE_IMAGE}:rc.latest-${ARCH}"
+    tag_from_staged "${RELEASE_IMAGE}" "rc.latest-${ARCH}"
     substep "Pushing ${RELEASE_IMAGE}:rc.${DATE_TAG}-${ARCH}"
     ${SUDO} podman push "${RELEASE_IMAGE}:rc.${DATE_TAG}-${ARCH}"
     substep "Pushing ${RELEASE_IMAGE}:rc.latest-${ARCH}"
@@ -301,9 +304,9 @@ case "$1" in
 
     # UI image — tagged to match (systemcontroller derives the tag at runtime).
     substep "Tagging ${RELEASE_UI_IMAGE}:rc.${DATE_TAG}-${ARCH}"
-    ${SUDO} podman tag "${RELEASE_UI_IMAGE}" "${RELEASE_UI_IMAGE}:rc.${DATE_TAG}-${ARCH}"
+    tag_from_staged "${RELEASE_UI_IMAGE}" "rc.${DATE_TAG}-${ARCH}"
     substep "Tagging ${RELEASE_UI_IMAGE}:rc.latest-${ARCH}"
-    ${SUDO} podman tag "${RELEASE_UI_IMAGE}" "${RELEASE_UI_IMAGE}:rc.latest-${ARCH}"
+    tag_from_staged "${RELEASE_UI_IMAGE}" "rc.latest-${ARCH}"
     substep "Pushing ${RELEASE_UI_IMAGE}:rc.${DATE_TAG}-${ARCH}"
     ${SUDO} podman push "${RELEASE_UI_IMAGE}:rc.${DATE_TAG}-${ARCH}"
     substep "Pushing ${RELEASE_UI_IMAGE}:rc.latest-${ARCH}"
@@ -311,9 +314,9 @@ case "$1" in
     # Proton runner image — only when PROTON_ENABLED=1.
     if [[ "${PROTON_ENABLED}" = "1" ]]; then
       substep "Tagging ${RELEASE_PROTON_IMAGE}:rc.${DATE_TAG}-${ARCH}"
-      ${SUDO} podman tag "${RELEASE_PROTON_IMAGE}" "${RELEASE_PROTON_IMAGE}:rc.${DATE_TAG}-${ARCH}"
+      tag_from_staged "${RELEASE_PROTON_IMAGE}" "rc.${DATE_TAG}-${ARCH}"
       substep "Tagging ${RELEASE_PROTON_IMAGE}:rc.latest-${ARCH}"
-      ${SUDO} podman tag "${RELEASE_PROTON_IMAGE}" "${RELEASE_PROTON_IMAGE}:rc.latest-${ARCH}"
+      tag_from_staged "${RELEASE_PROTON_IMAGE}" "rc.latest-${ARCH}"
       substep "Pushing ${RELEASE_PROTON_IMAGE}:rc.${DATE_TAG}-${ARCH}"
       ${SUDO} podman push "${RELEASE_PROTON_IMAGE}:rc.${DATE_TAG}-${ARCH}"
       substep "Pushing ${RELEASE_PROTON_IMAGE}:rc.latest-${ARCH}"
@@ -322,9 +325,9 @@ case "$1" in
 
     # Network controller image.
     substep "Tagging ${RELEASE_NC_IMAGE}:rc.${DATE_TAG}-${ARCH}"
-    ${SUDO} podman tag "${RELEASE_NC_IMAGE}" "${RELEASE_NC_IMAGE}:rc.${DATE_TAG}-${ARCH}"
+    tag_from_staged "${RELEASE_NC_IMAGE}" "rc.${DATE_TAG}-${ARCH}"
     substep "Tagging ${RELEASE_NC_IMAGE}:rc.latest-${ARCH}"
-    ${SUDO} podman tag "${RELEASE_NC_IMAGE}" "${RELEASE_NC_IMAGE}:rc.latest-${ARCH}"
+    tag_from_staged "${RELEASE_NC_IMAGE}" "rc.latest-${ARCH}"
     substep "Pushing ${RELEASE_NC_IMAGE}:rc.${DATE_TAG}-${ARCH}"
     ${SUDO} podman push "${RELEASE_NC_IMAGE}:rc.${DATE_TAG}-${ARCH}"
     substep "Pushing ${RELEASE_NC_IMAGE}:rc.latest-${ARCH}"
@@ -332,9 +335,9 @@ case "$1" in
 
     # Ingress image.
     substep "Tagging ${RELEASE_INGRESS_IMAGE}:rc.${DATE_TAG}-${ARCH}"
-    ${SUDO} podman tag "${RELEASE_INGRESS_IMAGE}" "${RELEASE_INGRESS_IMAGE}:rc.${DATE_TAG}-${ARCH}"
+    tag_from_staged "${RELEASE_INGRESS_IMAGE}" "rc.${DATE_TAG}-${ARCH}"
     substep "Tagging ${RELEASE_INGRESS_IMAGE}:rc.latest-${ARCH}"
-    ${SUDO} podman tag "${RELEASE_INGRESS_IMAGE}" "${RELEASE_INGRESS_IMAGE}:rc.latest-${ARCH}"
+    tag_from_staged "${RELEASE_INGRESS_IMAGE}" "rc.latest-${ARCH}"
     substep "Pushing ${RELEASE_INGRESS_IMAGE}:rc.${DATE_TAG}-${ARCH}"
     ${SUDO} podman push "${RELEASE_INGRESS_IMAGE}:rc.${DATE_TAG}-${ARCH}"
     substep "Pushing ${RELEASE_INGRESS_IMAGE}:rc.latest-${ARCH}"
@@ -342,9 +345,9 @@ case "$1" in
 
     # Object storage (gfeh) image.
     substep "Tagging ${RELEASE_GFEH_IMAGE}:rc.${DATE_TAG}-${ARCH}"
-    ${SUDO} podman tag "${RELEASE_GFEH_IMAGE}" "${RELEASE_GFEH_IMAGE}:rc.${DATE_TAG}-${ARCH}"
+    tag_from_staged "${RELEASE_GFEH_IMAGE}" "rc.${DATE_TAG}-${ARCH}"
     substep "Tagging ${RELEASE_GFEH_IMAGE}:rc.latest-${ARCH}"
-    ${SUDO} podman tag "${RELEASE_GFEH_IMAGE}" "${RELEASE_GFEH_IMAGE}:rc.latest-${ARCH}"
+    tag_from_staged "${RELEASE_GFEH_IMAGE}" "rc.latest-${ARCH}"
     substep "Pushing ${RELEASE_GFEH_IMAGE}:rc.${DATE_TAG}-${ARCH}"
     ${SUDO} podman push "${RELEASE_GFEH_IMAGE}:rc.${DATE_TAG}-${ARCH}"
     substep "Pushing ${RELEASE_GFEH_IMAGE}:rc.latest-${ARCH}"
@@ -374,19 +377,14 @@ case "$1" in
     # latest-<arch>, pushed natively from each host. The plain
     # release.<date> / latest names are multi-arch manifest lists assembled
     # by manifest-release once every arch has pushed.
-    # Rebuild systemcontroller with the per-arch tag baked in so the runtime
-    # derives matching per-arch sibling image tags (UI, rolodex, NC).
     # All quay.io/town/* images MUST use the same tag within a release.
-    substep "Building ${RELEASE_IMAGE} with tag release.${DATE_TAG}-${ARCH}"
-    mkdir -p .cache/go-mod .cache/go-build "${BUN_CACHE}"
-    ${SUDO} podman build --network=host "${PULL_ARGS[@]}" "${BUILD_PLATFORM_ARGS[@]}" \
-      --build-arg "TOWN_OS_GO_TAGS=${GO_BUILD_TAGS}" \
-      --volume "$(pwd)/.cache/go-mod:/go/pkg/mod:z" \
-      --volume "$(pwd)/.cache/go-build:/root/.cache/go-build:z" \
-      "${BUN_BUILD_ARGS[@]}" \
-      -t "${RELEASE_IMAGE}:release.${DATE_TAG}-${ARCH}" -f Containerfile .
+    #
+    # Tagged from the staging image, not rebuilt — see the same spot in push-rc
+    # for why the second build was there and why nothing needs it now.
+    substep "Tagging ${RELEASE_IMAGE}:release.${DATE_TAG}-${ARCH}"
+    tag_from_staged "${RELEASE_IMAGE}" "release.${DATE_TAG}-${ARCH}"
     substep "Tagging ${RELEASE_IMAGE}:latest-${ARCH}"
-    ${SUDO} podman tag "${RELEASE_IMAGE}:release.${DATE_TAG}-${ARCH}" "${RELEASE_IMAGE}:latest-${ARCH}"
+    tag_from_staged "${RELEASE_IMAGE}" "latest-${ARCH}"
     substep "Pushing ${RELEASE_IMAGE}:release.${DATE_TAG}-${ARCH}"
     ${SUDO} podman push "${RELEASE_IMAGE}:release.${DATE_TAG}-${ARCH}"
     substep "Pushing ${RELEASE_IMAGE}:latest-${ARCH}"
@@ -394,9 +392,9 @@ case "$1" in
 
     # UI image — tagged to match (systemcontroller derives the tag at runtime).
     substep "Tagging ${RELEASE_UI_IMAGE}:release.${DATE_TAG}-${ARCH}"
-    ${SUDO} podman tag "${RELEASE_UI_IMAGE}" "${RELEASE_UI_IMAGE}:release.${DATE_TAG}-${ARCH}"
+    tag_from_staged "${RELEASE_UI_IMAGE}" "release.${DATE_TAG}-${ARCH}"
     substep "Tagging ${RELEASE_UI_IMAGE}:latest-${ARCH}"
-    ${SUDO} podman tag "${RELEASE_UI_IMAGE}" "${RELEASE_UI_IMAGE}:latest-${ARCH}"
+    tag_from_staged "${RELEASE_UI_IMAGE}" "latest-${ARCH}"
     substep "Pushing ${RELEASE_UI_IMAGE}:release.${DATE_TAG}-${ARCH}"
     ${SUDO} podman push "${RELEASE_UI_IMAGE}:release.${DATE_TAG}-${ARCH}"
     substep "Pushing ${RELEASE_UI_IMAGE}:latest-${ARCH}"
@@ -405,9 +403,9 @@ case "$1" in
     # Proton runner image — only when PROTON_ENABLED=1.
     if [[ "${PROTON_ENABLED}" = "1" ]]; then
       substep "Tagging ${RELEASE_PROTON_IMAGE}:release.${DATE_TAG}-${ARCH}"
-      ${SUDO} podman tag "${RELEASE_PROTON_IMAGE}" "${RELEASE_PROTON_IMAGE}:release.${DATE_TAG}-${ARCH}"
+      tag_from_staged "${RELEASE_PROTON_IMAGE}" "release.${DATE_TAG}-${ARCH}"
       substep "Tagging ${RELEASE_PROTON_IMAGE}:latest-${ARCH}"
-      ${SUDO} podman tag "${RELEASE_PROTON_IMAGE}" "${RELEASE_PROTON_IMAGE}:latest-${ARCH}"
+      tag_from_staged "${RELEASE_PROTON_IMAGE}" "latest-${ARCH}"
       substep "Pushing ${RELEASE_PROTON_IMAGE}:release.${DATE_TAG}-${ARCH}"
       ${SUDO} podman push "${RELEASE_PROTON_IMAGE}:release.${DATE_TAG}-${ARCH}"
       substep "Pushing ${RELEASE_PROTON_IMAGE}:latest-${ARCH}"
@@ -416,9 +414,9 @@ case "$1" in
 
     # Network controller image.
     substep "Tagging ${RELEASE_NC_IMAGE}:release.${DATE_TAG}-${ARCH}"
-    ${SUDO} podman tag "${RELEASE_NC_IMAGE}" "${RELEASE_NC_IMAGE}:release.${DATE_TAG}-${ARCH}"
+    tag_from_staged "${RELEASE_NC_IMAGE}" "release.${DATE_TAG}-${ARCH}"
     substep "Tagging ${RELEASE_NC_IMAGE}:latest-${ARCH}"
-    ${SUDO} podman tag "${RELEASE_NC_IMAGE}" "${RELEASE_NC_IMAGE}:latest-${ARCH}"
+    tag_from_staged "${RELEASE_NC_IMAGE}" "latest-${ARCH}"
     substep "Pushing ${RELEASE_NC_IMAGE}:release.${DATE_TAG}-${ARCH}"
     ${SUDO} podman push "${RELEASE_NC_IMAGE}:release.${DATE_TAG}-${ARCH}"
     substep "Pushing ${RELEASE_NC_IMAGE}:latest-${ARCH}"
@@ -426,9 +424,9 @@ case "$1" in
 
     # Ingress image.
     substep "Tagging ${RELEASE_INGRESS_IMAGE}:release.${DATE_TAG}-${ARCH}"
-    ${SUDO} podman tag "${RELEASE_INGRESS_IMAGE}" "${RELEASE_INGRESS_IMAGE}:release.${DATE_TAG}-${ARCH}"
+    tag_from_staged "${RELEASE_INGRESS_IMAGE}" "release.${DATE_TAG}-${ARCH}"
     substep "Tagging ${RELEASE_INGRESS_IMAGE}:latest-${ARCH}"
-    ${SUDO} podman tag "${RELEASE_INGRESS_IMAGE}" "${RELEASE_INGRESS_IMAGE}:latest-${ARCH}"
+    tag_from_staged "${RELEASE_INGRESS_IMAGE}" "latest-${ARCH}"
     substep "Pushing ${RELEASE_INGRESS_IMAGE}:release.${DATE_TAG}-${ARCH}"
     ${SUDO} podman push "${RELEASE_INGRESS_IMAGE}:release.${DATE_TAG}-${ARCH}"
     substep "Pushing ${RELEASE_INGRESS_IMAGE}:latest-${ARCH}"
@@ -436,9 +434,9 @@ case "$1" in
 
     # Object storage (gfeh) image.
     substep "Tagging ${RELEASE_GFEH_IMAGE}:release.${DATE_TAG}-${ARCH}"
-    ${SUDO} podman tag "${RELEASE_GFEH_IMAGE}" "${RELEASE_GFEH_IMAGE}:release.${DATE_TAG}-${ARCH}"
+    tag_from_staged "${RELEASE_GFEH_IMAGE}" "release.${DATE_TAG}-${ARCH}"
     substep "Tagging ${RELEASE_GFEH_IMAGE}:latest-${ARCH}"
-    ${SUDO} podman tag "${RELEASE_GFEH_IMAGE}" "${RELEASE_GFEH_IMAGE}:latest-${ARCH}"
+    tag_from_staged "${RELEASE_GFEH_IMAGE}" "latest-${ARCH}"
     substep "Pushing ${RELEASE_GFEH_IMAGE}:release.${DATE_TAG}-${ARCH}"
     ${SUDO} podman push "${RELEASE_GFEH_IMAGE}:release.${DATE_TAG}-${ARCH}"
     substep "Pushing ${RELEASE_GFEH_IMAGE}:latest-${ARCH}"
@@ -468,9 +466,9 @@ case "$1" in
     step "Pushing UI release candidate (${ARCH})"
     DATE_TAG="$(date +%Y%m%d)"
     substep "Tagging ${RELEASE_UI_IMAGE}:rc.${DATE_TAG}-${ARCH}"
-    ${SUDO} podman tag "${RELEASE_UI_IMAGE}" "${RELEASE_UI_IMAGE}:rc.${DATE_TAG}-${ARCH}"
+    tag_from_staged "${RELEASE_UI_IMAGE}" "rc.${DATE_TAG}-${ARCH}"
     substep "Tagging ${RELEASE_UI_IMAGE}:rc.latest-${ARCH}"
-    ${SUDO} podman tag "${RELEASE_UI_IMAGE}" "${RELEASE_UI_IMAGE}:rc.latest-${ARCH}"
+    tag_from_staged "${RELEASE_UI_IMAGE}" "rc.latest-${ARCH}"
     substep "Pushing ${RELEASE_UI_IMAGE}:rc.${DATE_TAG}-${ARCH}"
     ${SUDO} podman push "${RELEASE_UI_IMAGE}:rc.${DATE_TAG}-${ARCH}"
     substep "Pushing ${RELEASE_UI_IMAGE}:rc.latest-${ARCH}"
@@ -481,9 +479,9 @@ case "$1" in
     step "Pushing UI release (${ARCH})"
     DATE_TAG="$(date +%Y%m%d)"
     substep "Tagging ${RELEASE_UI_IMAGE}:release.${DATE_TAG}-${ARCH}"
-    ${SUDO} podman tag "${RELEASE_UI_IMAGE}" "${RELEASE_UI_IMAGE}:release.${DATE_TAG}-${ARCH}"
+    tag_from_staged "${RELEASE_UI_IMAGE}" "release.${DATE_TAG}-${ARCH}"
     substep "Tagging ${RELEASE_UI_IMAGE}:latest-${ARCH}"
-    ${SUDO} podman tag "${RELEASE_UI_IMAGE}" "${RELEASE_UI_IMAGE}:latest-${ARCH}"
+    tag_from_staged "${RELEASE_UI_IMAGE}" "latest-${ARCH}"
     substep "Pushing ${RELEASE_UI_IMAGE}:release.${DATE_TAG}-${ARCH}"
     ${SUDO} podman push "${RELEASE_UI_IMAGE}:release.${DATE_TAG}-${ARCH}"
     substep "Pushing ${RELEASE_UI_IMAGE}:latest-${ARCH}"
@@ -498,9 +496,9 @@ case "$1" in
     step "Pushing Proton runner release candidate (${ARCH})"
     DATE_TAG="$(date +%Y%m%d)"
     substep "Tagging ${RELEASE_PROTON_IMAGE}:rc.${DATE_TAG}-${ARCH}"
-    ${SUDO} podman tag "${RELEASE_PROTON_IMAGE}" "${RELEASE_PROTON_IMAGE}:rc.${DATE_TAG}-${ARCH}"
+    tag_from_staged "${RELEASE_PROTON_IMAGE}" "rc.${DATE_TAG}-${ARCH}"
     substep "Tagging ${RELEASE_PROTON_IMAGE}:rc.latest-${ARCH}"
-    ${SUDO} podman tag "${RELEASE_PROTON_IMAGE}" "${RELEASE_PROTON_IMAGE}:rc.latest-${ARCH}"
+    tag_from_staged "${RELEASE_PROTON_IMAGE}" "rc.latest-${ARCH}"
     substep "Pushing ${RELEASE_PROTON_IMAGE}:rc.${DATE_TAG}-${ARCH}"
     ${SUDO} podman push "${RELEASE_PROTON_IMAGE}:rc.${DATE_TAG}-${ARCH}"
     substep "Pushing ${RELEASE_PROTON_IMAGE}:rc.latest-${ARCH}"
@@ -515,9 +513,9 @@ case "$1" in
     step "Pushing Proton runner release (${ARCH})"
     DATE_TAG="$(date +%Y%m%d)"
     substep "Tagging ${RELEASE_PROTON_IMAGE}:release.${DATE_TAG}-${ARCH}"
-    ${SUDO} podman tag "${RELEASE_PROTON_IMAGE}" "${RELEASE_PROTON_IMAGE}:release.${DATE_TAG}-${ARCH}"
+    tag_from_staged "${RELEASE_PROTON_IMAGE}" "release.${DATE_TAG}-${ARCH}"
     substep "Tagging ${RELEASE_PROTON_IMAGE}:latest-${ARCH}"
-    ${SUDO} podman tag "${RELEASE_PROTON_IMAGE}" "${RELEASE_PROTON_IMAGE}:latest-${ARCH}"
+    tag_from_staged "${RELEASE_PROTON_IMAGE}" "latest-${ARCH}"
     substep "Pushing ${RELEASE_PROTON_IMAGE}:release.${DATE_TAG}-${ARCH}"
     ${SUDO} podman push "${RELEASE_PROTON_IMAGE}:release.${DATE_TAG}-${ARCH}"
     substep "Pushing ${RELEASE_PROTON_IMAGE}:latest-${ARCH}"
@@ -528,9 +526,9 @@ case "$1" in
     step "Pushing network controller release candidate (${ARCH})"
     DATE_TAG="$(date +%Y%m%d)"
     substep "Tagging ${RELEASE_NC_IMAGE}:rc.${DATE_TAG}-${ARCH}"
-    ${SUDO} podman tag "${RELEASE_NC_IMAGE}" "${RELEASE_NC_IMAGE}:rc.${DATE_TAG}-${ARCH}"
+    tag_from_staged "${RELEASE_NC_IMAGE}" "rc.${DATE_TAG}-${ARCH}"
     substep "Tagging ${RELEASE_NC_IMAGE}:rc.latest-${ARCH}"
-    ${SUDO} podman tag "${RELEASE_NC_IMAGE}" "${RELEASE_NC_IMAGE}:rc.latest-${ARCH}"
+    tag_from_staged "${RELEASE_NC_IMAGE}" "rc.latest-${ARCH}"
     substep "Pushing ${RELEASE_NC_IMAGE}:rc.${DATE_TAG}-${ARCH}"
     ${SUDO} podman push "${RELEASE_NC_IMAGE}:rc.${DATE_TAG}-${ARCH}"
     substep "Pushing ${RELEASE_NC_IMAGE}:rc.latest-${ARCH}"
@@ -541,9 +539,9 @@ case "$1" in
     step "Pushing network controller release (${ARCH})"
     DATE_TAG="$(date +%Y%m%d)"
     substep "Tagging ${RELEASE_NC_IMAGE}:release.${DATE_TAG}-${ARCH}"
-    ${SUDO} podman tag "${RELEASE_NC_IMAGE}" "${RELEASE_NC_IMAGE}:release.${DATE_TAG}-${ARCH}"
+    tag_from_staged "${RELEASE_NC_IMAGE}" "release.${DATE_TAG}-${ARCH}"
     substep "Tagging ${RELEASE_NC_IMAGE}:latest-${ARCH}"
-    ${SUDO} podman tag "${RELEASE_NC_IMAGE}" "${RELEASE_NC_IMAGE}:latest-${ARCH}"
+    tag_from_staged "${RELEASE_NC_IMAGE}" "latest-${ARCH}"
     substep "Pushing ${RELEASE_NC_IMAGE}:release.${DATE_TAG}-${ARCH}"
     ${SUDO} podman push "${RELEASE_NC_IMAGE}:release.${DATE_TAG}-${ARCH}"
     substep "Pushing ${RELEASE_NC_IMAGE}:latest-${ARCH}"
@@ -554,9 +552,9 @@ case "$1" in
     step "Pushing gfeh release candidate (${ARCH})"
     DATE_TAG="$(date +%Y%m%d)"
     substep "Tagging ${RELEASE_GFEH_IMAGE}:rc.${DATE_TAG}-${ARCH}"
-    ${SUDO} podman tag "${RELEASE_GFEH_IMAGE}" "${RELEASE_GFEH_IMAGE}:rc.${DATE_TAG}-${ARCH}"
+    tag_from_staged "${RELEASE_GFEH_IMAGE}" "rc.${DATE_TAG}-${ARCH}"
     substep "Tagging ${RELEASE_GFEH_IMAGE}:rc.latest-${ARCH}"
-    ${SUDO} podman tag "${RELEASE_GFEH_IMAGE}" "${RELEASE_GFEH_IMAGE}:rc.latest-${ARCH}"
+    tag_from_staged "${RELEASE_GFEH_IMAGE}" "rc.latest-${ARCH}"
     substep "Pushing ${RELEASE_GFEH_IMAGE}:rc.${DATE_TAG}-${ARCH}"
     ${SUDO} podman push "${RELEASE_GFEH_IMAGE}:rc.${DATE_TAG}-${ARCH}"
     substep "Pushing ${RELEASE_GFEH_IMAGE}:rc.latest-${ARCH}"
@@ -567,9 +565,9 @@ case "$1" in
     step "Pushing ingress release candidate (${ARCH})"
     DATE_TAG="$(date +%Y%m%d)"
     substep "Tagging ${RELEASE_INGRESS_IMAGE}:rc.${DATE_TAG}-${ARCH}"
-    ${SUDO} podman tag "${RELEASE_INGRESS_IMAGE}" "${RELEASE_INGRESS_IMAGE}:rc.${DATE_TAG}-${ARCH}"
+    tag_from_staged "${RELEASE_INGRESS_IMAGE}" "rc.${DATE_TAG}-${ARCH}"
     substep "Tagging ${RELEASE_INGRESS_IMAGE}:rc.latest-${ARCH}"
-    ${SUDO} podman tag "${RELEASE_INGRESS_IMAGE}" "${RELEASE_INGRESS_IMAGE}:rc.latest-${ARCH}"
+    tag_from_staged "${RELEASE_INGRESS_IMAGE}" "rc.latest-${ARCH}"
     substep "Pushing ${RELEASE_INGRESS_IMAGE}:rc.${DATE_TAG}-${ARCH}"
     ${SUDO} podman push "${RELEASE_INGRESS_IMAGE}:rc.${DATE_TAG}-${ARCH}"
     substep "Pushing ${RELEASE_INGRESS_IMAGE}:rc.latest-${ARCH}"
@@ -580,9 +578,9 @@ case "$1" in
     step "Pushing ingress release (${ARCH})"
     DATE_TAG="$(date +%Y%m%d)"
     substep "Tagging ${RELEASE_INGRESS_IMAGE}:release.${DATE_TAG}-${ARCH}"
-    ${SUDO} podman tag "${RELEASE_INGRESS_IMAGE}" "${RELEASE_INGRESS_IMAGE}:release.${DATE_TAG}-${ARCH}"
+    tag_from_staged "${RELEASE_INGRESS_IMAGE}" "release.${DATE_TAG}-${ARCH}"
     substep "Tagging ${RELEASE_INGRESS_IMAGE}:latest-${ARCH}"
-    ${SUDO} podman tag "${RELEASE_INGRESS_IMAGE}" "${RELEASE_INGRESS_IMAGE}:latest-${ARCH}"
+    tag_from_staged "${RELEASE_INGRESS_IMAGE}" "latest-${ARCH}"
     substep "Pushing ${RELEASE_INGRESS_IMAGE}:release.${DATE_TAG}-${ARCH}"
     ${SUDO} podman push "${RELEASE_INGRESS_IMAGE}:release.${DATE_TAG}-${ARCH}"
     substep "Pushing ${RELEASE_INGRESS_IMAGE}:latest-${ARCH}"
@@ -593,9 +591,9 @@ case "$1" in
     step "Pushing gfeh release (${ARCH})"
     DATE_TAG="$(date +%Y%m%d)"
     substep "Tagging ${RELEASE_GFEH_IMAGE}:release.${DATE_TAG}-${ARCH}"
-    ${SUDO} podman tag "${RELEASE_GFEH_IMAGE}" "${RELEASE_GFEH_IMAGE}:release.${DATE_TAG}-${ARCH}"
+    tag_from_staged "${RELEASE_GFEH_IMAGE}" "release.${DATE_TAG}-${ARCH}"
     substep "Tagging ${RELEASE_GFEH_IMAGE}:latest-${ARCH}"
-    ${SUDO} podman tag "${RELEASE_GFEH_IMAGE}" "${RELEASE_GFEH_IMAGE}:latest-${ARCH}"
+    tag_from_staged "${RELEASE_GFEH_IMAGE}" "latest-${ARCH}"
     substep "Pushing ${RELEASE_GFEH_IMAGE}:release.${DATE_TAG}-${ARCH}"
     ${SUDO} podman push "${RELEASE_GFEH_IMAGE}:release.${DATE_TAG}-${ARCH}"
     substep "Pushing ${RELEASE_GFEH_IMAGE}:latest-${ARCH}"
@@ -614,46 +612,44 @@ case "$1" in
     # Systemcontroller image. The tag is no longer baked into the binary; the
     # controller resolves it at runtime from TOWN_OS_TAG (set on its systemd
     # unit by the install build system), defaulting to rc.latest-<arch>.
-    substep "Building ${RELEASE_IMAGE}:${TAG}"
-    mkdir -p .cache/go-mod .cache/go-build "${BUN_CACHE}"
-    ${SUDO} podman build --network=host "${PULL_ARGS[@]}" "${BUILD_PLATFORM_ARGS[@]}" \
-      --build-arg "TOWN_OS_GO_TAGS=${GO_BUILD_TAGS}" \
-      --volume "$(pwd)/.cache/go-mod:/go/pkg/mod:z" \
-      --volume "$(pwd)/.cache/go-build:/root/.cache/go-build:z" \
-      "${BUN_BUILD_ARGS[@]}" \
-      -t "${RELEASE_IMAGE}:${TAG}" -f Containerfile .
+    # Tagged from the staging image like the other five, rather than rebuilt
+    # into ${TAG} directly: TAG is operator-supplied and carries no arch, so a
+    # direct build here would recreate the shared slot this file just removed —
+    # two arches pushing the same TAG would each overwrite the other's.
+    substep "Tagging ${RELEASE_IMAGE}:${TAG}"
+    tag_from_staged "${RELEASE_IMAGE}" "${TAG}"
     substep "Pushing ${RELEASE_IMAGE}:${TAG}"
     ${SUDO} podman push "${RELEASE_IMAGE}:${TAG}"
 
     # UI image.
     substep "Tagging ${RELEASE_UI_IMAGE}:${TAG}"
-    ${SUDO} podman tag "${RELEASE_UI_IMAGE}" "${RELEASE_UI_IMAGE}:${TAG}"
+    tag_from_staged "${RELEASE_UI_IMAGE}" "${TAG}"
     substep "Pushing ${RELEASE_UI_IMAGE}:${TAG}"
     ${SUDO} podman push "${RELEASE_UI_IMAGE}:${TAG}"
 
     # Proton runner image — only when PROTON_ENABLED=1.
     if [[ "${PROTON_ENABLED}" = "1" ]]; then
       substep "Tagging ${RELEASE_PROTON_IMAGE}:${TAG}"
-      ${SUDO} podman tag "${RELEASE_PROTON_IMAGE}" "${RELEASE_PROTON_IMAGE}:${TAG}"
+      tag_from_staged "${RELEASE_PROTON_IMAGE}" "${TAG}"
       substep "Pushing ${RELEASE_PROTON_IMAGE}:${TAG}"
       ${SUDO} podman push "${RELEASE_PROTON_IMAGE}:${TAG}"
     fi
 
     # Network controller image.
     substep "Tagging ${RELEASE_NC_IMAGE}:${TAG}"
-    ${SUDO} podman tag "${RELEASE_NC_IMAGE}" "${RELEASE_NC_IMAGE}:${TAG}"
+    tag_from_staged "${RELEASE_NC_IMAGE}" "${TAG}"
     substep "Pushing ${RELEASE_NC_IMAGE}:${TAG}"
     ${SUDO} podman push "${RELEASE_NC_IMAGE}:${TAG}"
 
     # Ingress image.
     substep "Tagging ${RELEASE_INGRESS_IMAGE}:${TAG}"
-    ${SUDO} podman tag "${RELEASE_INGRESS_IMAGE}" "${RELEASE_INGRESS_IMAGE}:${TAG}"
+    tag_from_staged "${RELEASE_INGRESS_IMAGE}" "${TAG}"
     substep "Pushing ${RELEASE_INGRESS_IMAGE}:${TAG}"
     ${SUDO} podman push "${RELEASE_INGRESS_IMAGE}:${TAG}"
 
     # Object storage (gfeh) image.
     substep "Tagging ${RELEASE_GFEH_IMAGE}:${TAG}"
-    ${SUDO} podman tag "${RELEASE_GFEH_IMAGE}" "${RELEASE_GFEH_IMAGE}:${TAG}"
+    tag_from_staged "${RELEASE_GFEH_IMAGE}" "${TAG}"
     substep "Pushing ${RELEASE_GFEH_IMAGE}:${TAG}"
     ${SUDO} podman push "${RELEASE_GFEH_IMAGE}:${TAG}"
     ;;

@@ -363,9 +363,15 @@ ifeq ($(PROTON_ENABLED),1)
 release-proton-image: check-podman check-runc $(STATE_DIR)/.images-pulled
 release-build: pull-images test-full release-image release-ui-image release-proton-image release-nc-image release-ingress-image release-gfeh-image
 push-rc: release-image release-ui-image release-proton-image release-nc-image release-ingress-image release-gfeh-image quay-login
+push-tag: release-image release-ui-image release-proton-image release-nc-image release-ingress-image release-gfeh-image quay-login
 else
 release-build: pull-images test-full release-image release-ui-image release-nc-image release-ingress-image release-gfeh-image
 push-rc: release-image release-ui-image release-nc-image release-ingress-image release-gfeh-image quay-login
+# push-tag pushes all six images and now TAGS the systemcontroller from the
+# staging image instead of building it inline, so it has to build them like
+# push-rc does. It previously built only the controller and re-tagged whatever
+# the other five had left in local storage — which is the shared-slot bug.
+push-tag: release-image release-ui-image release-nc-image release-ingress-image release-gfeh-image quay-login
 endif
 # Every push-* target must depend on building the image(s) it pushes + quay-login.
 push: release-build

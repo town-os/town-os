@@ -212,6 +212,64 @@ cross_building() {
   [ "$(build_oci_arch)" != "$(host_arch)" ]
 }
 
+# staged_ref IMAGE — the local name a release build writes, and the ONLY name
+#   the push targets are allowed to tag from.
+#
+#   Every release image used to be built as the bare `quay.io/town/<name>`,
+#   which podman stores as `:latest` — one slot per image, shared by every
+#   architecture. The push targets then did `podman tag <image> <image>:rc.latest-$ARCH`,
+#   which does not name an architecture anywhere: it tags whatever happens to
+#   be in that slot at that instant. Build aarch64 and x86_64 in the same
+#   checkout — concurrently, or just one after the other — and the second build
+#   overwrites the first's slot, so the -x86_64 tag can be handed arm64 content
+#   and pushed. That is exactly what shipped: ingress, networkcontroller and ui
+#   went out as rc.latest-x86_64 holding arm64 binaries, and every one of those
+#   services died on the box with "exec container process: Exec format error".
+#   The systemcontroller escaped only because push-rc rebuilt it straight into
+#   the arch-suffixed tag rather than re-tagging the shared slot.
+#
+#   Giving the staging tag the arch removes the shared slot, which is what makes
+#   two builds in one checkout safe: an aarch64 build and an x86_64 build now
+#   write `:local-aarch64` and `:local-x86_64` and cannot see each other.
+staged_ref() {
+  echo "${1}:local-$(build_arch_tag)"
+}
+
+# assert_image_arch REF — refuse to push an image whose architecture is not the
+#   one this invocation is building for.
+#
+#   The naming above makes a mismatch hard; this makes it loud. A wrong-arch
+#   push is invisible at push time and surfaces only as an unbootable service on
+#   somebody's box, so the check belongs here, before the bytes leave — one
+#   `podman image inspect` against a value we already know.
+assert_image_arch() {
+  local ref="$1" want got
+  want="$(build_oci_arch)"
+  got="$(${SUDO} podman image inspect "${ref}" --format '{{.Architecture}}' 2>/dev/null)" || {
+    echo "assert_image_arch: ${ref} is not in local storage — build it before pushing" >&2
+    return 1
+  }
+  if [ "${got}" != "${want}" ]; then
+    echo "assert_image_arch: ${ref} is ${got}, but this build targets ${want}." >&2
+    echo "  Refusing to push: a ${want} tag holding ${got} binaries fails at exec time on every box that pulls it." >&2
+    return 1
+  fi
+}
+
+# tag_from_staged IMAGE TAG — point IMAGE:TAG at what this build produced.
+#
+#   The two steps are one function on purpose. Tagging from the arch-agnostic
+#   name is the bug; checking the arch is the guard against it; and a guard the
+#   caller has to remember is a guard that gets skipped the next time somebody
+#   adds an image. There is exactly one way to name a release tag now, and it
+#   verifies itself.
+tag_from_staged() {
+  local image="$1" tag="$2" ref
+  ref="$(staged_ref "${image}")"
+  assert_image_arch "${ref}" || return 1
+  ${SUDO} podman tag "${ref}" "${image}:${tag}"
+}
+
 # require_native_target LABEL — refuse a cross TARGET for work that runs the
 #   images it builds on this host (the test harness, dev). A foreign-arch image
 #   cannot execute here, so the useful failure is this one, up front and named,
