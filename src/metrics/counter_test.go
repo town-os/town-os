@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"math"
 	"strings"
 	"sync"
 	"testing"
@@ -101,6 +102,41 @@ func TestCounterVecConcurrentInc(t *testing.T) {
 	samples := c.Collect().Samples
 	if len(samples) != 1 || samples[0].Value != 1000 {
 		t.Errorf("lost increments under concurrency: %+v", samples)
+	}
+}
+
+// Not every counter counts events: a cumulative duration is a counter in
+// exactly the same sense, and rounding each observation to a whole second would
+// make the average request duration — the only reason the family exists — read
+// as zero on a control plane that answers in milliseconds.
+func TestCounterVecAccumulatesFractions(t *testing.T) {
+	c := NewCounterVec("townos_http_request_seconds_total", "h", "method")
+	c.Add(0.004, "GET")
+	c.Add(0.006, "GET")
+
+	samples := c.Collect().Samples
+	if len(samples) != 1 {
+		t.Fatalf("got %d samples, want 1: %+v", len(samples), samples)
+	}
+	if math.Abs(samples[0].Value-0.01) > 1e-9 {
+		t.Errorf("accumulated %v, want 0.01", samples[0].Value)
+	}
+}
+
+// A counter that went backwards reads to Prometheus as a process restart:
+// rate() treats the step down as a reset and invents a spike out of the samples
+// that follow. A NaN is worse still — every later addition to it is NaN, so one
+// bad observation poisons the tally for the life of the process.
+func TestCounterVecRejectsBackwardsAndNonFiniteAdds(t *testing.T) {
+	c := NewCounterVec("m", "h", "k")
+	c.Add(5, "v")
+	c.Add(-3, "v")
+	c.Add(math.NaN(), "v")
+	c.Add(math.Inf(1), "v")
+
+	samples := c.Collect().Samples
+	if len(samples) != 1 || samples[0].Value != 5 {
+		t.Errorf("unexpected tally after bad adds: %+v", samples)
 	}
 }
 

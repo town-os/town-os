@@ -1654,7 +1654,7 @@ systemcontroller（ポート 5309）を通じたリバースプロキシは**無
 
 ### ダッシュボード
 
-ダッシュボードは三つあり、**どちらのバックエンドも同じ問い合わせから同じ三つを描く**。一つの長いページではなく分かれているのは、それらが異なる問いに答えるからである。System はこの機械が遅く感じるときにオペレーターが見るものであり、DNS は名前が解決しないときに開くもの、Controller は Town OS が動かしている何かが動いていないときに開くものである。八つの DNS のパネルと十一の controller のパネルを概観へ畳み込めば、そもそも人がそれを開く理由である四つのホストのパネルが埋もれてしまう。
+ダッシュボードは三つあり、**どちらのバックエンドも同じ問い合わせから同じ三つを描く**。一つの長いページではなく分かれているのは、それらが異なる問いに答えるからである。System はこの機械が遅く感じるときにオペレーターが見るものであり、DNS は名前が解決しないときに開くもの、Controller は Town OS が動かしている何かが動いていないときに開くものである。八つの DNS のパネルと十四の controller のパネルを概観へ畳み込めば、そもそも人がそれを開く理由である四つのホストのパネルが埋もれてしまう。
 
 **System**（Grafana の uid は `town-os-overview`、「Town OS Overview」）-- 四つのパネル:
 
@@ -1674,21 +1674,28 @@ systemcontroller（ポート 5309）を通じたリバースプロキシは**無
 7. **Upstream Tier Outcomes** -- 段ごとの成功と失敗、そしてすべての段を使い切った問い合わせ。
 8. **DNS Traffic** -- 通信のバイト数の rx/tx。
 
-**Controller**（Grafana の uid は `town-os-controller`、「Town OS Controller」）-- `systemcontroller` の収集のジョブに対する十一のパネルであり、この機械自身の [`townos_*` のメトリクス](#システムコントローラのメトリクス)を読む唯一のダッシュボードである:
+**Controller**（Grafana の uid は `town-os-controller`、「Town OS Controller」）-- `systemcontroller` の収集のジョブに対する十四のパネルであり、この機械自身の [`townos_*` のメトリクス](#システムコントローラのメトリクス)を読む唯一のダッシュボードである。
 
-1. **Service Units by State** -- `townos_system_units` と `townos_package_units` を state ごとに、一つのパネルの上に**積み上げずに**置く。両者は別々の合計であり、積み上げれば誰も管理していない合算の高さを描くことになる。
-2. **Service Health** -- `townos_system_unit_active` と `townos_package_unit_active`。ユニットごとに一本の系列で、軸は 0--1 に固定する。これは何個落ちたかではなく*どれが*落ちたかを言うパネルである。軸を固定するのは、この指標が真偽値だからである。自動目盛りでは、完全に健全な機械が 1.0 の周りの雑音として描かれ、何も問題が無いときに限って不穏に見える。
+並びは、何かがおかしいときに人が実際に読む順序である。何が落ちているか、API は何をしているか、何が失敗しているか、ディスクはどう見えるか、controller の処理自身がどう持ちこたえているか —— 目録はその後である。目録は UI の別の画面にあるものであり、ここではほとんど動かない一本の線でしかない。正常な機械の上では決して動かないパネルは、動くパネルを押しのける最初の数行ではなく、いちばん下に置いてある。
+
+1. **Service Health** -- `townos_system_unit_active` と `townos_package_unit_active`。ユニットごとに一本の系列で、軸は 0--1 に固定する。これは何個落ちたかではなく*どれが*落ちたかを言うパネルであり、だから先頭に来る。軸を固定するのは、この指標が真偽値だからである。自動目盛りでは、完全に健全な機械が 1.0 の周りの雑音として描かれ、何も問題が無いときに限って不穏に見える。
+2. **Service Units by State** -- `townos_system_units` と `townos_package_units` を state ごとに、一つのパネルの上に**積み上げずに**置く。両者は別々の合計であり、積み上げれば誰も管理していない合算の高さを描くことになる。
 3. **API Requests by Status** -- `rate(townos_http_requests_total)` を `status` で合計し、積み上げる。あえて status で合計している。この族は `method` も運んでおり、それを残した状態のパネルは組み合わせごとに一本の線を描いてしまう。
-4. **Audit Events** -- `rate(townos_audit_events_total)` を `result` ごとに、積み上げ。
+4. **API Latency** -- `rate(townos_http_request_seconds_total)` を `rate(townos_http_requests_total)` で割る。どちらも `method` で合計した、要求あたりの平均の秒数である。これは「機械が忙しい」と「機械が詰まっている」を分けるパネルであり、3 番にはそれができない —— 毎秒二つの要求を返す制御面は、一つに 5 ミリ秒かかっていても 5 秒かかっていても同じ線を描く。分位数ではなく平均なのは、ここの露出の形式がヒストグラムを運ばないからである（[システムコントローラのメトリクス](#システムコントローラのメトリクス)を見よ）。何かが詰まり始めれば平均は動き、それが問うている事柄である。
 5. **Recent Failures** -- `townos_audit_recent_errors`（ダッシュボードが赤い丸として描くのと同じ五分間の数）を `townos_repository_errors` と並べる。二つが一つのパネルにあるのは、「何か壊れていないか」を見るオペレーターが、どの下位の仕組みの下を見ればよいかを先に知っている必要は無いからである。どちらも近い窓の上のゲージなので、ゼロに戻ることは登るのをやめた計数器ではなく回復を意味する。
-6. **Package Inventory** -- 導入済み、入手可能、更新可能、そして設定されたリポジトリの数。
+6. **Audit Events** -- `rate(townos_audit_events_total)` を `result` ごとに、積み上げ。
 7. **Town OS Disk Usage** -- `townos_disk_used_bytes` と `townos_disk_available_bytes` の積み上げ。使用済みと合計ではなく使用済みと空きなのは、積み上げればその二つ*が*ファイルシステムの大きさだからで、三本目の系列はそれを言い直すだけである。
-8. **Accounts** -- `townos_accounts` を kind ごとに、積み上げ（kind はアカウントの一覧をちょうど一度だけ分割するので、積み上げの高さが本当の合計になる）。
-9. **Granted Accounts** -- `townos_accounts_granted`。別のパネルにしてあるのは、これが四つ目の kind ではなく user の*部分集合*であり、積み上げれば二重に数えてしまうからである。
-10. **btrfs Subvolumes** -- `townos_filesystems` を名前空間ごとに、積み上げ。
-11. **Controller Uptime** -- `time() - townos_start_time_seconds`。信号は高さではなくその鋸歯である。`Restart=always` の下で静かに落ち続けている controller は、ここの他のどのパネルの上でも健全に見える。
+8. **Town OS Disk Fill** -- 同じディスクを `townos_disk_total_bytes` に対する百分率として、0--100 に固定して描く。7 番のパネルは「あとどれだけで一杯になるか」に答えられない。読む人が、機械ごとに目盛りの変わる軸に対して暗算をしない限りは。固定した軸は傾きも読めるようにする。自動目盛りでは、4% から 5% への上りと 90% から 99% への上りが同じに描かれてしまう。分母はあえて抑え込んでいないので、収集器が読めなかったファイルシステムは線が途切れる。自信たっぷりの 0% を描くよりそのほうが正直である。
+9. **Controller CPU** -- `100 * rate(townos_process_cpu_seconds_total)`。下限は 0 に固定し、上限はあえて固定**しない**。これはコア秒あたりの値なので、二つのコアを使い切った controller は 200 を示す。100 で頭打ちにすれば、このパネルが存在する理由である暴走をちょうど切り落としてしまう。
+10. **Controller Memory** -- `townos_memory_heap_bytes` を `townos_memory_rss_bytes` と並べる。二つの差が診断そのものである。ヒープが登るなら controller は手放すべき物を抱えており、ヒープが平らなまま RSS が登るなら、メモリは Go の割り当て器が数えない場所へ行っている。
+11. **Controller Concurrency** -- `townos_goroutines`、`townos_open_files`、`townos_http_requests_in_flight`。健全な機械の上では平らで、漏れている機械の上では際限なく登る三つの数である。一つのパネルを分け合っているのは、たいてい一緒に動くからであり —— 決して戻らないハンドラは goroutine と記述子と処理中の要求を一つずつ抱える —— また、どれか一つだけでは、そのためにタブを開く人のいない一本の線でしかないからである。
+12. **Controller Uptime** -- `time() - townos_start_time_seconds`。信号は高さではなくその鋸歯である。`Restart=always` の下で静かに落ち続けている controller は、ここの他のどのパネルの上でも健全に見える。
+13. **Inventory** -- 導入済みのパッケージ、待っている更新、設定されたリポジトリ、そして名前空間ごとの `townos_filesystems`。かつての三つではなく一つのパネルにしてある。どれも数十の桁の数なので、一本の軸を読みやすく分け合い、「この機械には何があるか」に一箇所で答える。
+14. **Accounts** -- `townos_accounts` を kind ごとに、`townos_accounts_granted` をその隣に置き、**積み上げない**。kind はたしかにアカウントの一覧を分割するが、権限を持つ数は user の*部分集合*である。積み上げれば、このパネルは実在するアカウントの数より大きな合計を描いてしまう。
 
-`townos_up` と `townos_disk_total_bytes` はあえて描**かない**。前者は収集の生存を示す定数であり、1 の平らな線はパネルにならない。後者は 7 番のパネルが既に積み上げている二本の系列の和である。
+9 番から 11 番のパネルは、「機械は何を走らせているか」ではなく「機械はなぜ遅いか」に答えるものであり、他のどのダッシュボードにもそれはできない。ここの他のすべての族は controller が*管理する*ものを描いており、controller が goroutine をスワップへ漏らしている間も、そのすべては健全に見える。Node Exporter もこの隙間を埋められない —— それが報告するのはホストであり、コンテナを走らせることが仕事のすべてである機械の上では、controller 自身の取り分はホストの合計の中に埋もれて見えない。
+
+`townos_up` と `townos_packages_available` はあえて描**かない**。前者は収集の生存を示す定数であり、1 の平らな線はパネルにならない。後者は千の桁の目録の大きさであり、軸を共有すれば隣の数を底に貼り付いた一本の線に潰してしまう。そこからオペレーターが本当に欲しいもの ——「どこかのリポジトリが答えなくなっていないか」—— は `townos_repository_errors` であり、それには専用のパネルがある。`townos_disk_total_bytes` は 8 番のパネルの分母としてだけ現れ、系列としては決して現れない。7 番のパネルが、足せばそれになる二つの半分を既に積み上げている。
 
 すべての DNS の問い合わせは `monitoring.RolodexJobName` から作られた `{job="rolodex"}` の選択子を運び、すべての controller の問い合わせは `monitoring.ControllerJobName` から作られた `{job="systemcontroller"}` の選択子を運ぶので、収集の設定が出力するラベルと、ダッシュボードが選択に使うラベルがずれることはありえない —— 食い違いはどこでもエラーにならず、働いている機械の上でタブ一つ分のパネルが空になるだけである。
 
@@ -1750,8 +1757,17 @@ Prometheus と Node Exporter は起動時に常に開始される。Grafana か 
 | `townos_audit_recent_errors` | gauge | ダッシュボードの赤い表示が描くのと同じ数 |
 | `townos_audit_events_total{result}` | counter | `success`/`failure`。`auditMiddleware` が増やす |
 | `townos_http_requests_total{method,status}` | counter | status は**分類**（`2xx` など）であり、正確なコードでは決してない |
+| `townos_http_request_seconds_total{method,status}` | counter | 要求を返すのに費やした秒数。上の行と*同じ*ラベルを運ぶ。この二つは割ってはじめて役に立つからである |
+| `townos_http_requests_in_flight` | gauge | いま処理中の要求の数。ゼロでも出力し、`/metrics` の要求そのものは除いてある |
+| `townos_goroutines` | gauge | ホストではなく controller の処理のもの |
+| `townos_memory_heap_bytes` | gauge | 生きているヒープの物（`HeapAlloc`）であり `HeapSys` ではない。何かが漏れているときに登るのは前者である |
+| `townos_memory_rss_bytes` | gauge | `/proc/self/statm` の常駐ページ数を、4096 と決めつけずにページの大きさで換算したもの |
+| `townos_open_files` | gauge | `/proc/self/fd` の項目の数。Go の実行時は記述子を追わないので、漏れは数時間後に `EMFILE` として現れる |
+| `townos_process_cpu_seconds_total` | counter | `getrusage` から取ったユーザ時間とシステム時間の和 |
 
-`townos_up` と `townos_disk_total_bytes` を除くすべては [Controller のダッシュボード](#ダッシュボード)が描いており、そのパネルの集合は `monitoring.ControllerDashboardMetrics()` に対して宣言されているので、二つの一覧がずれることはありえない。
+`townos_up` と `townos_packages_available` を除くすべては [Controller のダッシュボード](#ダッシュボード)が描いており、そのパネルの集合は `monitoring.ControllerDashboardMetrics()` に対して宣言されているので、二つの一覧がずれることはありえない。`townos_disk_total_bytes` はディスクの占有率のパネルの分母としてだけ現れる。
+
+処理に関する族はこの中で最も新しく、controller が管理する物ではなく controller 自身を描く唯一のものである。`/proc` と `getrusage` は収集のたびにそれぞれ独立に読まれ、読めなかった族は収集全体を失敗させるのではなく省かれる —— 統合テストが単なる存在ではなく正の値を検査するのはそのためである。ゼロは、その読み取りが起きなかったことを意味する。
 
 ここでのいくつかの選択は、付随的なものではなく要点である:
 
@@ -1770,7 +1786,7 @@ Prometheus と Node Exporter は起動時に常に開始される。Grafana か 
 
 描き方は状態の応答の `backend` のフィールドに依存する:
 
-- **uPlot のモード**: uPlot を使って React で直接描かれるパネルであり、ポート 5308 で Prometheus を問い合わせる。System のグリッドは自分をビューポートに合わせる（四つのパネル、一行に二つ）。DNS と Controller のグリッドは**そうしない** —— 八つないし十一のパネルを一画面に押し込めば、それぞれの描画領域は約 100 ピクセルかそれ以下になり、その大きさでは遅延のグラフは飾りである。だからパネルは固定の高さを持ち、ページがスクロールする。
+- **uPlot のモード**: uPlot を使って React で直接描かれるパネルであり、ポート 5308 で Prometheus を問い合わせる。System のグリッドは自分をビューポートに合わせる（四つのパネル、一行に二つ）。DNS と Controller のグリッドは**そうしない** —— 八つないし十四のパネルを一画面に押し込めば、それぞれの描画領域は約 100 ピクセルかそれ以下になり、その大きさでは遅延のグラフは飾りである。だからパネルは固定の高さを持ち、ページがスクロールする。
 - **Grafana のモード**: 明るいテーマのキオスクのモードでポート 5308 を対象とする埋め込みの Grafana の iframe。タブを切り替えるとフレームがもう一方のダッシュボードの uid を指し直し、iframe はその uid を鍵にしているので、フレームは遷移するのではなく*置き換えられる* —— Grafana は自前の履歴を持つので、生きたフレームの src を差し替えると、ブラウザの戻るボタンがページを離れる代わりにダッシュボードを一つずつ遡ることになる。
 
 パネルのタイトルは二つのバックエンドで同一である。切り替えたオペレーターが、どのパネルがどれになったのかを考える必要はないはずだからである。これらは英語でハードコードされている —— この画面には `t()` の呼び出しが無く、そもそも Grafana のパネルのタイトルは、それが用意された JSON の中にあるので翻訳できない。

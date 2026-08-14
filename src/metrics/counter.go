@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"maps"
+	"math"
 	"sort"
 	"strings"
 	"sync"
@@ -27,8 +28,14 @@ type CounterVec struct {
 	help       string
 	labelNames []string
 
-	mu     sync.Mutex
-	values map[string]uint64
+	mu sync.Mutex
+	// values are float64 rather than integers because not every counter counts
+	// events: a cumulative duration (townos_http_request_seconds_total) is a
+	// counter in exactly the same sense — monotonic, rated by Prometheus — and
+	// rounding every observation to a whole second would make the only thing it
+	// is divided for, the average request duration, read as zero on a control
+	// plane that answers in milliseconds.
+	values map[string]float64
 }
 
 // NewCounterVec creates a counter family. labelNames fixes both the arity and
@@ -38,7 +45,7 @@ func NewCounterVec(name, help string, labelNames ...string) *CounterVec {
 		name:       name,
 		help:       help,
 		labelNames: labelNames,
-		values:     map[string]uint64{},
+		values:     map[string]float64{},
 	}
 }
 
@@ -53,8 +60,17 @@ func (c *CounterVec) Inc(labelValues ...string) {
 }
 
 // Add increases the counter for the given label values by n.
-func (c *CounterVec) Add(n uint64, labelValues ...string) {
+//
+// A negative or non-finite n is dropped along with the wrong-arity case. A
+// counter that went backwards would read to Prometheus as a process restart —
+// rate() would treat the step down as a reset and invent a spike out of the
+// following samples — and a NaN accumulated into a tally poisons it for the
+// life of the process, because every later addition to NaN is NaN.
+func (c *CounterVec) Add(n float64, labelValues ...string) {
 	if c == nil || len(labelValues) != len(c.labelNames) {
+		return
+	}
+	if n < 0 || math.IsNaN(n) || math.IsInf(n, 0) {
 		return
 	}
 	key := strings.Join(labelValues, labelSeparator)
@@ -77,7 +93,7 @@ func (c *CounterVec) Collect() Metric {
 	for k := range c.values {
 		keys = append(keys, k)
 	}
-	snapshot := make(map[string]uint64, len(c.values))
+	snapshot := make(map[string]float64, len(c.values))
 	maps.Copy(snapshot, c.values)
 	c.mu.Unlock()
 
@@ -91,7 +107,7 @@ func (c *CounterVec) Collect() Metric {
 				labels = append(labels, Label{Name: name, Value: parts[i]})
 			}
 		}
-		samples = append(samples, Sample{Labels: labels, Value: float64(snapshot[k])})
+		samples = append(samples, Sample{Labels: labels, Value: snapshot[k]})
 	}
 	return Metric{Name: c.name, Help: c.help, Type: TypeCounter, Samples: samples}
 }

@@ -2,12 +2,15 @@ package systemcontroller
 
 import (
 	"context"
+	"math"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"gitea.com/town-os/town-os/src/metrics"
 	"github.com/labstack/echo/v5"
 )
 
@@ -273,11 +276,24 @@ func TestMetricsMiddlewareSkipsItsOwnPath(t *testing.T) {
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, MetricsPath, nil)
 	rec := httptest.NewRecorder()
 
-	if err := s.metricsMiddleware(func(_ *echo.Context) error { return nil })(e.NewContext(req, rec)); err != nil {
+	var during int64
+	handler := s.metricsMiddleware(func(_ *echo.Context) error {
+		during = s.metricsCounters().inFlight.Load()
+		return nil
+	})
+	if err := handler(e.NewContext(req, rec)); err != nil {
 		t.Fatalf("middleware: %v", err)
 	}
 	if len(s.metricsCounters().httpRequests.Collect().Samples) != 0 {
 		t.Error("the scrape endpoint counted itself")
+	}
+	if len(s.metricsCounters().httpSeconds.Collect().Samples) != 0 {
+		t.Error("the scrape endpoint timed itself")
+	}
+	// A scrape is in flight for the whole of the collection it triggers, so
+	// counting it would pin the gauge at one on a box serving nothing at all.
+	if during != 0 {
+		t.Errorf("in-flight during a scrape = %d, want 0", during)
 	}
 }
 
@@ -297,6 +313,239 @@ func TestMetricsMiddlewareCountsSuccessfulRequests(t *testing.T) {
 	samples := s.metricsCounters().httpRequests.Collect().Samples
 	if len(samples) != 1 || samples[0].Labels[1].Value != "2xx" {
 		t.Errorf("unexpected tallies: %+v", samples)
+	}
+}
+
+// The seconds counter is only useful divided by the request counter, and a
+// division needs both sides to carry the same labels — otherwise the average
+// can only be computed after aggregating one side away, which is not what the
+// panel asks for.
+func TestMetricsMiddlewareRecordsDurationUnderTheSameLabels(t *testing.T) {
+	s := &SystemControllerHandlers{Controller: &metricsBackend{}}
+	e := echo.New()
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/status/ping", nil)
+	rec := httptest.NewRecorder()
+
+	handler := s.metricsMiddleware(func(c *echo.Context) error {
+		return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
+	})
+	if err := handler(e.NewContext(req, rec)); err != nil {
+		t.Fatalf("middleware: %v", err)
+	}
+
+	seconds := s.metricsCounters().httpSeconds.Collect()
+	if len(seconds.Samples) != 1 {
+		t.Fatalf("got %d duration samples, want 1: %+v", len(seconds.Samples), seconds.Samples)
+	}
+	sample := seconds.Samples[0]
+	if sample.Labels[0].Value != http.MethodGet || sample.Labels[1].Value != "2xx" {
+		t.Errorf("duration labels = %+v, want GET/2xx to match the request counter", sample.Labels)
+	}
+	// A wall-clock reading, so the only safe assertion is that it was recorded
+	// at all and did not come out negative — which would make the counter go
+	// backwards and read to Prometheus as a restart.
+	if sample.Value < 0 {
+		t.Errorf("recorded a negative duration: %v", sample.Value)
+	}
+}
+
+// A request that ends in an error still took time, and the error path is
+// exactly the one worth timing: a handler that blocks until a context deadline
+// is the slowest thing the controller does.
+func TestMetricsMiddlewareTimesFailedRequests(t *testing.T) {
+	s := &SystemControllerHandlers{Controller: &metricsBackend{}}
+	e := echo.New()
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/anything", nil)
+	rec := httptest.NewRecorder()
+
+	handler := s.metricsMiddleware(func(_ *echo.Context) error { return context.DeadlineExceeded })
+	if err := handler(e.NewContext(req, rec)); err == nil {
+		t.Fatal("middleware swallowed the handler error")
+	}
+
+	samples := s.metricsCounters().httpSeconds.Collect().Samples
+	if len(samples) != 1 || samples[0].Labels[1].Value != "5xx" {
+		t.Errorf("unexpected duration samples: %+v", samples)
+	}
+}
+
+// The in-flight gauge is the one number no manager can be asked for after the
+// fact: it only exists while the request is being served.
+func TestMetricsMiddlewareTracksRequestsInFlight(t *testing.T) {
+	s := &SystemControllerHandlers{Controller: &metricsBackend{}}
+	e := echo.New()
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/status/ping", nil)
+	rec := httptest.NewRecorder()
+
+	var during int64
+	handler := s.metricsMiddleware(func(c *echo.Context) error {
+		during = s.metricsCounters().inFlight.Load()
+		return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
+	})
+	if err := handler(e.NewContext(req, rec)); err != nil {
+		t.Fatalf("middleware: %v", err)
+	}
+
+	if during != 1 {
+		t.Errorf("in-flight during the request = %d, want 1", during)
+	}
+	if after := s.metricsCounters().inFlight.Load(); after != 0 {
+		t.Errorf("in-flight after the request = %d, want 0", after)
+	}
+}
+
+// A panicking handler must not leak a count. The gauge would climb by one per
+// panic and read as a permanently wedged control plane long after the box
+// recovered — which is why the decrement is a defer rather than a line after
+// next().
+func TestMetricsMiddlewareReleasesInFlightOnPanic(t *testing.T) {
+	s := &SystemControllerHandlers{Controller: &metricsBackend{}}
+	e := echo.New()
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/boom", nil)
+	rec := httptest.NewRecorder()
+
+	func() {
+		defer func() {
+			if recovered := recover(); recovered == nil {
+				t.Error("the panic did not propagate; this test is not exercising the defer")
+			}
+		}()
+		handler := s.metricsMiddleware(func(_ *echo.Context) error { panic("handler exploded") })
+		// Unreachable while the handler panics, which is the point of the
+		// deferred recover above — but written as a real check rather than
+		// discarded, so a middleware that ever swallowed the panic and
+		// returned an error would say so here instead of vanishing.
+		if err := handler(e.NewContext(req, rec)); err != nil {
+			t.Errorf("middleware returned an error instead of panicking: %v", err)
+		}
+	}()
+
+	if after := s.metricsCounters().inFlight.Load(); after != 0 {
+		t.Errorf("in-flight after a panicking handler = %d, want 0", after)
+	}
+}
+
+// Unlike the counters, the in-flight gauge is emitted at zero: an idle box has
+// nothing in flight, and that zero is the answer the panel is asking for.
+func TestScrapeIncludesInFlightGaugeWhenIdle(t *testing.T) {
+	s := &SystemControllerHandlers{Controller: &metricsBackend{}}
+	body := serveMetrics(t, s).Body.String()
+
+	if !strings.Contains(body, "townos_http_requests_in_flight 0") {
+		t.Errorf("idle scrape does not report an in-flight count:\n%s", body)
+	}
+}
+
+// The process section answers "why is the box slow", which every other family
+// here is blind to: a controller leaking goroutines into swap looks perfectly
+// healthy on units, packages, accounts and disk alike.
+func TestCollectProcessMetricsReportsProcessHealth(t *testing.T) {
+	values := map[string]float64{}
+	for _, f := range collectProcessMetrics() {
+		if len(f.Samples) != 1 {
+			t.Errorf("%s has %d samples, want 1", f.Name, len(f.Samples))
+			continue
+		}
+		values[f.Name] = f.Samples[0].Value
+	}
+
+	// Every one of these is measured from inside the running test binary, so a
+	// zero is not a quiet box — it is a reading that did not happen.
+	for _, name := range []string{
+		"townos_goroutines",
+		"townos_memory_heap_bytes",
+		"townos_memory_rss_bytes",
+		"townos_open_files",
+	} {
+		if values[name] <= 0 {
+			t.Errorf("%s = %v, want a positive reading", name, values[name])
+		}
+	}
+	if _, ok := values["townos_process_cpu_seconds_total"]; !ok {
+		t.Error("no CPU time reported")
+	}
+	if values["townos_process_cpu_seconds_total"] < 0 {
+		t.Errorf("negative CPU time: %v", values["townos_process_cpu_seconds_total"])
+	}
+}
+
+// CPU time is cumulative for the life of the process. Exporting it as a gauge
+// would make Prometheus graph a permanently climbing line instead of rating it
+// into the per-second figure the panel draws.
+func TestProcessCPUIsACounter(t *testing.T) {
+	for _, f := range collectProcessMetrics() {
+		if f.Name != "townos_process_cpu_seconds_total" {
+			continue
+		}
+		if f.Type != metrics.TypeCounter {
+			t.Errorf("CPU time exported as %q, want counter", f.Type)
+		}
+		return
+	}
+	t.Fatal("no CPU family in the process metrics")
+}
+
+// The resident set is read as a page count and scaled by the page size rather
+// than an assumed 4096: this ships on aarch64 too, and a 16K-page kernel would
+// otherwise under-report memory fourfold — wrong in a way that still looks
+// plausible on a graph.
+func TestProcessRSSScalesByPageSize(t *testing.T) {
+	rss, ok := processRSSBytes()
+	if !ok {
+		t.Skip("this kernel does not expose " + procStatm)
+	}
+	if pageSize := float64(os.Getpagesize()); rss < pageSize {
+		t.Errorf("resident set = %v bytes, smaller than one %v-byte page", rss, pageSize)
+	}
+	if math.Mod(rss, float64(os.Getpagesize())) != 0 {
+		t.Errorf("resident set = %v, not a whole number of pages", rss)
+	}
+}
+
+// A descriptor leak is invisible everywhere else: nothing in the Go runtime
+// tracks them, and the process dies of EMFILE hours later.
+func TestOpenFileCountSeesThisProcessesDescriptors(t *testing.T) {
+	before, ok := openFileCount()
+	if !ok {
+		t.Skip("this kernel does not expose " + procFDDir)
+	}
+
+	f, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatalf("open %s: %v", os.DevNull, err)
+	}
+	defer func() {
+		if cerr := f.Close(); cerr != nil {
+			t.Errorf("closing %s: %v", os.DevNull, cerr)
+		}
+	}()
+
+	after, ok := openFileCount()
+	if !ok {
+		t.Fatal("descriptor count became unreadable mid-test")
+	}
+	if after <= before {
+		t.Errorf("count did not move after opening a file: %v then %v", before, after)
+	}
+}
+
+// The process section must survive the same bare controller every other
+// section does: it reads nothing from any manager, so a scrape during boot is
+// the moment it is most worth having.
+func TestCollectMetricsIncludesProcessFamiliesWithNoManagers(t *testing.T) {
+	s := &SystemControllerHandlers{Controller: &metricsBackend{}}
+	names := map[string]bool{}
+	for _, f := range s.collectMetrics(context.Background()) {
+		names[f.Name] = true
+	}
+	for _, want := range []string{
+		"townos_goroutines",
+		"townos_memory_heap_bytes",
+		"townos_http_requests_in_flight",
+	} {
+		if !names[want] {
+			t.Errorf("%s missing from a bare controller's scrape", want)
+		}
 	}
 }
 

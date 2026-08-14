@@ -65,6 +65,14 @@ func Gauge(name, help string, value float64) Metric {
 	return Metric{Name: name, Help: help, Type: TypeGauge, Samples: []Sample{{Value: value}}}
 }
 
+// Counter builds a single-sample counter family, for a cumulative total that
+// is read from the outside rather than tallied here — process CPU time, which
+// the kernel already counts, is the case this exists for. A CounterVec is the
+// right shape when the process is doing the counting itself.
+func Counter(name, help string, value float64) Metric {
+	return Metric{Name: name, Help: help, Type: TypeCounter, Samples: []Sample{{Value: value}}}
+}
+
 // GaugeVec builds a gauge family from ordered label/value pairs. The samples
 // are emitted in the order given.
 func GaugeVec(name, help string, samples []Sample) Metric {

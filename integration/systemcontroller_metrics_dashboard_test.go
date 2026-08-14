@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -146,6 +148,105 @@ func TestControllerDashboardMetricsAreServed(t *testing.T) {
 		if !strings.Contains(scrape, "# TYPE "+family+" ") {
 			t.Errorf("the controller dashboard queries %s, which this scrape does not export:\n%s", family, scrape)
 		}
+	}
+}
+
+// TestControllerDashboardProcessPanelsHaveReadings asserts the panels about
+// the controller process itself — CPU, memory, concurrency — carry numbers a
+// chart can draw, over a real scrape rather than a direct collector call.
+//
+// Family presence is not enough here: every one of these is read from the
+// kernel or the runtime through a path that can fail quietly (/proc unreadable
+// under a hardened container, a statm layout that does not parse), and the
+// collector's answer to a failed reading is to omit the family. A zero, or an
+// absence, means the reading did not happen — this process demonstrably has
+// goroutines, a heap and open descriptors while it is being asked.
+func TestControllerDashboardProcessPanelsHaveReadings(t *testing.T) {
+	t.Parallel()
+	c := initDashboardMetricsTest(t)
+
+	scrape, err := c.GetMetrics(context.Background())
+	if err != nil {
+		t.Fatalf("GetMetrics: %v", err)
+	}
+
+	for _, family := range []string{
+		"townos_goroutines",
+		"townos_memory_heap_bytes",
+		"townos_memory_rss_bytes",
+		"townos_open_files",
+	} {
+		raw, ok := metricLine(scrape, family+" ")
+		if !ok {
+			t.Errorf("scrape has no %s sample; the controller process panels would be empty:\n%s", family, scrape)
+			continue
+		}
+		value, parseErr := strconv.ParseFloat(raw, 64)
+		if parseErr != nil {
+			t.Errorf("%s = %q, which is not a number: %v", family, raw, parseErr)
+			continue
+		}
+		if value <= 0 {
+			t.Errorf("%s = %v, want a positive reading from a live process", family, value)
+		}
+	}
+
+	// CPU time may legitimately round to zero on a fast box, so it is checked
+	// for presence and type rather than magnitude — as a gauge, Prometheus
+	// would draw the cumulative climb instead of rating it.
+	if !strings.Contains(scrape, "# TYPE townos_process_cpu_seconds_total counter") {
+		t.Errorf("CPU time is not exported as a counter:\n%s", scrape)
+	}
+	if _, ok := metricLine(scrape, "townos_http_requests_in_flight "); !ok {
+		t.Errorf("scrape has no in-flight sample; the gauge must report zero rather than vanish:\n%s", scrape)
+	}
+}
+
+// TestControllerDashboardLatencyHasBothHalves asserts the two counters the API
+// Latency panel divides are both present and labelled identically.
+//
+// The panel is a ratio, and a ratio is the one panel shape that can be broken
+// by a change to either side alone: relabel the seconds counter and the
+// division matches nothing, so the panel renders empty on a box that is
+// serving fine.
+func TestControllerDashboardLatencyHasBothHalves(t *testing.T) {
+	t.Parallel()
+	c := initDashboardMetricsTest(t)
+
+	// Any authenticated call moves both counters; SetSetting is the one the
+	// sibling test already relies on being audited.
+	if err := c.SetSetting(context.Background(), "locale", "en-US"); err != nil {
+		t.Fatalf("SetSetting: %v", err)
+	}
+
+	scrape, err := c.GetMetrics(context.Background())
+	if err != nil {
+		t.Fatalf("GetMetrics: %v", err)
+	}
+
+	labels := func(family string) []string {
+		var out []string
+		for line := range strings.SplitSeq(scrape, "\n") {
+			if !strings.HasPrefix(line, family+"{") {
+				continue
+			}
+			if _, rest, ok := strings.Cut(line, "{"); ok {
+				if inner, _, closed := strings.Cut(rest, "}"); closed {
+					out = append(out, inner)
+				}
+			}
+		}
+		slices.Sort(out)
+		return out
+	}
+
+	requests := labels("townos_http_requests_total")
+	seconds := labels("townos_http_request_seconds_total")
+	if len(requests) == 0 {
+		t.Fatalf("no request samples in the scrape:\n%s", scrape)
+	}
+	if !slices.Equal(requests, seconds) {
+		t.Errorf("the latency panel divides two differently-labelled counters:\nrequests: %v\nseconds:  %v", requests, seconds)
 	}
 }
 

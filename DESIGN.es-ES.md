@@ -1861,7 +1861,7 @@ mismas consultas**. Están separados en lugar de ser una sola página larga porq
 responden a preguntas distintas: System es lo que un operador mira cuando el
 equipo va lento, DNS es lo que abre cuando un nombre no se resuelve, y Controller
 es lo que abre cuando algo que Town OS ejecuta no está ejecutándose. Plegar los
-ocho paneles de DNS y los once de controller dentro de la vista general enterraría
+ocho paneles de DNS y los catorce de controller dentro de la vista general enterraría
 los cuatro paneles de host, que son la razón por la que cualquiera la abre.
 
 **System** (uid de Grafana `town-os-overview`, "Town OS Overview") -- cuatro paneles:
@@ -1883,25 +1883,49 @@ trabajo de recolección `rolodex`:
 7. **Resultados por escalón upstream** -- victorias y fallos por escalón, más las consultas que agotaron todos los escalones.
 8. **Tráfico DNS** -- bytes de cable rx/tx.
 
-**Controller** (uid de Grafana `town-os-controller`, "Town OS Controller") -- once
-paneles sobre el trabajo de recolección `systemcontroller`, y el único panel que lee
-las [métricas `townos_*`](#métricas-del-controlador-del-sistema) del propio equipo:
+**Controller** (uid de Grafana `town-os-controller`, "Town OS Controller") --
+catorce paneles sobre el trabajo de recolección `systemcontroller`, y el único panel
+que lee las [métricas `townos_*`](#métricas-del-controlador-del-sistema) del propio
+equipo.
 
-1. **Service Units by State** -- `townos_system_units` y `townos_package_units` por estado, en un mismo panel y **sin apilar**: son dos totales separados, y apilarlos dibujaría una altura combinada que no cuenta nada que nadie administre.
-2. **Service Health** -- `townos_system_unit_active` y `townos_package_unit_active`, una serie por unidad, fijado a 0--1. Este es el panel que dice *qué* servicio está caído, no cuántos. El eje se fija porque la métrica es booleana: en escala automática, un equipo completamente sano se dibuja como ruido alrededor de 1,0 y se lee como alarmante justo cuando no pasa nada.
+El orden es el orden en que se leen cuando algo va mal: qué está caído, qué está
+haciendo la API, qué está fallando, qué pinta tiene el disco, cómo se está
+aguantando el propio proceso del controlador — y solo entonces el inventario, que
+es una pantalla en otra parte de la UI y aquí una línea que apenas se mueve. Los
+paneles cuyas series nunca se mueven en un equipo que funciona van abajo, y no en
+las primeras filas, donde desplazan a los que sí se mueven.
+
+1. **Service Health** -- `townos_system_unit_active` y `townos_package_unit_active`, una serie por unidad, fijado a 0--1. Este es el panel que dice *qué* servicio está caído, no cuántos, y por eso encabeza. El eje se fija porque la métrica es booleana: en escala automática, un equipo completamente sano se dibuja como ruido alrededor de 1,0 y se lee como alarmante justo cuando no pasa nada.
+2. **Service Units by State** -- `townos_system_units` y `townos_package_units` por estado, en un mismo panel y **sin apilar**: son dos totales separados, y apilarlos dibujaría una altura combinada que no cuenta nada que nadie administre.
 3. **API Requests by Status** -- `rate(townos_http_requests_total)` sumado por `status`, apilado. Sumado por estado en concreto: la familia también lleva `method`, y un panel de estados que lo conservara dibujaría una línea por cada par.
-4. **Audit Events** -- `rate(townos_audit_events_total)` por `result`, apilado.
+4. **API Latency** -- `rate(townos_http_request_seconds_total)` entre `rate(townos_http_requests_total)`, ambos sumados por `method`: segundos medios por petición. Es el panel que separa "el equipo está ocupado" de "el equipo está atascado", cosa que el panel 3 no puede hacer — un plano de control que sirve dos peticiones por segundo se dibuja igual tanto si cada una tarda 5 ms como 5 s. Una media y no un cuantil porque aquí el formato de exposición no lleva histogramas (véase [Métricas del controlador del sistema](#métricas-del-controlador-del-sistema)); la media se mueve cuando algo empieza a bloquear, que es justo lo que se pregunta.
 5. **Recent Failures** -- `townos_audit_recent_errors` (el mismo recuento de cinco minutos que el panel de inicio muestra como su píldora roja) junto a `townos_repository_errors`. Ambos en un panel porque un operador que comprueba "¿hay algo roto?" no debería tener que saber primero bajo qué subsistema mirar, y ambos son gauges sobre una ventana reciente, así que volver a cero es una recuperación y no un contador que dejó de subir.
-6. **Package Inventory** -- instalados, disponibles, actualizables y repositorios configurados.
+6. **Audit Events** -- `rate(townos_audit_events_total)` por `result`, apilado.
 7. **Town OS Disk Usage** -- `townos_disk_used_bytes` y `townos_disk_available_bytes`, apilados. Usado y disponible en lugar de usado y total: apilados, esos dos *son* el tamaño del sistema de archivos, así que una tercera serie solo lo repetiría.
-8. **Accounts** -- `townos_accounts` por tipo, apilado (los tipos particionan la lista de cuentas exactamente una vez, así que la altura de la pila es el total real).
-9. **Granted Accounts** -- `townos_accounts_granted`, aparte porque es un *subconjunto* del grupo de usuarios y no un cuarto tipo, y apilarlo lo contaría dos veces.
-10. **btrfs Subvolumes** -- `townos_filesystems` por espacio de nombres, apilado.
-11. **Controller Uptime** -- `time() - townos_start_time_seconds`. La señal es el diente de sierra, no la altura: un controlador que se reinicia en silencio bajo `Restart=always` se ve sano en todos los demás paneles de aquí.
+8. **Town OS Disk Fill** -- el mismo disco como porcentaje de `townos_disk_total_bytes`, fijado a 0--100. El panel 7 no puede responder "¿cuánto le falta para llenarse?" sin que quien lo lee haga cuentas contra un eje cuya escala depende del equipo, y un eje fijo hace legible la pendiente: en escala automática, subir del 4 % al 5 % se dibuja igual que subir del 90 % al 99 %. El denominador va sin acotar, así que un sistema de archivos que el recolector no pudo leer rompe la línea en lugar de dibujar un 0 % con toda seguridad.
+9. **Controller CPU** -- `100 * rate(townos_process_cpu_seconds_total)`. El suelo se fija en 0 y el techo deliberadamente **no**: esto es por segundo de núcleo, así que un controlador que usa dos núcleos marca 200, y un tope en 100 recortaría justo la desbandada que el panel existe para mostrar.
+10. **Controller Memory** -- `townos_memory_heap_bytes` junto a `townos_memory_rss_bytes`. La distancia entre ambos es el diagnóstico: si sube el heap, el controlador retiene objetos que debería haber soltado; si sube el RSS con el heap plano, la memoria se fue a algún sitio que el asignador de Go no contabiliza.
+11. **Controller Concurrency** -- `townos_goroutines`, `townos_open_files`, `townos_http_requests_in_flight`. Tres recuentos que son planos en un equipo sano y suben sin límite en uno con fugas; comparten panel porque suelen moverse juntos — un manejador que nunca retorna retiene una goroutine, un descriptor y una petición en vuelo a la vez — y porque cualquiera de ellos por separado es una sola línea por la que nadie abriría una pestaña.
+12. **Controller Uptime** -- `time() - townos_start_time_seconds`. La señal es el diente de sierra, no la altura: un controlador que se reinicia en silencio bajo `Restart=always` se ve sano en todos los demás paneles de aquí.
+13. **Inventory** -- paquetes instalados, actualizaciones pendientes, repositorios configurados y `townos_filesystems` por espacio de nombres. Un panel en lugar de los tres que eran: todos son recuentos en las decenas, así que comparten eje de forma legible y responden "qué hay en este equipo" en un solo sitio.
+14. **Accounts** -- `townos_accounts` por tipo con `townos_accounts_granted` al lado, **sin apilar**. Los tipos sí particionan la lista de cuentas, pero el recuento de concesiones es un *subconjunto* del grupo de usuarios; apilado, el panel dibujaría un total mayor que el número de cuentas que existen.
 
-`townos_up` y `townos_disk_total_bytes` deliberadamente **no** se grafican. El
+Los paneles 9 a 11 son los que responden "por qué va lento el equipo" en vez de
+"qué está ejecutando el equipo", y nada más en ningún panel puede hacerlo: todas
+las demás familias de aquí describen lo que el controlador *gestiona*, y todo eso
+se ve sano mientras el controlador filtra goroutines hacia el swap. Node Exporter
+tampoco cubre el hueco — informa del anfitrión, y en un equipo cuyo trabajo entero
+es ejecutar contenedores, la parte del propio controlador es invisible en los
+totales del anfitrión.
+
+`townos_up` y `townos_packages_available` deliberadamente **no** se grafican. El
 primero es una constante de vitalidad de la recolección, y una línea plana en 1 no
-es un panel; el segundo es la suma de las dos series que el panel 7 ya apila.
+es un panel. El segundo es un tamaño de catálogo en los miles: en un eje compartido
+aplana los recuentos de al lado en una línea pegada al fondo, y lo que un operador
+quiere de él — "¿ha dejado de responder algún repositorio?" — es
+`townos_repository_errors`, que tiene su propio panel. `townos_disk_total_bytes`
+solo aparece como denominador del panel 8, nunca como serie: el panel 7 ya apila las
+dos mitades que suman su valor.
 
 Todas las consultas de DNS llevan un selector `{job="rolodex"}` construido a
 partir de `monitoring.RolodexJobName`, y todas las de controller uno
@@ -1995,11 +2019,25 @@ Lo que se exporta:
 | `townos_audit_recent_errors` | gauge | el mismo número que renderiza la píldora roja del panel |
 | `townos_audit_events_total{result}` | counter | `success`/`failure`, incrementado por `auditMiddleware` |
 | `townos_http_requests_total{method,status}` | counter | el estado es una **clase** (`2xx`…), nunca el código exacto |
+| `townos_http_request_seconds_total{method,status}` | counter | segundos empleados en servir, bajo las *mismas* etiquetas que la línea anterior, porque los dos solo sirven divididos |
+| `townos_http_requests_in_flight` | gauge | peticiones que se están sirviendo ahora mismo; se emite en cero, y la propia petición a `/metrics` queda excluida |
+| `townos_goroutines` | gauge | del proceso del controlador, no del anfitrión |
+| `townos_memory_heap_bytes` | gauge | objetos vivos del heap (`HeapAlloc`), no `HeapSys` — la cifra que sube cuando algo se filtra |
+| `townos_memory_rss_bytes` | gauge | páginas residentes de `/proc/self/statm`, escaladas por el tamaño de página y no por un 4096 supuesto |
+| `townos_open_files` | gauge | entradas en `/proc/self/fd`; nada en el runtime de Go rastrea descriptores, y una fuga aflora como `EMFILE` horas después |
+| `townos_process_cpu_seconds_total` | counter | tiempo de usuario más de sistema, vía `getrusage` |
 
-Todas ellas salvo `townos_up` y `townos_disk_total_bytes` las grafica el [panel de
+Todas ellas salvo `townos_up` y `townos_packages_available` las grafica el [panel de
 Controller](#paneles), cuyo conjunto de paneles se declara contra
 `monitoring.ControllerDashboardMetrics()` para que las dos listas no puedan
-separarse.
+separarse. `townos_disk_total_bytes` aparece solo como denominador del panel de
+ocupación de disco.
+
+Las familias de proceso son las más recientes y las únicas que describen el
+controlador y no lo que gestiona. `/proc` y `getrusage` se leen en cada recolección,
+cada uno por su cuenta, y una lectura que falla omite su familia en lugar de hacer
+fallar la recolección — por eso la prueba de integración exige valores positivos y
+no la mera presencia: un cero significaría que la lectura nunca ocurrió.
 
 Varias de estas decisiones son la gracia y no algo incidental:
 
@@ -2028,7 +2066,7 @@ pestaña.
 
 El renderizado depende del campo `backend` de la respuesta de estado:
 
-- **Modo uPlot**: paneles renderizados directamente en React usando uPlot, consultando Prometheus en el puerto 5308. La rejilla de System se ajusta al viewport (cuatro paneles, dos por fila); las de DNS y Controller **no** — ocho u once paneles apretados en una pantalla dejan a cada uno unos 100 px de lienzo o menos, punto en el que un gráfico de latencia es decoración, así que los paneles tienen una altura fija y la página se desplaza.
+- **Modo uPlot**: paneles renderizados directamente en React usando uPlot, consultando Prometheus en el puerto 5308. La rejilla de System se ajusta al viewport (cuatro paneles, dos por fila); las de DNS y Controller **no** — ocho o catorce paneles apretados en una pantalla dejan a cada uno unos 100 px de lienzo o menos, punto en el que un gráfico de latencia es decoración, así que los paneles tienen una altura fija y la página se desplaza.
 - **Modo Grafana**: un iframe de Grafana incrustado apuntando al puerto 5308 en modo kiosco con tema claro. Cambiar de pestaña reapunta el marco al uid del otro panel, y el iframe está indexado por ese uid para que el marco se *sustituya* en lugar de navegar — Grafana mantiene su propio historial, y un cambio de `src` sobre un marco vivo deja el botón Atrás del navegador recorriendo paneles en lugar de salir de la página.
 
 Los títulos de los paneles son idénticos en los dos backends: un operador que

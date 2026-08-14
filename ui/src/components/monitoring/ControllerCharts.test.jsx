@@ -7,14 +7,17 @@ import {
   CONTROLLER_UNIT_STATE_QUERIES,
   CONTROLLER_UNIT_HEALTH_QUERIES,
   CONTROLLER_HTTP_QUERIES,
+  CONTROLLER_LATENCY_QUERIES,
   CONTROLLER_AUDIT_QUERIES,
   CONTROLLER_FAILURE_QUERIES,
-  CONTROLLER_PACKAGE_QUERIES,
   CONTROLLER_DISK_QUERIES,
-  CONTROLLER_ACCOUNT_QUERIES,
-  CONTROLLER_GRANTED_QUERIES,
-  CONTROLLER_FILESYSTEM_QUERIES,
+  CONTROLLER_DISK_FILL_QUERIES,
+  CONTROLLER_CPU_QUERIES,
+  CONTROLLER_MEMORY_QUERIES,
+  CONTROLLER_CONCURRENCY_QUERIES,
   CONTROLLER_UPTIME_QUERIES,
+  CONTROLLER_INVENTORY_QUERIES,
+  CONTROLLER_ACCOUNT_QUERIES,
 } from './queries.js'
 
 vi.mock('./UPlotChart.jsx', () => ({
@@ -32,17 +35,20 @@ vi.mock('./UPlotChart.jsx', () => ({
 }))
 
 const ALL_QUERY_SETS = [
-  CONTROLLER_UNIT_STATE_QUERIES,
   CONTROLLER_UNIT_HEALTH_QUERIES,
+  CONTROLLER_UNIT_STATE_QUERIES,
   CONTROLLER_HTTP_QUERIES,
-  CONTROLLER_AUDIT_QUERIES,
+  CONTROLLER_LATENCY_QUERIES,
   CONTROLLER_FAILURE_QUERIES,
-  CONTROLLER_PACKAGE_QUERIES,
+  CONTROLLER_AUDIT_QUERIES,
   CONTROLLER_DISK_QUERIES,
-  CONTROLLER_ACCOUNT_QUERIES,
-  CONTROLLER_GRANTED_QUERIES,
-  CONTROLLER_FILESYSTEM_QUERIES,
+  CONTROLLER_DISK_FILL_QUERIES,
+  CONTROLLER_CPU_QUERIES,
+  CONTROLLER_MEMORY_QUERIES,
+  CONTROLLER_CONCURRENCY_QUERIES,
   CONTROLLER_UPTIME_QUERIES,
+  CONTROLLER_INVENTORY_QUERIES,
+  CONTROLLER_ACCOUNT_QUERIES,
 ]
 
 describe('controller queries', () => {
@@ -105,6 +111,27 @@ describe('controller queries', () => {
     expect(exprs).toContain('townos_disk_available_bytes')
     expect(exprs).not.toContain('townos_disk_total_bytes')
   })
+
+  // The fill panel is the one place the total is the right denominator: it is
+  // what "how full" is a fraction of.
+  it('measures disk fill against the filesystem size', () => {
+    const [fill] = CONTROLLER_DISK_FILL_QUERIES
+    expect(fill.expr).toBe(
+      `100 * townos_disk_used_bytes${CONTROLLER_SELECTOR} / townos_disk_total_bytes${CONTROLLER_SELECTOR}`,
+    )
+  })
+
+  // A mean out of two counters. Inverting the ratio, or dividing by a
+  // differently-aggregated denominator, still returns a number — just the
+  // wrong one, on a panel whose unit makes it look plausible.
+  it('averages latency as seconds over requests, aggregated the same way', () => {
+    const [latency] = CONTROLLER_LATENCY_QUERIES
+    const [numerator, denominator] = latency.expr.split(' / ')
+    expect(numerator).toContain('townos_http_request_seconds_total')
+    expect(denominator).toContain('townos_http_requests_total')
+    expect(numerator).toContain('sum by (method)')
+    expect(denominator).toContain('sum by (method)')
+  })
 })
 
 describe('ControllerCharts', () => {
@@ -113,19 +140,26 @@ describe('ControllerCharts', () => {
     const charts = getAllByTestId('uplot')
     expect(charts).toHaveLength(ALL_QUERY_SETS.length)
 
+    // The order is the Grafana grid order, which is the order an operator
+    // reads them in when something is wrong: what is down, what the API is
+    // doing, what is failing, the disk, then the controller process itself.
+    // The inventory counts sit last because they do not move on a working box.
     const titles = charts.map((c) => c.getAttribute('data-title'))
     expect(titles).toEqual([
-      'Service Units by State',
       'Service Health',
+      'Service Units by State',
       'API Requests by Status',
-      'Audit Events',
+      'API Latency',
       'Recent Failures',
-      'Package Inventory',
+      'Audit Events',
       'Town OS Disk Usage',
-      'Accounts',
-      'Granted Accounts',
-      'btrfs Subvolumes',
+      'Town OS Disk Fill',
+      'Controller CPU',
+      'Controller Memory',
+      'Controller Concurrency',
       'Controller Uptime',
+      'Inventory',
+      'Accounts',
     ])
   })
 
@@ -152,9 +186,12 @@ describe('ControllerCharts', () => {
   })
 
   // Stacking is for series that partition a total: status classes, audit
-  // results, account kinds, subvolume namespaces, and the two halves of the
-  // filesystem. Unit counts do not — system and package units are separate
-  // totals, and stacking them would draw a height that counts nothing.
+  // results, and the two halves of the filesystem. Unit counts do not — system
+  // and package units are separate totals, and stacking them would draw a
+  // height that counts nothing. Accounts is not stacked either, despite the
+  // kinds partitioning the list: the grant count riding along on that panel is
+  // a subset of the user bucket, and stacked it would push the total above the
+  // number of accounts that exist.
   it('stacks only the panels whose series partition a total', () => {
     const { getAllByTestId } = render(<ControllerCharts />)
     const stacked = getAllByTestId('uplot')
@@ -164,8 +201,20 @@ describe('ControllerCharts', () => {
       'API Requests by Status',
       'Audit Events',
       'Town OS Disk Usage',
-      'Accounts',
-      'btrfs Subvolumes',
     ])
+  })
+
+  // Percent panels: fill is a fraction of one filesystem and cannot exceed
+  // 100, while CPU is per core-second and a controller using two cores reads
+  // 200. Capping the second would clip exactly the runaway it exists to show.
+  it('bounds the fill axis at 100 and leaves the CPU axis open', () => {
+    const { getAllByTestId } = render(<ControllerCharts />)
+    const panel = (title) =>
+      getAllByTestId('uplot').find((c) => c.getAttribute('data-title') === title)
+
+    expect(panel('Town OS Disk Fill').getAttribute('data-min')).toBe('0')
+    expect(panel('Town OS Disk Fill').getAttribute('data-max')).toBe('100')
+    expect(panel('Controller CPU').getAttribute('data-min')).toBe('0')
+    expect(panel('Controller CPU').getAttribute('data-max')).toBe('')
   })
 })

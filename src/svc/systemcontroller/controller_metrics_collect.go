@@ -27,8 +27,19 @@ func (s *SystemControllerHandlers) collectMetrics(ctx context.Context) []metrics
 	}
 
 	counters := s.metricsCounters()
-	families = append(families, counters.auditEvents.Collect(), counters.httpRequests.Collect())
+	families = append(families,
+		counters.auditEvents.Collect(),
+		counters.httpRequests.Collect(),
+		counters.httpSeconds.Collect(),
+		// Emitted even at zero, unlike the counters above: an idle box has no
+		// requests in flight, and that zero is the answer the panel is asking
+		// for. A gauge that vanished when it reached zero would be
+		// indistinguishable from a controller that stopped reporting.
+		metrics.Gauge("townos_http_requests_in_flight",
+			"HTTP requests being served right now.", float64(counters.inFlight.Load())),
+	)
 
+	families = append(families, collectProcessMetrics()...)
 	families = append(families, s.collectUnitMetrics(ctx)...)
 	families = append(families, s.collectPackageMetrics()...)
 	families = append(families, s.collectAccountMetrics(ctx)...)

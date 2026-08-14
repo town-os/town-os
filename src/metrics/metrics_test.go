@@ -23,6 +23,22 @@ func TestRenderGauge(t *testing.T) {
 	}
 }
 
+// A cumulative total read from outside — process CPU time, which the kernel
+// already counts — has to render as a counter, not a gauge. As a gauge,
+// Prometheus would graph a line climbing forever instead of rating it into the
+// per-second figure the panel draws.
+func TestRenderCounter(t *testing.T) {
+	got := render(t, []Metric{
+		Counter("townos_process_cpu_seconds_total", "CPU seconds consumed.", 12.5),
+	})
+	want := "# HELP townos_process_cpu_seconds_total CPU seconds consumed.\n" +
+		"# TYPE townos_process_cpu_seconds_total counter\n" +
+		"townos_process_cpu_seconds_total 12.5\n"
+	if got != want {
+		t.Errorf("got:\n%q\nwant:\n%q", got, want)
+	}
+}
+
 func TestRenderLabelsInGivenOrder(t *testing.T) {
 	got := render(t, []Metric{GaugeVec("m", "h", []Sample{
 		Labelled(3, "state", "active", "kind", "package"),

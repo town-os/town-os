@@ -1734,7 +1734,7 @@ system controller 从 `https://ipinfo.io/json` 获取服务器的公网（外部
 
 ### 仪表盘
 
-共有三个仪表盘，而且**两种后端都从同一批查询渲染出同样的这三个**。它们之所以分开而不是并成一长页，是因为它们回答不同的问题：System 是运维在机器发卡时看的，DNS 是他们在某个名称无法解析时打开的，Controller 则是他们在 Town OS 所运行的某样东西没有在运行时打开的。把八个 DNS 面板与十一个 controller 面板折进 overview，只会把那四个主机面板——人们打开它的理由——埋掉。
+共有三个仪表盘，而且**两种后端都从同一批查询渲染出同样的这三个**。它们之所以分开而不是并成一长页，是因为它们回答不同的问题：System 是运维在机器发卡时看的，DNS 是他们在某个名称无法解析时打开的，Controller 则是他们在 Town OS 所运行的某样东西没有在运行时打开的。把八个 DNS 面板与十四个 controller 面板折进 overview，只会把那四个主机面板——人们打开它的理由——埋掉。
 
 **System**（Grafana uid `town-os-overview`，"Town OS Overview"）—— 四个面板：
 
@@ -1754,21 +1754,28 @@ system controller 从 `https://ipinfo.io/json` 获取服务器的公网（外部
 7. **Upstream Tier Outcomes** —— 每一层的成功与失败次数，以及耗尽了所有层级的查询数。
 8. **DNS Traffic** —— 线上收/发字节数。
 
-**Controller**（Grafana uid `town-os-controller`，"Town OS Controller"）—— 基于 `systemcontroller` 抓取 job 的十一个面板，也是唯一读取本机自身 [`townos_*` 指标](#system-controller-指标)的仪表盘：
+**Controller**（Grafana uid `town-os-controller`，"Town OS Controller"）—— 基于 `systemcontroller` 抓取 job 的十四个面板，也是唯一读取本机自身 [`townos_*` 指标](#system-controller-指标)的仪表盘。
 
-1. **Service Units by State** —— `townos_system_units` 与 `townos_package_units` 按 state，同处一个面板且**不堆叠**：它们是两个各自独立的总数，堆叠会画出一个谁也管不着的合计高度。
-2. **Service Health** —— `townos_system_unit_active` 与 `townos_package_unit_active`，每个单元一条序列，固定在 0–1。这个面板说明的是*哪一个*服务挂了，而不是挂了几个。轴之所以固定，是因为该指标是布尔值：自动缩放时，一台完全健康的机器会被画成 1.0 附近的一团噪声，恰恰在什么都没出问题的时候显得吓人。
+排列顺序就是出问题时运维实际的阅读顺序：什么挂了、API 在做什么、什么在失败、磁盘是什么样子、controller 进程自身撑得怎么样——最后才是清单，那本来就是 UI 里的另一个页面，在这里只是一条几乎不动的线。在正常运转的机器上永远不动的面板被放在最下面，而不是占据最上面几行、把真正会动的面板挤开。
+
+1. **Service Health** —— `townos_system_unit_active` 与 `townos_package_unit_active`，每个单元一条序列，固定在 0–1。这个面板说明的是*哪一个*服务挂了，而不是挂了几个，因此它排在最前。轴之所以固定，是因为该指标是布尔值：自动缩放时，一台完全健康的机器会被画成 1.0 附近的一团噪声，恰恰在什么都没出问题的时候显得吓人。
+2. **Service Units by State** —— `townos_system_units` 与 `townos_package_units` 按 state，同处一个面板且**不堆叠**：它们是两个各自独立的总数，堆叠会画出一个谁也管不着的合计高度。
 3. **API Requests by Status** —— `rate(townos_http_requests_total)` 按 `status` 求和，堆叠。特意按 status 求和：该指标族还带有 `method`，若保留它，按状态的面板会画出每个组合一条线。
-4. **Audit Events** —— `rate(townos_audit_events_total)` 按 `result`，堆叠。
+4. **API Latency** —— `rate(townos_http_request_seconds_total)` 除以 `rate(townos_http_requests_total)`，两侧都按 `method` 求和：每个请求的平均秒数。它把"机器很忙"与"机器卡住了"区分开，而第 3 个面板做不到这件事——一个每秒服务两个请求的控制面，无论每个请求耗时 5 毫秒还是 5 秒，画出来都一模一样。用平均值而不是分位数，是因为这里的暴露格式不带 histogram（见 [System Controller 指标](#system-controller-指标)）；有东西开始阻塞时平均值就会动，而这正是要问的问题。
 5. **Recent Failures** —— `townos_audit_recent_errors`（与仪表盘那颗红色药丸渲染的是同一个五分钟计数）与 `townos_repository_errors` 并列。二者同处一个面板，是因为查看"有没有什么坏了"的运维不应该还得先知道该去哪个子系统底下找；而且两者都是近期窗口上的 gauge，因此归零意味着恢复，而不是一个不再攀升的计数器。
-6. **Package Inventory** —— 已安装、可用、可升级，以及已配置的仓库数。
+6. **Audit Events** —— `rate(townos_audit_events_total)` 按 `result`，堆叠。
 7. **Town OS Disk Usage** —— `townos_disk_used_bytes` 与 `townos_disk_available_bytes`，堆叠。用的是已用与可用，而不是已用与总量：堆叠起来，这两者*就是*文件系统的大小，因此第三条序列只会把它重述一遍。
-8. **Accounts** —— `townos_accounts` 按 kind，堆叠（这些 kind 恰好把账户列表划分一次，因此堆叠高度就是真实总数）。
-9. **Granted Accounts** —— `townos_accounts_granted`，之所以单列，是因为它是 user 这一桶的*子集*而不是第四种 kind，堆叠会重复计数。
-10. **btrfs Subvolumes** —— `townos_filesystems` 按命名空间，堆叠。
-11. **Controller Uptime** —— `time() - townos_start_time_seconds`。信号是那道锯齿，而不是高度：一个在 `Restart=always` 之下悄悄崩溃重启的 controller，在这里的其他每个面板上都显得健康。
+8. **Town OS Disk Fill** —— 同一块磁盘占 `townos_disk_total_bytes` 的百分比，固定在 0–100。第 7 个面板无法回答"离满还有多远"，除非读的人对着一根随机器而变的轴心算；而固定的轴让斜率变得可读：自动缩放时，从 4% 爬到 5% 与从 90% 爬到 99% 画出来一模一样。分母刻意不做钳制，因此采集器读不到的文件系统会让线断掉，而不是画出一个自信的 0%。
+9. **Controller CPU** —— `100 * rate(townos_process_cpu_seconds_total)`。下界固定为 0，上界刻意**不**固定：这是按核秒计的，一个用满两个核的 controller 读数是 200，而 100 的上限恰好会把这个面板存在的理由——失控——裁掉。
+10. **Controller Memory** —— `townos_memory_heap_bytes` 与 `townos_memory_rss_bytes` 并列。两者之间的差就是诊断：heap 攀升说明 controller 抓着本该释放的对象不放；heap 平坦而 RSS 攀升，说明内存去了 Go 分配器记不到的地方。
+11. **Controller Concurrency** —— `townos_goroutines`、`townos_open_files`、`townos_http_requests_in_flight`。三个计数在健康的机器上是平的，在泄漏的机器上会无止境地爬。它们共处一个面板，是因为它们通常一起动——一个永不返回的处理器同时占着一个 goroutine、一个描述符和一个在途请求——也因为其中任何一个单独拿出来都只是一条没人会为它开标签页的线。
+12. **Controller Uptime** —— `time() - townos_start_time_seconds`。信号是那道锯齿，而不是高度：一个在 `Restart=always` 之下悄悄崩溃重启的 controller，在这里的其他每个面板上都显得健康。
+13. **Inventory** —— 已安装的包、等待中的升级、已配置的仓库，以及按命名空间的 `townos_filesystems`。合成一个面板，而不是过去的三个：它们都是几十这个量级的计数，因此共用一根轴仍然可读，并且在一个地方回答"这台机器上有什么"。
+14. **Accounts** —— `townos_accounts` 按 kind，旁边放 `townos_accounts_granted`，**不堆叠**。这些 kind 确实把账户列表划分了一次，但持有授权的计数是 user 这一桶的*子集*；堆叠起来，这个面板画出的总数会超过实际存在的账户数。
 
-`townos_up` 与 `townos_disk_total_bytes` 刻意**不**作图。前者是抓取存活性的常量，一条平直的 1 不成其为面板；后者是第 7 个面板已经堆叠起来的那两条序列之和。
+第 9 到第 11 个面板回答的是"机器为什么慢"而不是"机器在跑什么"，而这件事别的任何仪表盘都答不上来：这里其他每一个指标族描述的都是 controller *管理*的东西，而当 controller 把 goroutine 泄漏进 swap 时，那一切看上去都很健康。Node Exporter 也补不上这个缺口——它报告的是宿主机，而在一台整个工作就是跑容器的机器上，controller 自己那一份在宿主机的总量里是看不见的。
+
+`townos_up` 与 `townos_packages_available` 刻意**不**作图。前者是抓取存活性的常量，一条平直的 1 不成其为面板。后者是以千计的目录规模：共用一根轴时，它会把旁边那些计数压成贴着底的一条线；而运维真正想从它那里得到的东西——"是不是有仓库不答应了"——是 `townos_repository_errors`，那有它自己的面板。`townos_disk_total_bytes` 只作为第 8 个面板的分母出现，从不作为一条序列：第 7 个面板已经把加起来等于它的那两半堆叠好了。
 
 每一条 DNS 查询都带有由 `monitoring.RolodexJobName` 构建的 `{job="rolodex"}` 选择器，每一条 controller 查询都带有由 `monitoring.ControllerJobName` 构建的 `{job="systemcontroller"}` 选择器，因此抓取配置发出的标签与仪表盘所选择的标签不可能漂移开——不一致在任何地方都不是错误，它表现为一台明明正常的机器上一整个标签页空空如也的面板。
 
@@ -1830,8 +1837,17 @@ Prometheus 与 Node Exporter 在启动时总是被启动。监控后端设置决
 | `townos_audit_recent_errors` | gauge | 与仪表盘上那颗红色徽标所显示的是同一个数字 |
 | `townos_audit_events_total{result}` | counter | `success`/`failure`，由 `auditMiddleware` 递增 |
 | `townos_http_requests_total{method,status}` | counter | status 是一个**类别**（`2xx` 等），绝不是精确状态码 |
+| `townos_http_request_seconds_total{method,status}` | counter | 服务请求所花的秒数，标签与上一行*完全相同*，因为这两者只有相除才有用 |
+| `townos_http_requests_in_flight` | gauge | 此刻正在服务的请求数；为零时也发出，且 `/metrics` 请求自身被排除在外 |
+| `townos_goroutines` | gauge | controller 进程的，不是宿主机的 |
+| `townos_memory_heap_bytes` | gauge | 存活的堆对象（`HeapAlloc`），不是 `HeapSys`——有东西泄漏时会攀升的正是前者 |
+| `townos_memory_rss_bytes` | gauge | 取自 `/proc/self/statm` 的常驻页数，按页大小换算，而不是假定 4096 |
+| `townos_open_files` | gauge | `/proc/self/fd` 里的条目数；Go 运行时不跟踪描述符，泄漏要到几小时后以 `EMFILE` 的形式浮现 |
+| `townos_process_cpu_seconds_total` | counter | 取自 `getrusage` 的用户态加内核态时间 |
 
-除 `townos_up` 与 `townos_disk_total_bytes` 之外，以上全部由 [Controller 仪表盘](#仪表盘)作图，其面板集合是针对 `monitoring.ControllerDashboardMetrics()` 声明的，因此两份清单不可能漂移开。
+除 `townos_up` 与 `townos_packages_available` 之外，以上全部由 [Controller 仪表盘](#仪表盘)作图，其面板集合是针对 `monitoring.ControllerDashboardMetrics()` 声明的，因此两份清单不可能漂移开。`townos_disk_total_bytes` 只作为磁盘占用率面板的分母出现。
+
+进程相关的这几族是其中最新的，也是唯一描述 controller 自身而非它所管理之物的。`/proc` 与 `getrusage` 在每次抓取时各自独立读取，读取失败的那一族被省略而不是让整次抓取失败——这也是集成测试断言的是正值而不仅仅是存在的原因：零意味着这次读取根本没有发生。
 
 这里有几个选择本身就是要点，而非无关紧要：
 
@@ -1850,7 +1866,7 @@ Prometheus 与 Node Exporter 在启动时总是被启动。监控后端设置决
 
 渲染方式取决于状态响应中的 `backend` 字段：
 
-- **uPlot 模式**：在 React 中用 uPlot 直接渲染面板，在 5308 端口查询 Prometheus。System 网格把自己钉在视口内（四个面板，每行两个）；DNS 与 Controller 网格**不这样做**——八个或十一个面板挤进一屏后每个只剩约 100px 甚至更少的画布高度，到那个程度延迟图就只是装饰了，因此面板采用固定高度，页面滚动。
+- **uPlot 模式**：在 React 中用 uPlot 直接渲染面板，在 5308 端口查询 Prometheus。System 网格把自己钉在视口内（四个面板，每行两个）；DNS 与 Controller 网格**不这样做**——八个或十四个面板挤进一屏后每个只剩约 100px 甚至更少的画布高度，到那个程度延迟图就只是装饰了，因此面板采用固定高度，页面滚动。
 - **Grafana 模式**：一个内嵌的 Grafana iframe，指向 5308 端口，使用 kiosk 模式与浅色主题。切换标签页会把该框架重新指向另一个仪表盘的 uid，并且 iframe 以该 uid 作为 key，因此框架是被*替换*而不是在其中导航——Grafana 有自己的历史记录，而在活动框架上替换 src 会让浏览器的后退按钮在多个仪表盘之间来回走，而不是离开该页面。
 
 两种后端的面板标题完全一致：切换后端的运维不该还要去琢磨哪个面板变成了哪个。它们是硬编码的英文——本界面不含任何 `t()` 调用，而且 Grafana 的面板标题无论如何都无法翻译，因为它存在于被置备的 JSON 之中。

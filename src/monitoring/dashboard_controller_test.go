@@ -114,6 +114,88 @@ func TestControllerDashboardPinsTheBinaryHealthAxis(t *testing.T) {
 	t.Fatal("controller dashboard has no Service Health panel")
 }
 
+// TestControllerDashboardPinsTheDiskFillAxis pins the fill panel to 0..100.
+// The whole point of the panel is that the slope is comparable between boxes
+// and between weeks; autoscaled, a climb from 4% to 5% draws exactly like one
+// from 90% to 99%.
+func TestControllerDashboardPinsTheDiskFillAxis(t *testing.T) {
+	t.Parallel()
+
+	doc := parseDashboard(t, ControllerDashboard())
+	for _, p := range doc.Panels {
+		if p.Title != "Town OS Disk Fill" {
+			continue
+		}
+		lo, hi := p.FieldConfig.Defaults.Min, p.FieldConfig.Defaults.Max
+		if lo == nil || hi == nil {
+			t.Fatalf("Town OS Disk Fill autoscales (min=%v max=%v), want 0..100", lo, hi)
+		}
+		if *lo != 0 || *hi != 100 {
+			t.Fatalf("Town OS Disk Fill axis = %v..%v, want 0..100", *lo, *hi)
+		}
+		if !strings.Contains(p.Targets[0].Expr, "townos_disk_total_bytes") {
+			t.Errorf("fill is not measured against the filesystem size:\n%s", p.Targets[0].Expr)
+		}
+		return
+	}
+	t.Fatal("controller dashboard has no Town OS Disk Fill panel")
+}
+
+// TestControllerDashboardCPUAxisIsUncapped is the mirror of the test above: a
+// process can use more than one core, so capping CPU at 100 would clip exactly
+// the runaway the panel exists to show.
+func TestControllerDashboardCPUAxisIsUncapped(t *testing.T) {
+	t.Parallel()
+
+	doc := parseDashboard(t, ControllerDashboard())
+	for _, p := range doc.Panels {
+		if p.Title != "Controller CPU" {
+			continue
+		}
+		if ceiling := p.FieldConfig.Defaults.Max; ceiling != nil {
+			t.Fatalf("Controller CPU caps its axis at %v; a multi-core spike would be clipped", *ceiling)
+		}
+		return
+	}
+	t.Fatal("controller dashboard has no Controller CPU panel")
+}
+
+// TestControllerDashboardLatencyIsSecondsOverRequests pins the shape of the
+// average: the seconds counter on top, the request counter that shares its
+// labels underneath, both rated and summed by the same label.
+//
+// Inverting it, or dividing by a differently-labelled denominator, does not
+// fail anywhere — Prometheus returns a number either way. It is just the wrong
+// number, on a panel titled with a unit that makes it look plausible.
+func TestControllerDashboardLatencyIsSecondsOverRequests(t *testing.T) {
+	t.Parallel()
+
+	doc := parseDashboard(t, ControllerDashboard())
+	for _, p := range doc.Panels {
+		if p.Title != "API Latency" {
+			continue
+		}
+		expr := p.Targets[0].Expr
+		num, den, ok := strings.Cut(expr, " / ")
+		if !ok {
+			t.Fatalf("API Latency is not a ratio:\n%s", expr)
+		}
+		if !strings.Contains(num, "townos_http_request_seconds_total") {
+			t.Errorf("API Latency numerator is not the seconds counter:\n%s", num)
+		}
+		if !strings.Contains(den, "townos_http_requests_total") {
+			t.Errorf("API Latency denominator is not the request counter:\n%s", den)
+		}
+		// Both sides must aggregate by the same label, or the division falls
+		// back to matching on the full label set and silently drops series.
+		if !strings.Contains(num, "sum by (method)") || !strings.Contains(den, "sum by (method)") {
+			t.Errorf("API Latency does not aggregate both sides by method:\n%s", expr)
+		}
+		return
+	}
+	t.Fatal("controller dashboard has no API Latency panel")
+}
+
 // TestControllerDashboardSelectsTheScrapeJob asserts every controller query
 // carries the job selector built from ControllerJobName. The scrape config
 // emits that label; a dashboard selecting a different one renders a tab of
@@ -195,10 +277,26 @@ func TestControllerDashboardMetricsAreExported(t *testing.T) {
 
 	exported := map[string]bool{}
 	dir := filepath.Join("..", "svc", "systemcontroller")
-	for _, name := range []string{"controller_metrics.go", "controller_metrics_collect.go"} {
-		raw, err := os.ReadFile(filepath.Join(dir, name))
+	// Globbed rather than a hand-listed pair of filenames: the collector is
+	// split by what it reads from (units, packages, the process itself), and a
+	// hardcoded list turns "the collector grew a file" into "the dashboard
+	// queries a family nothing exports" — a failure that points at the
+	// dashboard when the dashboard is right. Test files are excluded so a name
+	// that only ever appears in an assertion cannot pass for an export.
+	sources, err := filepath.Glob(filepath.Join(dir, "controller_metrics*.go"))
+	if err != nil {
+		t.Fatalf("glob controller metrics sources: %v", err)
+	}
+	if len(sources) == 0 {
+		t.Fatalf("no controller metrics sources found under %s", dir)
+	}
+	for _, path := range sources {
+		if strings.HasSuffix(path, "_test.go") {
+			continue
+		}
+		raw, err := os.ReadFile(path)
 		if err != nil {
-			t.Fatalf("read %s: %v", name, err)
+			t.Fatalf("read %s: %v", path, err)
 		}
 		for _, m := range townosMetricNames(string(raw)) {
 			exported[m] = true

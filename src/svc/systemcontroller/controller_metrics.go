@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"sync/atomic"
 	"time"
 
 	"gitea.com/town-os/town-os/src/metrics"
@@ -25,9 +26,15 @@ var processStart = time.Now()
 // not kept here — they are read from the managers per scrape, because a cached
 // copy of "how many units are active" is a second source of truth that can
 // disagree with systemd, and disagreeing quietly is worse than being slow.
+//
+// inFlight is the one exception, and it is not a cached copy of anything: no
+// manager knows how many requests are mid-flight, and the number only exists
+// while the middleware is holding it.
 type metricsState struct {
 	auditEvents  *metrics.CounterVec
 	httpRequests *metrics.CounterVec
+	httpSeconds  *metrics.CounterVec
+	inFlight     atomic.Int64
 }
 
 // metricsCounters returns the counter set, building it on first use.
@@ -47,6 +54,15 @@ func (s *SystemControllerHandlers) metricsCounters() *metricsState {
 			httpRequests: metrics.NewCounterVec(
 				"townos_http_requests_total",
 				"HTTP requests served since this process started, by method and status class.",
+				"method", "status",
+			),
+			// The same label tuple as the request counter, deliberately: the
+			// two are only useful divided by one another, and a sum whose
+			// labels do not match its count cannot be divided at all without
+			// aggregating one side away first.
+			httpSeconds: metrics.NewCounterVec(
+				"townos_http_request_seconds_total",
+				"Seconds spent serving HTTP requests since this process started, by method and status class.",
 				"method", "status",
 			),
 		}
@@ -92,18 +108,36 @@ func statusClass(code int) string {
 	return "other"
 }
 
-// metricsMiddleware tallies every served request.
+// metricsMiddleware tallies every served request: its count, how long it took,
+// and how many are in flight while it runs.
 //
 // It records after next() so the status is the one actually written, and it
 // returns the handler's error untouched — an observer that swallowed an error
-// would change the behavior it exists to watch. The scrape endpoint is excluded
-// so Prometheus polling every 15s does not dominate its own request counter.
+// would change the behavior it exists to watch.
+//
+// The scrape endpoint drops out before anything is recorded, not after:
+// Prometheus polls it every 15s, which would dominate its own request counter,
+// and — because a scrape is in flight for the whole of the collection it
+// triggers — would pin the in-flight gauge at one on a box serving nothing at
+// all.
+//
+// The in-flight gauge is incremented before next() and decremented in a defer
+// rather than after it: a handler that panics still unwinds through the defer,
+// and a gauge that leaked a count per panic would climb forever and read as a
+// wedged control plane long after the box recovered.
 func (s *SystemControllerHandlers) metricsMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c *echo.Context) error {
-		err := next(c)
 		if c.Request().URL.Path == MetricsPath {
-			return err
+			return next(c)
 		}
+
+		state := s.metricsCounters()
+		state.inFlight.Add(1)
+		defer state.inFlight.Add(-1)
+
+		start := time.Now()
+		err := next(c)
+		elapsed := time.Since(start)
 		// A handler that returns an error has not written its status yet —
 		// Echo's error handler renders it after this middleware unwinds — so
 		// the recorded status would be the pre-error 200. Take the code from
@@ -120,7 +154,9 @@ func (s *SystemControllerHandlers) metricsMiddleware(next echo.HandlerFunc) echo
 				status = he.Code
 			}
 		}
-		s.metricsCounters().httpRequests.Inc(c.Request().Method, statusClass(status))
+		method, class := c.Request().Method, statusClass(status)
+		state.httpRequests.Inc(method, class)
+		state.httpSeconds.Add(elapsed.Seconds(), method, class)
 		return err
 	}
 }

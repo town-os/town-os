@@ -160,6 +160,16 @@ const controllerRate = (metric) =>
 // panel that kept method would draw a line per pair.
 const controllerSumBy = (label, metric) =>
   `sum by (${label}) (${controllerRate(metric)})`
+// An average out of a pair of counters: a sum of observations over the count
+// of them. Both sides aggregate by the same label, or the division matches on
+// the full label set and silently drops series.
+const controllerRatio = (label, numerator, denominator) =>
+  `sum by (${label}) (${controllerRate(numerator)}) / sum by (${label}) (${controllerRate(denominator)})`
+// Deliberately unclamped: a zero denominator is a filesystem the collector
+// could not read, and the break in the line is honest where a clamp would draw
+// a confident 0% full.
+const controllerPercent = (part, whole) =>
+  `100 * ${gauge(part)} / ${gauge(whole)}`
 
 export const CONTROLLER_UNIT_STATE_QUERIES = [
   { expr: gauge('townos_system_units'), legend: 'system {{state}}' },
@@ -175,6 +185,16 @@ export const CONTROLLER_HTTP_QUERIES = [
   { expr: controllerSumBy('status', 'townos_http_requests_total'), legend: '{{status}}' },
 ]
 
+// Mean seconds per request, which is what separates "the box is busy" from
+// "the box is stuck" — the request-rate panel answers identically whether each
+// call takes 5ms or 5s.
+export const CONTROLLER_LATENCY_QUERIES = [
+  {
+    expr: controllerRatio('method', 'townos_http_request_seconds_total', 'townos_http_requests_total'),
+    legend: '{{method}}',
+  },
+]
+
 export const CONTROLLER_AUDIT_QUERIES = [
   { expr: controllerSumBy('result', 'townos_audit_events_total'), legend: '{{result}}' },
 ]
@@ -184,11 +204,13 @@ export const CONTROLLER_FAILURE_QUERIES = [
   { expr: gauge('townos_repository_errors'), legend: 'Repository refresh errors' },
 ]
 
-export const CONTROLLER_PACKAGE_QUERIES = [
-  { expr: gauge('townos_packages_installed'), legend: 'Installed' },
-  { expr: gauge('townos_packages_available'), legend: 'Available' },
+// One inventory panel, without the catalogue size: these are all counts in the
+// tens, so they share an axis legibly.
+export const CONTROLLER_INVENTORY_QUERIES = [
+  { expr: gauge('townos_packages_installed'), legend: 'Installed packages' },
   { expr: gauge('townos_upgrades_available'), legend: 'Upgradable' },
   { expr: gauge('townos_repositories'), legend: 'Repositories' },
+  { expr: gauge('townos_filesystems'), legend: '{{state}} subvolumes' },
 ]
 
 // Used and available stack to the filesystem size, so the panel shows the
@@ -198,16 +220,42 @@ export const CONTROLLER_DISK_QUERIES = [
   { expr: gauge('townos_disk_available_bytes'), legend: 'Available' },
 ]
 
+// The same disk as a percentage of its size, on a pinned 0-100 axis: the bytes
+// panel cannot answer "how close is this to full" without arithmetic against
+// an axis whose scale depends on the box.
+export const CONTROLLER_DISK_FILL_QUERIES = [
+  { expr: controllerPercent('townos_disk_used_bytes', 'townos_disk_total_bytes'), legend: 'Used' },
+]
+
+// Per core-second, so a controller genuinely using two cores reads 200. The
+// axis is deliberately not capped at 100.
+export const CONTROLLER_CPU_QUERIES = [
+  { expr: `100 * ${controllerRate('townos_process_cpu_seconds_total')}`, legend: 'CPU' },
+]
+
+// The gap between the two is the diagnosis: heap climbing means the controller
+// is holding objects it should have dropped, RSS climbing over a flat heap
+// means the memory went somewhere the Go allocator does not account for.
+export const CONTROLLER_MEMORY_QUERIES = [
+  { expr: gauge('townos_memory_heap_bytes'), legend: 'Heap' },
+  { expr: gauge('townos_memory_rss_bytes'), legend: 'Resident' },
+]
+
+// Three counts that are flat on a healthy box and climb without bound on a
+// leaking one — a handler that never returns holds a goroutine, a descriptor,
+// and an in-flight request each.
+export const CONTROLLER_CONCURRENCY_QUERIES = [
+  { expr: gauge('townos_goroutines'), legend: 'Goroutines' },
+  { expr: gauge('townos_open_files'), legend: 'Open files' },
+  { expr: gauge('townos_http_requests_in_flight'), legend: 'Requests in flight' },
+]
+
+// Unstacked: the kinds partition the account list, but the grant count is a
+// subset of the user bucket, and stacking it would draw a total larger than
+// the number of accounts that exist.
 export const CONTROLLER_ACCOUNT_QUERIES = [
   { expr: gauge('townos_accounts'), legend: '{{kind}}' },
-]
-
-export const CONTROLLER_GRANTED_QUERIES = [
-  { expr: gauge('townos_accounts_granted'), legend: 'Holding a grant' },
-]
-
-export const CONTROLLER_FILESYSTEM_QUERIES = [
-  { expr: gauge('townos_filesystems'), legend: '{{state}}' },
+  { expr: gauge('townos_accounts_granted'), legend: 'holding a grant' },
 ]
 
 // The sawtooth is the signal, not the height: a controller quietly

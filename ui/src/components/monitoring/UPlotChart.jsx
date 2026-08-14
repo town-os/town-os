@@ -1,6 +1,7 @@
 import { useRef, useEffect, useMemo, useCallback, useState } from 'react'
 import uPlot from 'uplot'
 import 'uplot/dist/uPlot.min.css'
+import { axisScale } from './axis.js'
 
 const COLORS = [
   '#3b82f6', '#ef4444', '#22c55e', '#f59e0b', '#8b5cf6',
@@ -213,10 +214,7 @@ export default function UPlotChart({
         title,
         cursor: { show: true },
         scales: {
-          y: {
-            auto: min == null && max == null,
-            range: min != null || max != null ? [min ?? 0, max ?? 100] : undefined,
-          },
+          y: axisScale(min, max),
         },
         axes: [
           { font: axisFont, size: 28 },

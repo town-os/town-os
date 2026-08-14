@@ -1844,7 +1844,7 @@ same queries**. They are separate rather than one long page because they answer
 different questions: System is what an operator watches when the box feels slow,
 DNS is what they open when a name will not resolve, and Controller is what they
 open when something Town OS runs is not running. Folding the eight DNS panels
-and the eleven controller panels into the overview would bury the four host
+and the fourteen controller panels into the overview would bury the four host
 panels that are the reason anyone opens it.
 
 **System** (Grafana uid `town-os-overview`, "Town OS Overview") -- four panels:
@@ -1866,25 +1866,47 @@ panels that are the reason anyone opens it.
 7. **Upstream Tier Outcomes** -- wins and failures per tier, plus queries that exhausted every tier.
 8. **DNS Traffic** -- wire bytes rx/tx.
 
-**Controller** (Grafana uid `town-os-controller`, "Town OS Controller") -- eleven
-panels over the `systemcontroller` scrape job, and the only dashboard that reads
-the box's own [`townos_*` metrics](#system-controller-metrics):
+**Controller** (Grafana uid `town-os-controller`, "Town OS Controller") --
+fourteen panels over the `systemcontroller` scrape job, and the only dashboard
+that reads the box's own [`townos_*` metrics](#system-controller-metrics).
 
-1. **Service Units by State** -- `townos_system_units` and `townos_package_units` by state, on one panel and **unstacked**: they are two separate totals, and stacking them would draw a combined height that counts nothing anybody administers.
-2. **Service Health** -- `townos_system_unit_active` and `townos_package_unit_active`, one series per unit, pinned to 0--1. This is the panel that says *which* service is down rather than how many. The axis is pinned because the metric is a boolean: autoscaled, a wholly healthy box draws as noise around 1.0 and reads as alarming exactly when nothing is wrong.
+The order is the order an operator reads them in when something is wrong: what
+is down, what the API is doing, what is failing, what the disk looks like, how
+the controller process itself is holding up — and only then the inventory,
+which is a screen elsewhere in the UI and a slow-moving line here. Panels whose
+series never move on a working box sit at the bottom rather than in the first
+rows, where they crowd out the ones that do.
+
+1. **Service Health** -- `townos_system_unit_active` and `townos_package_unit_active`, one series per unit, pinned to 0--1. This is the panel that says *which* service is down rather than how many, which is why it leads. The axis is pinned because the metric is a boolean: autoscaled, a wholly healthy box draws as noise around 1.0 and reads as alarming exactly when nothing is wrong.
+2. **Service Units by State** -- `townos_system_units` and `townos_package_units` by state, on one panel and **unstacked**: they are two separate totals, and stacking them would draw a combined height that counts nothing anybody administers.
 3. **API Requests by Status** -- `rate(townos_http_requests_total)` summed by `status`, stacked. Summed by status specifically: the family also carries `method`, and a status panel that kept it would draw a line per pair.
-4. **Audit Events** -- `rate(townos_audit_events_total)` by `result`, stacked.
+4. **API Latency** -- `rate(townos_http_request_seconds_total)` over `rate(townos_http_requests_total)`, both summed by `method`: mean seconds per request. It is the panel that separates "the box is busy" from "the box is stuck", which panel 3 cannot do — a control plane serving two requests a second answers identically whether each takes 5ms or 5s. A mean rather than a quantile because the exposition carries no histograms (see [Metrics rendering](#system-controller-metrics)); the mean moves when something starts blocking, which is the question being asked.
 5. **Recent Failures** -- `townos_audit_recent_errors` (the same 5-minute count the dashboard renders as its red pill) beside `townos_repository_errors`. Both on one panel because an operator checking "is anything broken" should not have to know which subsystem to look under, and both are gauges over a recent window, so a return to zero is a recovery rather than a counter that stopped climbing.
-6. **Package Inventory** -- installed, available, upgradable, and configured repositories.
+6. **Audit Events** -- `rate(townos_audit_events_total)` by `result`, stacked.
 7. **Town OS Disk Usage** -- `townos_disk_used_bytes` and `townos_disk_available_bytes`, stacked. Used and available rather than used and total: stacked, those two *are* the filesystem size, so a third series would restate it.
-8. **Accounts** -- `townos_accounts` by kind, stacked (the kinds partition the account list exactly once, so the stack height is the real total).
-9. **Granted Accounts** -- `townos_accounts_granted`, separate because it is a *subset* of the user bucket rather than a fourth kind, and stacking it would double-count.
-10. **btrfs Subvolumes** -- `townos_filesystems` by namespace, stacked.
-11. **Controller Uptime** -- `time() - townos_start_time_seconds`. The sawtooth is the signal, not the height: a controller quietly crash-looping under `Restart=always` looks healthy on every other panel here.
+8. **Town OS Disk Fill** -- the same disk as a percentage of `townos_disk_total_bytes`, pinned to 0--100. Panel 7 cannot answer "how close is this to full" without arithmetic against an axis whose scale depends on the box, and a pinned axis makes the slope readable: autoscaled, a climb from 4% to 5% draws exactly like one from 90% to 99%. The denominator is unclamped, so a filesystem the collector could not read breaks the line rather than drawing a confident 0%.
+9. **Controller CPU** -- `100 * rate(townos_process_cpu_seconds_total)`. The floor is pinned at 0 and the ceiling deliberately is **not**: this is per core-second, so a controller using two cores reads 200, and a cap at 100 would clip exactly the runaway the panel exists to show.
+10. **Controller Memory** -- `townos_memory_heap_bytes` beside `townos_memory_rss_bytes`. The gap between them is the diagnosis: heap climbing means the controller is holding objects it should have dropped, RSS climbing over a flat heap means the memory went somewhere the Go allocator does not account for.
+11. **Controller Concurrency** -- `townos_goroutines`, `townos_open_files`, `townos_http_requests_in_flight`. Three counts that are flat on a healthy box and climb without bound on a leaking one; they share a panel because they move together — a handler that never returns holds a goroutine, a descriptor and an in-flight request each — and because any one alone is a single line nobody would open a tab for.
+12. **Controller Uptime** -- `time() - townos_start_time_seconds`. The sawtooth is the signal, not the height: a controller quietly crash-looping under `Restart=always` looks healthy on every other panel here.
+13. **Inventory** -- installed packages, upgrades waiting, configured repositories, and `townos_filesystems` by namespace. One panel rather than the three this used to be: they are all counts in the tens, so they share an axis legibly and answer "what is on this box" in one place.
+14. **Accounts** -- `townos_accounts` by kind with `townos_accounts_granted` alongside, **unstacked**. The kinds do partition the account list, but the grant count is a *subset* of the user bucket; stacked, the panel would draw a total larger than the number of accounts that exist.
 
-`townos_up` and `townos_disk_total_bytes` are deliberately **not** graphed. The
-first is a scrape-liveness constant, and a flat line at 1 is not a panel; the
-second is the sum of the two series panel 7 already stacks.
+Panels 9 through 11 are the ones that answer "why is the box slow" rather than
+"what is the box running", and nothing else on any dashboard can: every other
+family here describes what the controller *manages*, and all of it looks
+healthy while the controller leaks goroutines into swap. Node Exporter cannot
+close the gap either — it reports the host, and on a box whose whole job is
+running containers, the controller's own share is invisible in the host totals.
+
+`townos_up` and `townos_packages_available` are deliberately **not** graphed.
+The first is a scrape-liveness constant, and a flat line at 1 is not a panel.
+The second is a catalogue size in the thousands: on a shared axis it flattens
+the counts beside it into one line along the bottom, and what an operator wants
+from it — "did a repository stop answering" — is `townos_repository_errors`,
+which has its own panel. `townos_disk_total_bytes` is graphed only as panel 8's
+denominator, never as a series: panel 7 already stacks the two halves that sum
+to it.
 
 Every DNS query carries a `{job="rolodex"}` selector built from
 `monitoring.RolodexJobName`, and every controller query a
@@ -1976,10 +1998,24 @@ What is exported:
 | `townos_audit_recent_errors` | gauge | the same number the dashboard's red pill renders |
 | `townos_audit_events_total{result}` | counter | `success`/`failure`, incremented by `auditMiddleware` |
 | `townos_http_requests_total{method,status}` | counter | status is a **class** (`2xx`…), never the exact code |
+| `townos_http_request_seconds_total{method,status}` | counter | seconds spent serving, under the *same* labels as the line above, because the two are only useful divided |
+| `townos_http_requests_in_flight` | gauge | requests being served right now; emitted at zero, and the `/metrics` request itself is excluded |
+| `townos_goroutines` | gauge | the controller process, not the host |
+| `townos_memory_heap_bytes` | gauge | live heap objects (`HeapAlloc`), not `HeapSys` — the figure that climbs when something is leaked |
+| `townos_memory_rss_bytes` | gauge | resident pages from `/proc/self/statm`, scaled by the page size rather than an assumed 4096 |
+| `townos_open_files` | gauge | entries in `/proc/self/fd`; nothing in the Go runtime tracks descriptors, and a leak surfaces as `EMFILE` hours later |
+| `townos_process_cpu_seconds_total` | counter | user plus system time from `getrusage` |
 
-All of these except `townos_up` and `townos_disk_total_bytes` are graphed by the
-[Controller dashboard](#dashboards), whose panel set is declared against
+All of these except `townos_up` and `townos_packages_available` are graphed by
+the [Controller dashboard](#dashboards), whose panel set is declared against
 `monitoring.ControllerDashboardMetrics()` so the two lists cannot drift.
+`townos_disk_total_bytes` appears only as the disk-fill panel's denominator.
+
+The process families are the newest of these and the only ones that describe
+the controller rather than what it manages. `/proc` and `getrusage` are read per
+scrape, each independently, and a reading that fails omits its family rather
+than failing the scrape — which is why the integration test asserts positive
+values rather than mere presence: a zero would mean the reading never happened.
 
 Several choices here are the point rather than incidental:
 
@@ -2013,7 +2049,7 @@ tab's heading.
 
 Rendering depends on the `backend` field from the status response:
 
-- **uPlot mode**: panels rendered directly in React using uPlot, querying Prometheus on port 5308. The System grid pins itself to the viewport (four panels, two per row); the DNS and Controller grids do **not** — eight or eleven panels squeezed into one screen leaves each about 100px of canvas or less, at which point a latency chart is decoration, so panels get a fixed height and the page scrolls.
+- **uPlot mode**: panels rendered directly in React using uPlot, querying Prometheus on port 5308. The System grid pins itself to the viewport (four panels, two per row); the DNS and Controller grids do **not** — eight or fourteen panels squeezed into one screen leaves each about 100px of canvas or less, at which point a latency chart is decoration, so panels get a fixed height and the page scrolls.
 - **Grafana mode**: an embedded Grafana iframe targeting port 5308 in kiosk mode with light theme. Switching tabs repoints the frame at the other dashboard's uid, and the iframe is keyed on that uid so the frame is *replaced* rather than navigated — Grafana keeps its own history, and a src swap on a live frame leaves the browser Back button stepping through dashboards instead of leaving the page.
 
 Panel titles are identical across the two backends: an operator who switches
