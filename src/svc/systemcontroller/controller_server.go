@@ -131,6 +131,19 @@ type serverBase struct {
 	gfehMu        sync.Mutex
 	gfehLastReady []string
 
+	// monUIPending is set while a backend switch is downloading its image and
+	// has therefore not swapped the monitoring-ui unit yet. Read by
+	// /monitoring/status so the dashboard shows its "starting up" screen for
+	// the duration instead of framing a backend that is not serving yet — see
+	// RefreshMonitoringBackend.
+	//
+	// monUITarget holds the backend the most recent switch asked for. The
+	// download can outlive the operator's mind: switch to Grafana, change back
+	// to uPlot while it downloads, and without this the finishing pull would
+	// install Grafana over the uPlot unit the second switch just started.
+	monUIPending atomic.Bool
+	monUITarget  atomic.Value // string
+
 	// externalIPURL overrides defaultExternalIPURL; tests set it to an
 	// httptest.Server URL. externalIPStartupBackoffs overrides
 	// defaultExternalIPStartupBackoffs; tests shrink the waits. An empty
@@ -188,14 +201,63 @@ func (s *serverBase) GetMonitoringPorts() monitoring.Ports  { return s.Monitorin
 // RefreshMonitoringBackend switches the monitoring UI to the given backend
 // by regenerating and restarting the monitoring-ui system service. The
 // MonitoringBackend field is updated so subsequent reads reflect the change.
+//
+// Switching TO Grafana on a box that has never run it has an image to fetch
+// first, and Grafana's is ~771MB — it is deliberately absent from the boot pull
+// set on a uPlot box. That download does not belong inside the settings
+// request, and it must not happen inside `podman run` either: the unit is
+// Type=simple, so systemd calls it started the moment podman forks, the status
+// endpoint reports the backend up, and the dashboard frames a Grafana that is
+// still downloading. So the pull runs on its own goroutine, the old backend
+// keeps serving :5308 until it finishes, and monUIPending keeps the status
+// honest for the duration.
 func (s *serverBase) RefreshMonitoringBackend(ctx context.Context, backend string) error {
 	s.MonitoringBackend = backend
+	s.monUITarget.Store(backend)
 	sd := s.GetSystemdManager()
 	if sd == nil {
 		return nil
 	}
-	return monitoring.StartMonitoringUI(ctx, sd, s.Storage, backend, s.BtrfsBasePath, s.NetworkControllerImage, s.DiskDevices, s.MonitoringPorts)
+	if backend != monitoring.BackendGrafana || imageExistsLocally(ctx, monitoring.GrafanaImage) {
+		return monitoring.StartMonitoringUI(ctx, sd, s.Storage, backend, s.BtrfsBasePath, s.NetworkControllerImage, s.DiskDevices, s.MonitoringPorts)
+	}
+
+	// CompareAndSwap, not Store: an operator who saves the setting twice must
+	// not start a second pull of the same image alongside the first.
+	if !s.monUIPending.CompareAndSwap(false, true) {
+		return nil
+	}
+	go func() {
+		defer s.monUIPending.Store(false)
+		// Detached from the request context (which ends with the response)
+		// but still bounded, so a stalled registry cannot leave this
+		// goroutine and the pending flag alive for the life of the process.
+		pullCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), imagePullTimeout)
+		defer cancel()
+		if err := EnsureImage(pullCtx, monitoring.GrafanaImage); err != nil {
+			slog.Error("pull grafana image for monitoring backend switch", "error", err)
+			return
+		}
+		// The operator may have switched back while this downloaded. The
+		// unit they asked for most recently is already installed and running;
+		// swapping Grafana in over it now would undo a setting the API has
+		// already confirmed.
+		if want, ok := s.monUITarget.Load().(string); !ok || want != backend {
+			slog.Info("monitoring backend changed while its image downloaded; leaving the current unit in place",
+				"downloaded_for", backend, "current", want)
+			return
+		}
+		if err := monitoring.StartMonitoringUI(pullCtx, sd, s.Storage, backend, s.BtrfsBasePath, s.NetworkControllerImage, s.DiskDevices, s.MonitoringPorts); err != nil {
+			slog.Error("start monitoring UI after grafana pull", "error", err)
+		}
+	}()
+	return nil
 }
+
+// MonitoringUIPending reports whether a monitoring backend switch is still
+// fetching its image and has not swapped the unit yet.
+func (s *serverBase) MonitoringUIPending() bool { return s.monUIPending.Load() }
+
 // RefreshDNSResolutionMode switches rolodex between resolving unmatched names
 // iteratively from the root servers ("recursive") and forwarding them to the
 // upstream resolvers already written into rolodex.yml ("forward"). It rewrites

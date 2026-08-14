@@ -46,9 +46,13 @@ func (s *SystemControllerHandlers) monitoringStatus(c *echo.Context) error {
 		DiskDevices:  s.Controller.GetDiskDevices(),
 	}
 
-	// In grafana mode, the monitoring-ui unit IS grafana.
+	// In grafana mode, the monitoring-ui unit IS grafana — but only once the
+	// switch has actually swapped it. While the image is still downloading the
+	// unit is the previous backend, active and answering :5308 with something
+	// that is not Grafana, so reporting it here would put a Grafana iframe in
+	// front of a socat forwarder.
 	if backend == monitoring.BackendGrafana {
-		status.Grafana = monitoringUIActive
+		status.Grafana = monitoringUIActive && !s.Controller.MonitoringUIPending()
 	}
 
 	return c.JSON(200, status)

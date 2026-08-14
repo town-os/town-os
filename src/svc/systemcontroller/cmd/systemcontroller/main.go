@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"os/exec"
 	"runtime"
 	"strings"
 	"sync"
@@ -276,31 +275,13 @@ func getInternalIPv6() string {
 
 // getContainerImageID returns the image digest of the container this process
 // is running inside, or an empty string if detection fails (e.g. not in a
-// container). It reads the container ID from /run/.containerenv and inspects
-// the image via podman.
+// container).
+//
+// It is the same lookup the self-update stage does, so it is the same code:
+// two answers to "which image am I" that could disagree is precisely how a box
+// decides to restart for an upgrade it has already applied.
 func getContainerImageID(ctx context.Context) string {
-	// Read container ID from /proc/1/cgroup (works in podman rootful).
-	data, err := os.ReadFile("/proc/1/cgroup")
-	if err != nil {
-		return ""
-	}
-	var containerID string
-	for line := range strings.SplitSeq(string(data), "\n") {
-		// cgroup v2: "0::/machine.slice/libpod-<id>.scope"
-		if _, after, ok := strings.Cut(line, "libpod-"); ok {
-			if dotIdx := strings.Index(after, "."); dotIdx > 0 {
-				containerID = after[:dotIdx]
-			}
-		}
-	}
-	if containerID == "" {
-		return ""
-	}
-	out, err := exec.CommandContext(ctx, "podman", "inspect", "--format", "{{.Image}}", containerID).Output() //nolint:gosec // G204 -- containerID from /proc
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(out))
+	return systemcontroller.RunningImageID(ctx)
 }
 
 // detectVersionChange reads the persisted version file and returns true if
@@ -328,23 +309,19 @@ func persistVersion(ctx context.Context, versionFile string) {
 	}
 }
 
-// ensureImage checks whether a container image is loaded on the host's
-// podman and pulls it from the registry when it is not. Every podman
-// invocation picks up CONTAINER_HOST from the process environment (set
-// by setupPodmanEnv at startup) so operations act on the host's image
-// store via /run/podman/podman.sock instead of the systemcontroller
-// container's isolated storage. This is a variable so tests can replace
-// the implementation without requiring podman.
-var ensureImage = func(ctx context.Context, image string) error {
-	if err := exec.CommandContext(ctx, "podman", "image", "exists", image).Run(); err == nil { //nolint:gosec // G204 -- image from caller
-		return nil // already loaded
-	}
-	out, pullErr := exec.CommandContext(ctx, "podman", "pull", image).CombinedOutput() //nolint:gosec // G204 -- image from caller
-	if pullErr != nil {
-		return fmt.Errorf("pull %s: %w: %s", image, pullErr, string(out))
-	}
-	return nil
-}
+// ensureImage makes a container image available on the host's podman before a
+// unit that runs it starts: a pinned tag is fetched only when missing, a
+// floating one (rc.latest-<arch> and the rest of the "latest" family) is
+// re-pulled so a boot picks up what the tag points at now rather than what it
+// pointed at the first time this box booted. See systemcontroller.EnsureImage
+// for why that distinction is the whole point of the boot pull set.
+//
+// Every podman invocation picks up CONTAINER_HOST from the process environment
+// (set by setupPodmanEnv at startup) so operations act on the host's image
+// store via /run/podman/podman.sock instead of the systemcontroller container's
+// isolated storage. This is a variable so tests can replace the implementation
+// without requiring podman.
+var ensureImage = systemcontroller.EnsureImage
 
 // coreBootImages is the set of container images pulled before any system
 // service starts.

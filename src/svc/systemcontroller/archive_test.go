@@ -177,6 +177,7 @@ func (b *archiveTestBackend) GetMonitoringPorts() monitoring.Ports {
 func (b *archiveTestBackend) RefreshMonitoringBackend(_ context.Context, _ string) error {
 	return nil
 }
+func (b *archiveTestBackend) MonitoringUIPending() bool { return false }
 func (b *archiveTestBackend) RefreshDNSResolutionMode(_ context.Context, _ string) error {
 	return nil
 }

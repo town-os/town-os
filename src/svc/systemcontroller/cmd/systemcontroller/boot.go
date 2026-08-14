@@ -592,6 +592,18 @@ func (b *boot) readMonitoringSettings(ctx context.Context) {
 // object-storage partitions. Everything here is non-fatal.
 func (b *boot) bootServices(ctx context.Context) {
 	b.bs.Step("boot_services")
+
+	// The controller's own image first, and before anything else in this
+	// stage: EnsureImage below keeps every OTHER service current, but the
+	// process running it is started by a unit that is deliberately
+	// --pull=missing, so without this the controller itself stays on the
+	// image the box was installed with — including whatever bug this boot
+	// was supposed to fix. When the tag has moved, the restart happens here
+	// rather than after a full boot whose work is about to be discarded.
+	if systemcontroller.SelfUpdate(ctx, b.sd, b.btrfsPath) {
+		systemcontroller.AwaitSelfRestart(ctx)
+	}
+
 	parallelEnsureImages(ctx, coreBootImages(b.ncImage, b.uiImage, b.gfehImage, b.ingressImage, b.monBackend))
 
 	// Tear down obsolete monitoring units from the previous (NC + socket)

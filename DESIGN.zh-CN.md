@@ -47,7 +47,7 @@ Town OS 如何运作：架构、各子系统的行为、API 界面，以及维�
 
 1. **设置 `CONTAINER_HOST`** —— `setupPodmanEnv()` 设置 `CONTAINER_HOST=unix:///run/podman/podman.sock`，使后续每一次 `podman` 调用（以及子进程）都走宿主机的 podman socket，而不是 systemcontroller 容器隔离的存储。
 2. **解析命令行标志与环境变量** —— `-db`、`-btrfs`、`-repo-dir`、`-network-state`、`-listen`。环境变量覆盖：`TOWN_OS_LISTEN`。
-3. **用启动处理器绑定 `:5309`** —— `NewBootStatus()` + `NewRootHandler(NewBootHandler(bs))` 在任何启动工作之前立即绑定监听。在第 24 步的切换发生之前，该套接字只应答 `GET /status/ping`（503，附 `{booting, step, done, boot_id}`）与 `GET /boot-status`（SSE）；其余一律 403。
+3. **用启动处理器绑定 `:5309`** —— `NewBootStatus()` + `NewRootHandler(NewBootHandler(bs))` 在任何启动工作之前立即绑定监听。在第 30 步的切换发生之前，该套接字只应答 `GET /status/ping`（503，附 `{booting, step, done, boot_id}`）与 `GET /boot-status`（SSE）；其余一律 403。
 4. **阶段 `boot_controller`** —— 临时工作目录；创建 btrfs 基础目录与网络状态目录；清除旧部署遗留在 btrfs 根上的陈旧 `town-os.db`（`cleanupStaleRootDB`），并拒绝会重新创建它的 `-db` 路径（`validateDBPath`）——运行时数据库位于 `<btrfsBase>/data/db/system.db`，绝不在根目录。
 5. **打开 SQLite 数据库** —— 设置了 `-db` 则持久化，否则使用临时文件。
 6. **初始化账户 manager** —— 创建 accounts 表并迁移旧表（能力列转为 grants；`smb_nt_hash` 被丢弃）。随后 `PurgeLegacyServiceAccounts` **(非致命)** 在升级后的首次启动时，一次性移除对象存储守护进程旧的管理员账户及其存储的密码——参见 [No service accounts](#没有服务账户)。
@@ -57,30 +57,31 @@ Town OS 如何运作：架构、各子系统的行为、API 界面，以及维�
 10. **初始化仓库根并强制刷新** —— 通过 go-git 克隆/拉取所有已配置的仓库。
 11. **初始化安装 manager、btrfs 存储、systemd manager**。
 12. **解析镜像标签** —— `resolveImageTag()`：优先取 `TOWN_OS_TAG` 环境变量（由 install 构建系统设置），否则取 `rc.latest-<arch>`（`defaultVersionTag()`，架构由 `runtime.GOARCH` 经 `archTag()` 映射为 `x86_64`/`aarch64`）。不存在 `/town-os.tag` 文件，也没有编译期的 `Version` 固定值。每一个同族镜像标签（UI、rolodex、network controller、ingress）都由这一个值推导；推送标签是按架构分的，因此推导出的同族标签也是。
-13. **推导 NC 镜像** —— `quay.io/town/networkcontroller:<tag>`，可通过 `NC_IMAGE` 覆盖。它是拉取的（第 17 步），从不构建。
+13. **推导 NC 镜像** —— `quay.io/town/networkcontroller:<tag>`，可通过 `NC_IMAGE` 覆盖。它是拉取的（第 18 步），从不构建。
 14. **启动后台仓库刷新** —— goroutine 每 5 分钟轮询一次。
 15. **阶段 `boot_dns`：写入 Rolodex 配置，内容变化则重启** **(非致命)** —— Rolodex 是由 systemd 管理的启动服务。systemcontroller 写出 `rolodex.yml`（幂等：若该文件比二进制更新且内容未变则跳过），并且仅在文件确实被写入时才重启服务。`resolution.mode` 来自 `dns_resolution_mode` 设置；存储值无法解析时回退到默认值，而不是渲染出一份 rolodex 会拒绝的配置。`forwarders:` 来自 `dns_local_forwarders` 设置：开启时，该列表在每次启动时从宿主机的解析器中发现，因此换了网络的机器无需操作者做任何事就能用上新的解析器（参见 [Local forwarders](#本地转发器)）。rolodex 容器以 `--net host` 运行，并直接把 DNS 绑定到 `127.0.0.2:{port}`。随后等待 DNS 就绪（TCP 连接轮询），并配置 systemd-resolved 把该 TLD 路由到 rolodex——**当 `TOWN_OS_DNS_PORT` 已把 rolodex 从 `:53` 迁走时，这一步被跳过**，因为 resolved 的按域名服务器地址不携带端口，那样会让该 TLD 下的每一次查询都被黑洞吞掉。
 16. **读取监控后端并发现 btrfs 磁盘设备** —— `monitoring_backend`（默认 `uplot`）；`monitoring.BtrfsDevices(btrfsPath)` **(非致命)** 通过 `/monitoring/status` 暴露底层块设备。
-17. **阶段 `boot_services`：拉取核心容器镜像** **(非致命)** —— NC 镜像、Prometheus、Node Exporter、UI 镜像、对象存储（gfeh）镜像、ingress 镜像，以及在选中该后端时的 Grafana，通过 `parallelEnsureImages` 并行拉取（镜像已加载时跳过拉取）。凡是被启动期单元引用的镜像都属于这里：镜像不在本地的单元会在 `podman run` 内部自行拉取，于是它的就绪等待要与一次registry 下载赛跑。gfeh 与随后的 ingress 曾先后从这份清单中缺席，而每一次看上去都只是某个服务没起来。监控 UI 无需单独条目——在 uPlot 后端下它运行的就是 NC 镜像，而后者已在集合的首位。
-18. **启动监控系统服务** **(全部非致命)** —— 先拆除上一版设计遗留的 NC/socket 监控单元（它们仍占用 `-p 9090`/`-p 5308`，会让新服务不断崩溃重启）。Node Exporter、Prometheus 与监控 UI 都以 `--net host` 运行；node-exporter 与 Prometheus 绑定环回地址，只有监控 UI 的 `:5308` 面向局域网。这三个端口都来自 `monitoringPortsFromEnv()`，其零值即为生产默认值（[System-service host ports](#系统服务的宿主机端口)）。随后安装每夜执行的 podman prune 定时器 **(非致命)**。每日的更新定时器不在这里安装——它随安装器一同交付，参见[自动更新](#自动更新)。
-19. **确保本地 TLS CA 存在** **(非致命)** —— 在 reconcile 之前执行 `tls.EnsureCA(<btrfsPath>/tls)`，这样 reconcile 遍历已安装包时才能签发叶子证书。
-20. **启动 ingress 与 pages 服务** **(非致命)** —— `ingressctl.Manager` 安装并启动 `town-os-system--ingress`（共享的 `:443` SNI + `:80` Host 路由器），仅当宿主机拥有全局 IPv6 时才启用双栈。pages 的 Caddy 服务随之启动。当 `INGRESS_IMAGE` 被显式设为空时（开发模式），两者都会跳过。
-21. **Reconcile 对象存储** **(非致命)** —— `ReconcileGfeh` 确保每个网络有一个 gfeh 分区：`gfeh/<network>` 子卷（chown 给 uid 2000）、渲染出的 `gfehd.yaml`，以及 `town-os-system--gfeh-<network>` 单元，且仅在渲染内容发生变化时才重启。当 `GFEH_IMAGE` 被显式置空时整体跳过；当 ingress 被禁用时也跳过（四个 HTTP 视图只能经由它访问）。分区的*名称*会在稍后异步发布——见第 30 步。参见 [Object Storage (gfeh)](#对象存储gfeh)。
-22. **检测版本变更** —— 将运行中容器的镜像 SHA（`/proc/1/cgroup` → `podman inspect`）与 `<btrfsPath>/town-os-version` 比较。为 reconcile 设置 `versionChanged`。
-23. **Reconcile** —— 遍历所有已安装的包并恢复运行时状态：
+17. **阶段 `boot_services` 的第一步：自更新** **(非致命)** —— `SelfUpdate` 刷新控制器*自身*的镜像；当它所运行的标签已经指向另一个镜像时，请求 systemd 重启 `town-os-systemcontroller.service` 并就此结束本次启动（见*控制器自我更新*）。
+18. **阶段 `boot_services`：拉取核心容器镜像** **(非致命)** —— NC 镜像、Prometheus、Node Exporter、UI 镜像、对象存储（gfeh）镜像、ingress 镜像，以及在选中该后端时的 Grafana，通过 `parallelEnsureImages` 并行拉取（**浮动**标签每次启动都会重新拉取；固定标签只在缺失时拉取——见*启动会刷新浮动镜像标签*）。凡是被启动期单元引用的镜像都属于这里：镜像不在本地的单元会在 `podman run` 内部自行拉取，于是它的就绪等待要与一次registry 下载赛跑。gfeh 与随后的 ingress 曾先后从这份清单中缺席，而每一次看上去都只是某个服务没起来。监控 UI 无需单独条目——在 uPlot 后端下它运行的就是 NC 镜像，而后者已在集合的首位。
+19. **启动监控系统服务** **(全部非致命)** —— 先拆除上一版设计遗留的 NC/socket 监控单元（它们仍占用 `-p 9090`/`-p 5308`，会让新服务不断崩溃重启）。Node Exporter、Prometheus 与监控 UI 都以 `--net host` 运行；node-exporter 与 Prometheus 绑定环回地址，只有监控 UI 的 `:5308` 面向局域网。这三个端口都来自 `monitoringPortsFromEnv()`，其零值即为生产默认值（[System-service host ports](#系统服务的宿主机端口)）。随后安装每夜执行的 podman prune 定时器 **(非致命)**。每日的更新定时器不在这里安装——它随安装器一同交付，参见[自动更新](#自动更新)。
+20. **确保本地 TLS CA 存在** **(非致命)** —— 在 reconcile 之前执行 `tls.EnsureCA(<btrfsPath>/tls)`，这样 reconcile 遍历已安装包时才能签发叶子证书。
+21. **启动 ingress 与 pages 服务** **(非致命)** —— `ingressctl.Manager` 安装并启动 `town-os-system--ingress`（共享的 `:443` SNI + `:80` Host 路由器），仅当宿主机拥有全局 IPv6 时才启用双栈。pages 的 Caddy 服务随之启动。当 `INGRESS_IMAGE` 被显式设为空时（开发模式），两者都会跳过。
+22. **Reconcile 对象存储** **(非致命)** —— `ReconcileGfeh` 确保每个网络有一个 gfeh 分区：`gfeh/<network>` 子卷（chown 给 uid 2000）、渲染出的 `gfehd.yaml`，以及 `town-os-system--gfeh-<network>` 单元，且仅在渲染内容发生变化时才重启。当 `GFEH_IMAGE` 被显式置空时整体跳过；当 ingress 被禁用时也跳过（四个 HTTP 视图只能经由它访问）。分区的*名称*会在稍后异步发布——见第 31 步。参见 [Object Storage (gfeh)](#对象存储gfeh)。
+23. **检测版本变更** —— 将运行中容器的镜像 SHA（`/proc/1/cgroup` → `podman inspect`）与 `<btrfsPath>/town-os-version` 比较。为 reconcile 设置 `versionChanged`。
+24. **Reconcile** —— 遍历所有已安装的包并恢复运行时状态：
     - 创建根 btrfs 子卷（`installed`、`uninstalled`、`archives`、`pages`、`vm-images`、`user`、`tls`、`gfeh`）。
     - 对每个已安装的包（每个 repo/name 取最新版本）：加载 YAML，用保存的应答编译，创建带配额的 btrfs 卷，从归档/git/proton 播种空卷，应用文件模板，签发该包的 TLS 叶子证书，写出网络状态文件（含解析后的 `fqdn`），生成并安装 systemd 单元（service + NC + socket），启动服务。
     - 若 `versionChanged`：重启内容发生变化的单元（先 NC，再依赖，最后服务），然后执行 `post_update` 命令。
     - Reconcile pages：确保子卷、符号链接与页面内容就位。
     随后把当前镜像 SHA 持久化到 `<btrfsPath>/town-os-version`。
-24. **Reconcile DNS 与网络** —— 拨号 rolodex 的 gRPC socket（最多重试 30 秒）。`RebuildDNS` 清空并从零重建 rolodex，从而丢弃上一次崩溃运行留下的漂移；`RebuildNetworkDNS` 为非默认网络的包重新注册面向局域网的全局记录（以及 DANE pin）。随后 `ReconcileNetworks` 将 home 网络的 TLD 与 `dns_tld` 对齐，并拉起每一个已启用网络的 WireGuard 接口，同时传入 rolodex 客户端，使每个网络的 TLD 作用域都被认领——包括仅 DNS 的 home 作用域。全部非致命。之后对象存储会被**第二次** reconcile（幂等），这样本步骤拉起的网络无需等待重启即可获得自己的分区。
-25. **编排 ingress** **(非致命)** —— 等待就绪，拨号其 gRPC socket，`RebuildIngress` 以声明式方式推送完整路由集（HTTP 包 + pages + 对象存储的视图与索引），与 `RebuildDNS` 是同一模型。它还会在同一遍中，从构建这些路由所用的同一站点集合渲染每个分区的索引页——路由不能在它所服务的字节存在之前就被编排（[The partition index](#分区索引页)）。
-26. **启动 UI 容器** **(非致命)** —— `town-os-system--ui.service`；当 `UI_IMAGE` 被显式置空时跳过（开发模式，此时由 bun 提供 UI）。
-27. **阶段 `restart_packages`：新鲜度阶段** —— 若上一个进程留下了刷新标记，则串行重启每一个已安装的包单元，并为每个包发出一条进度事件，让 UI 各渲染一行。崩溃遗留的陈旧标记是无害的。
-28. **创建 HTTP 处理器** —— 把所有 manager 接入 `ServerConfig`，启动后台轮询器（每小时的外部 IP、DNS 漂移修复、过期 peer 回收），并配置 Echo 路由器的 CORS、失败即拒的 grant 白名单、鉴权与审计中间件。
-29. **阶段 `ready`：切换根处理器** —— 在已经绑定的监听套接字上，把启动桩原子地替换为完整的 Echo 路由器，因此不会出现端口抖动，进行中的 `/boot-status` SSE 订阅者也能安然跨过这次交接。随后 `BootStatus.Done()` 关闭该事件流。**系统至此就绪。**
-30. **发布对象存储的名称** **(非致命，后台)** —— `publishGfehNames` 等待至少一个分区的管理 socket 有应答，然后重新运行 DNS 与 ingress 重建，使每个分区 `/v1/names` 的输出变成 A 记录、TLSA pin、叶子证书 SAN 与 ingress vhost。它在切换**之后**、且以异步方式运行，因为 gfehd 在认证之前会轮询 `/status/ping`——而后者在第 29 步之前一直返回 503——所以在此处同步等待会让它所等待的这次启动自我死锁。若届时没有任何分区就绪，这些名称会由下一次 reconcile 发布。
-31. **优雅关闭** —— 收到 SIGINT 时：取消 context，以 30 秒超时关闭 HTTP 服务器。所有后台 goroutine 通过 context 取消退出。
+25. **Reconcile DNS 与网络** —— 拨号 rolodex 的 gRPC socket（最多重试 30 秒）。`RebuildDNS` 清空并从零重建 rolodex，从而丢弃上一次崩溃运行留下的漂移；`RebuildNetworkDNS` 为非默认网络的包重新注册面向局域网的全局记录（以及 DANE pin）。随后 `ReconcileNetworks` 将 home 网络的 TLD 与 `dns_tld` 对齐，并拉起每一个已启用网络的 WireGuard 接口，同时传入 rolodex 客户端，使每个网络的 TLD 作用域都被认领——包括仅 DNS 的 home 作用域。全部非致命。之后对象存储会被**第二次** reconcile（幂等），这样本步骤拉起的网络无需等待重启即可获得自己的分区。
+26. **编排 ingress** **(非致命)** —— 等待就绪，拨号其 gRPC socket，`RebuildIngress` 以声明式方式推送完整路由集（HTTP 包 + pages + 对象存储的视图与索引），与 `RebuildDNS` 是同一模型。它还会在同一遍中，从构建这些路由所用的同一站点集合渲染每个分区的索引页——路由不能在它所服务的字节存在之前就被编排（[The partition index](#分区索引页)）。
+27. **启动 UI 容器** **(非致命)** —— `town-os-system--ui.service`；当 `UI_IMAGE` 被显式置空时跳过（开发模式，此时由 bun 提供 UI）。
+28. **阶段 `restart_packages`：新鲜度阶段** —— 若上一个进程留下了刷新标记，则串行重启每一个已安装的包单元，并为每个包发出一条进度事件，让 UI 各渲染一行。崩溃遗留的陈旧标记是无害的。
+29. **创建 HTTP 处理器** —— 把所有 manager 接入 `ServerConfig`，启动后台轮询器（每小时的外部 IP、DNS 漂移修复、过期 peer 回收），并配置 Echo 路由器的 CORS、失败即拒的 grant 白名单、鉴权与审计中间件。
+30. **阶段 `ready`：切换根处理器** —— 在已经绑定的监听套接字上，把启动桩原子地替换为完整的 Echo 路由器，因此不会出现端口抖动，进行中的 `/boot-status` SSE 订阅者也能安然跨过这次交接。随后 `BootStatus.Done()` 关闭该事件流。**系统至此就绪。**
+31. **发布对象存储的名称** **(非致命，后台)** —— `publishGfehNames` 等待至少一个分区的管理 socket 有应答，然后重新运行 DNS 与 ingress 重建，使每个分区 `/v1/names` 的输出变成 A 记录、TLSA pin、叶子证书 SAN 与 ingress vhost。它在切换**之后**、且以异步方式运行，因为 gfehd 在认证之前会轮询 `/status/ping`——而后者在第 29 步之前一直返回 503——所以在此处同步等待会让它所等待的这次启动自我死锁。若届时没有任何分区就绪，这些名称会由下一次 reconcile 发布。
+32. **优雅关闭** —— 收到 SIGINT 时：取消 context，以 30 秒超时关闭 HTTP 服务器。所有后台 goroutine 通过 context 取消退出。
 
 # Town OS 功能规格说明
 
@@ -1699,6 +1700,8 @@ system controller 从 `https://ipinfo.io/json` 获取服务器的公网（外部
 
 更改该设置会立即生效：切换到 `"grafana"` 会拉取 Grafana 镜像并启动容器（同时停止 socat 转发器）；切换到 `"uplot"` 会停止 Grafana 并启动 socat 转发器。
 
+当机器上还没有 Grafana 镜像时，该拉取会在自己的 goroutine 中进行，并且只有镜像落盘之后才替换 unit。有三件事依赖这个顺序：设置请求不会为约 771 MB 而阻塞；在此期间由之前的后端继续应答 `:5308`；并且——因为该 unit 是 `Type=simple`，systemd 在 `podman run` fork 的那一刻就认为它已启动——机器不会在仍在下载时就报告 Grafana 已就绪。在整个窗口期内 `/monitoring/status` 都报告 `grafana: false`（`MonitoringUIPending`），这正是让仪表盘停留在"正在启动"页面、而不是去嵌入一个仍在提供旧后端的端口的原因。期间的第二次保存是空操作而非第二次拉取；拉取失败会清除该标志并记录日志。
+
 ### 监控容器
 
 - **Node Exporter**（`quay.io/prometheus/node-exporter:latest`，宿主机端口 9100）—— 采集宿主机系统指标。以宿主机 PID 命名空间、`SYS_TIME` 能力，以及把宿主机根文件系统只读绑定挂载到 `/host` 的方式运行。其 systemd 单元传入 `--collector.diskstats.device-exclude=^(ram|fd)\d+$`（即 `monitoring.DiskstatsDeviceExclude` 常量）以覆盖 node_exporter 的上游默认值（`^(ram|loop|fd|(h|s|v|xv)d[a-z]|nvme\d+n\d+p)\d+$`），后者会过滤掉分区（`sda3`、`nvme0n1p3`）与 loop 设备——而那恰恰就是 `monitoring.BtrfsDevices` 为支撑 `/town-os` 的 btrfs 文件系统所报告的设备形态。没有这项覆盖，Disk I/O 仪表盘的查询会静默地返回零个序列，面板渲染为空。除非你同时把 Disk I/O 查询迁离 `node_disk_*`，否则不要移除或放宽该标志。回归覆盖：`TestNodeExporterUnitConfigDiskstatsExcludeAllowsRealDevices` 固定该标志与正则，而 `TestMonitoringNodeExporterEmitsDiskMetricsForFilteredDevices` 启动一个真实的 node_exporter 容器，确认它至少为一个被上游默认值排除的设备发出 `node_disk_read_bytes_total`。
@@ -2024,7 +2027,31 @@ UI **首先从浏览器**选择语言，而不是从全局设置。加载时它�
 13. 构建处理器，并把启动桩原子地切换为完整路由器。
 14. 一旦有分区应答，就在后台发布对象存储的名称。
 
-监控、Rolodex 配置、核心镜像拉取、TLS CA、ingress、pages 服务、对象存储、网络 reconcile 与 UI 容器的启动失败都是非致命的；系统会在没有它们的情况下继续运行。所有容器镜像拉取都使用 `ensureImage` 助手，它在拉取前先检查 `podman image exists`，从而避免在镜像已预加载的测试/开发环境中重复拉取。非必要服务的拉取失败会记录到 stderr 且不阻止启动，使系统即便在网络暂时不可用时也能启动。
+监控、Rolodex 配置、核心镜像拉取、TLS CA、ingress、pages 服务、对象存储、网络 reconcile 与 UI 容器的启动失败都是非致命的；系统会在没有它们的情况下继续运行。所有容器镜像拉取都使用下文所述的 `ensureImage` 助手（`systemcontroller.EnsureImage`）。非必要服务的拉取失败会记录到 stderr 且不阻止启动，使系统即便在网络暂时不可用时也能启动。
+
+**启动会刷新浮动镜像标签** —— `EnsureImage` 在决定如何处理一个引用之前，先用 `FloatingImageRef` 对其分类：
+
+- **浮动** —— `latest` 家族的任意写法：`latest`、`rc.latest`、`release.latest`，带或不带 `-x86_64` / `-aarch64` 后缀，以及完全不带标签的引用（podman 会将其解析为 `:latest`）。它们在**每次**启动时都重新拉取，即便镜像已在本地存储中。对一个会移动的标签而言，"存在"与"最新"是两个不同的问题；而对未发生变化的标签执行 `podman pull` 只是一次 manifest 检查，并非下载。
+- **固定** —— 带日期的标签（`rc.<date>-<arch>`、`release.<date>-<arch>`）、digest 引用、按实例生成的测试标签，以及任何 `localhost/` 下的镜像（它们没有可供刷新的注册表）。只在缺失时拉取。
+
+对本地*已存在*的镜像刷新失败不算错误：会使用本地副本并记录该失败，因此没有注册表时机器仍能启动 —— 这与它自己的 unit 使用 `--pull=missing` 而非 `--pull=always` 是同一个原因。
+
+**控制器自我更新** —— `SelfUpdate` 作为 `boot_services` 的第一步运行，是同一个问题的另一半：`EnsureImage` 能让机器运行的每个服务保持最新，却对执行它的这个进程无能为力。控制器自己的 unit 特意使用 `--pull=missing`（崩溃后的重启不能依赖注册表可用），因此在运维人员按下*刷新系统服务*之前，运行中的控制器一直停留在这台机器安装时的镜像上 —— 一台除了「负责更新的东西」之外什么都更新的机器，恰恰唯独它自己永远无法交付针对自身的修复。
+
+这一步会：
+
+1. 向 podman 询问*本*容器是从哪个镜像引用启动的（`{{.ImageName}}`），而不是从 `TOWN_OS_TAG` 推导。安装构建系统会把它拿到的 `CONTROLLER_IMAGE` 原样写进 unit —— 那可能是另一个完全不同的注册表 —— 刷新一个 unit 实际并不运行的引用，就会在两个毫不相干的镜像之间比较，从而每次启动都重启这台机器。
+2. 当该引用是固定的（运维人员刻意固定，或 `make dev` 下的 `localhost/` 镜像）时什么都不做。
+3. 对它执行 `EnsureImage`，然后把标签现在所指的镜像 ID 与本进程正在运行的 ID 作比较。
+4. 两者不同时，把目标 ID 写入 `<btrfsPath>/town-os-self-update`，并请求 systemd 重启 `town-os-systemcontroller.service`。unit 的 `--pull=missing` 随即启动刚刚刷新到本地的那个镜像。此次启动会在此等待，而不是带着即将被丢弃的工作继续进入 reconcile。
+
+那个标记文件就是循环护栏：如果重启回来后仍在运行同一个旧镜像 —— 例如 unit 解析该标签的方式与我们不同 —— 机器只尝试一次，随后记录日志并继续，而不是每次启动都重启、永无止境。标签再次移动就是一个新目标，会获得自己的一次尝试；而被 systemd 拒绝的重启会清除该标记，因为一次从未发生的重启不应压制下一次。
+
+对既有机器的影响：它运行的控制器必须先包含这段代码才能用上它，所以仍然需要恰好一次手动的*刷新系统服务*（或重新安装）来完成过渡。此后重启一次就够了。
+
+`TOWN_OS_IMAGE_REFRESH=0`（以及 `false`/`no`/`off`）会关闭刷新 —— 包括自更新，它随后只会发现「什么都没变」 —— 此时固定标签的规则适用于所有镜像；缺失的镜像仍然会拉取。`make dev` 与两个测试容器都设置了它，因为它们运行的每个镜像都是特意从本地镜像缓存加载的 —— 在那里刷新会在每次启动时去 quay.io 取回一个本就特意放置的镜像。任何无法识别的值都保持刷新开启：一台机器悄悄不再获取自己的服务，比多拉取一次更糟。
+
+这个区分之所以重要，是因为安装器不附带任何镜像，而每台机器的标签默认都是浮动的（`rc.latest-<arch>`）。没有它，"已加载"就等同于"最新"，于是每个系统服务都停留在这台机器第一次启动时下载的镜像上 —— 一台重装过的虚拟机无论重启多少次都还在提供数月之前的 UI，唯一能推进它的只有运维人员的 `POST /system-services/refresh`。
 
 ### 版本标签检测
 

@@ -96,6 +96,7 @@ case "$1" in
       -e "NC_IMAGE=${NC_IMAGE}" \
       -e "GFEH_IMAGE=${DEV_GFEH_IMAGE}" \
       -e "TOWN_OS_WG_SALT=$(wireguard_salt dev)" \
+      -e "TOWN_OS_IMAGE_REFRESH=0" \
       --systemd=true --privileged \
       --device /dev/btrfs-control:/dev/btrfs-control:rwm \
       -v "$(cat "${STATE_DIR}/town-os-dev.mount"):/town-os:z" \

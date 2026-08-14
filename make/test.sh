@@ -75,6 +75,7 @@ case "$1" in
       -e "GFEH_IMAGE=${GFEH_IMAGE}" \
       "${SYSTEM_PORT_ENV[@]}" \
       -e "TOWN_OS_WG_SALT=$(wireguard_salt test)" \
+      -e "TOWN_OS_IMAGE_REFRESH=0" \
       -d --net host --systemd=true --privileged \
       --device /dev/btrfs-control:/dev/btrfs-control:rwm \
       -v "$(cat "${STATE_DIR}/town-os.mount"):/town-os:z" \
@@ -168,6 +169,7 @@ case "$1" in
       -e "GFEH_IMAGE=${GFEH_IMAGE}" \
       "${SYSTEM_PORT_ENV[@]}" \
       -e "TOWN_OS_WG_SALT=$(wireguard_salt test)" \
+      -e "TOWN_OS_IMAGE_REFRESH=0" \
       -d --net host --systemd=true --privileged \
       --device /dev/btrfs-control:/dev/btrfs-control:rwm \
       -v "$(cat "${STATE_DIR}/town-os.mount"):/town-os:z" \

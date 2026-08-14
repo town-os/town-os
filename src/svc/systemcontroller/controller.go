@@ -111,6 +111,10 @@ type serviceBackend interface {
 	GetDiskDevices() []string
 	GetSwapCapability() monitoring.SwapCapability
 	RefreshMonitoringBackend(ctx context.Context, backend string) error
+	// MonitoringUIPending reports that a backend switch is still fetching its
+	// image, so the monitoring-ui unit is still running the OLD backend even
+	// though the setting already names the new one.
+	MonitoringUIPending() bool
 }
 
 // processBackend is what this process is: its own image, its listener, its

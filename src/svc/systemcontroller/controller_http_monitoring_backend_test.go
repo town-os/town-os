@@ -21,6 +21,14 @@ import (
 // when monitoring_backend changes.
 func initMonitoringBackendTestClient(t *testing.T) (*SystemdClient, *systemd.MockManager) {
 	t.Helper()
+
+	// Grafana's image is fetched before the unit is swapped when the box does
+	// not already have it, and that path is deliberately asynchronous (see
+	// TestMonitoringBackendSwitchToGrafanaWaitsForTheImage). These tests are
+	// about the unit content, so they take the already-present branch and stay
+	// synchronous; without the stub the probe reaches a podman that is not in
+	// the unit test environment.
+	t.Cleanup(TestSetImageExistsLocally(func(_ context.Context, _ string) bool { return true }))
 	db, err := account.OpenDB(t.Context(), filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
