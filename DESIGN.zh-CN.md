@@ -59,7 +59,7 @@ Town OS 如何运作：架构、各子系统的行为、API 界面，以及维�
 12. **解析镜像标签** —— `resolveImageTag()`：优先取 `TOWN_OS_TAG` 环境变量（由 install 构建系统设置），否则取 `rc.latest-<arch>`（`defaultVersionTag()`，架构由 `runtime.GOARCH` 经 `archTag()` 映射为 `x86_64`/`aarch64`）。不存在 `/town-os.tag` 文件，也没有编译期的 `Version` 固定值。每一个同族镜像标签（UI、rolodex、network controller、ingress）都由这一个值推导；推送标签是按架构分的，因此推导出的同族标签也是。
 13. **推导 NC 镜像** —— `quay.io/town/networkcontroller:<tag>`，可通过 `NC_IMAGE` 覆盖。它是拉取的（第 18 步），从不构建。
 14. **启动后台仓库刷新** —— goroutine 每 5 分钟轮询一次。
-15. **阶段 `boot_dns`：写入 Rolodex 配置，内容变化则重启** **(非致命)** —— Rolodex 是由 systemd 管理的启动服务。systemcontroller 写出 `rolodex.yml`（幂等：若该文件比二进制更新且内容未变则跳过），并且仅在文件确实被写入时才重启服务。`resolution.mode` 来自 `dns_resolution_mode` 设置；存储值无法解析时回退到默认值，而不是渲染出一份 rolodex 会拒绝的配置。`forwarders:` 来自 `dns_local_forwarders` 设置：开启时，该列表在每次启动时从宿主机的解析器中发现，因此换了网络的机器无需操作者做任何事就能用上新的解析器（参见 [Local forwarders](#本地转发器)）。rolodex 容器以 `--net host` 运行，并直接把 DNS 绑定到 `127.0.0.2:{port}`。随后等待 DNS 就绪（TCP 连接轮询），并配置 systemd-resolved 把该 TLD 路由到 rolodex——**当 `TOWN_OS_DNS_PORT` 已把 rolodex 从 `:53` 迁走时，这一步被跳过**，因为 resolved 的按域名服务器地址不携带端口，那样会让该 TLD 下的每一次查询都被黑洞吞掉。
+15. **阶段 `boot_dns`：写入 Rolodex 配置，内容变化则重启** **(非致命)** —— Rolodex 是由 systemd 管理的启动服务。systemcontroller 写出 `rolodex.yml`（幂等：仅当渲染出的字节与磁盘上已有的内容一致时才跳过——它为什么不再理会文件的 mtime，参见[冻住的那份配置](#冻住的那份配置)），并且仅在文件确实被写入时才重启服务。`resolution.mode` 来自 `dns_resolution_mode` 设置；存储值无法解析时回退到默认值，而不是渲染出一份 rolodex 会拒绝的配置。`forwarders:` 来自 `dns_local_forwarders` 设置：开启时，该列表在每次启动时从宿主机的解析器中发现，因此换了网络的机器无需操作者做任何事就能用上新的解析器（参见 [Local forwarders](#本地转发器)）。rolodex 容器以 `--net host` 运行，并直接把 DNS 绑定到 `127.0.0.2:{port}`。随后等待 DNS 就绪（TCP 连接轮询），并配置 systemd-resolved 把该 TLD 路由到 rolodex——**当 `TOWN_OS_DNS_PORT` 已把 rolodex 从 `:53` 迁走时，这一步被跳过**，因为 resolved 的按域名服务器地址不携带端口，那样会让该 TLD 下的每一次查询都被黑洞吞掉。
 16. **读取监控后端并发现 btrfs 磁盘设备** —— `monitoring_backend`（默认 `uplot`）；`monitoring.BtrfsDevices(btrfsPath)` **(非致命)** 通过 `/monitoring/status` 暴露底层块设备。
 17. **阶段 `boot_services` 的第一步：自更新** **(非致命)** —— `SelfUpdate` 刷新控制器*自身*的镜像；当它所运行的标签已经指向另一个镜像时，请求 systemd 重启 `town-os-systemcontroller.service` 并就此结束本次启动（见*控制器自我更新*）。
 18. **阶段 `boot_services`：拉取核心容器镜像** **(非致命)** —— NC 镜像、Prometheus、Node Exporter、UI 镜像、对象存储（gfeh）镜像、ingress 镜像，以及在选中该后端时的 Grafana，通过 `parallelEnsureImages` 并行拉取（**浮动**标签每次启动都会重新拉取；固定标签只在缺失时拉取——见*启动会刷新浮动镜像标签*）。凡是被启动期单元引用的镜像都属于这里：镜像不在本地的单元会在 `podman run` 内部自行拉取，于是它的就绪等待要与一次registry 下载赛跑。gfeh 与随后的 ingress 曾先后从这份清单中缺席，而每一次看上去都只是某个服务没起来。监控 UI 无需单独条目——在 uPlot 后端下它运行的就是 NC 镜像，而后者已在集合的首位。
@@ -1448,7 +1448,7 @@ Town OS 内置一个由 `rolodex-dns` 容器驱动的本地 DNS 解析器。rolo
 
 rolodex 本身是由 systemd 安装与监管的启动服务——systemcontroller 不在容器层面安装、启动、停止或重启它。取而代之，`rolodex.Manager` 负责：
 
-- **`WriteConfig`** —— 把 `rolodex.yml` 写入 `DataDir`。幂等：当该文件存在、比 systemcontroller 二进制更新、且内容已与预期一致时跳过写入。返回一个布尔值表示文件是否被写入（以便调用方决定是否重启 systemd 单元）。
+- **`WriteConfig`** —— 把 `rolodex.yml` 渲染进 `DataDir`，只要字节与磁盘上的不同就写入。返回一个布尔值表示文件是否真的发生了变化（以便调用方仅在确有可重启之事时才重启 systemd 单元）。**它无条件地做调和，而这是承重的**——参见[冻住的那份配置](#冻住的那份配置)。
 - **`WaitForDNSReady`** —— 通过 TCP 轮询 `DNSLoopback:{port}`，直到它接受连接或超过 30 秒截止时间。在启动时、任何依赖 DNS 的操作（例如镜像拉取）之前调用。
 - **`SystemServices`** —— 返回 rolodex 系统服务的元数据（key、显示名、镜像、端口、单元名），使它与其他系统服务一同出现在状态响应与 UI 中。
 - **`Status`** —— 查询 systemd 单元状态以报告 rolodex 是否在运行。
@@ -1459,7 +1459,17 @@ rolodex 容器以 `--net host` 运行，并把 DNS 绑定到 `DNSLoopback`（`12
 
 **不要把裸 `recursive` 作为默认值。** 它*没有*回退，而且 rolodex 的迭代解析器（`src/resolver.rs`）对每个域名服务器只发送**一个不重传的 UDP 数据报，截止时间 1500 毫秒**；当当前委派集合中的每个服务器都失败时，`resolve()` 报错，而 `iterative_query` 会把*任何*错误都转换成 SERVFAIL。因此一个丢包就会让一次查询 SERVFAIL；而在过滤或劫持出站 :53 的网络上（酒店、强制门户、某些 ISP），*每一个*外部名称都会 SERVFAIL。`auto` 在网络允许的地方保留递归带来的隐私性，在不允许的地方则降级而不是失败。相关：rolodex 的委派缓存与否定缓存落在 `ce44bb5`，而该提交**不在任何已发布的标签中**——在发布版本包含它之前，recursive 模式会为每一个未缓存的名称与每一次 NXDOMAIN 重新从根开始走一遍（实测：冷公共名称 0.6–1.9 秒，RFC1918 PTR 为 2.7 秒）。
 
-该模式可由运维在运行时通过 `dns_resolution_mode` 设置配置（`auto` | `recursive` | `forward`；由 `ValidateDNSResolutionMode` 校验，因此无法解析的值绝不可能到达 `rolodex.yml` 并把 DNS 弄砸）。`main.go` 在启动时把它读入 `rolodex.Config`；通过 `POST /settings/set` 的更改会运行 `Controller.RefreshDNSResolutionMode`，后者调用 **`Manager.RewriteConfig()`** 并重启 rolodex 单元。`RewriteConfig` 之所以存在，正是因为 `WriteConfig` 拒绝覆盖比 systemcontroller 二进制更新的 `rolodex.yml`（它把那视为被手工编辑过）——而上一次启动写出的文件*总是*满足该条件，因此对于运维发起的更改 `WriteConfig` 会静默地什么也不做。启动时用 `WriteConfig`，运行时更改用 `RewriteConfig`。
+该模式可由运维在运行时通过 `dns_resolution_mode` 设置配置（`auto` | `recursive` | `forward`；由 `ValidateDNSResolutionMode` 校验，因此无法解析的值绝不可能到达 `rolodex.yml` 并把 DNS 弄砸）。`main.go` 在启动时把它读入 `rolodex.Config`；通过 `POST /settings/set` 的更改会运行 `Controller.RefreshDNSResolutionMode`，后者调用 **`Manager.RewriteConfig()`** 并重启 rolodex 单元。`RewriteConfig` 如今只是 `WriteConfig` 在运行时的一个*名字*，除此之外别无区别——两者行为完全一致。它们曾经并不一致，而那处区别正是下一节的主题。
+
+### 冻住的那份配置
+
+`WriteConfig` 曾经会跳过任何 mtime 比 systemcontroller 二进制更新的 `rolodex.yml`，理由是更新的文件想必是被手工编辑过的。**每一次启动写出的文件，都比写出它的那个镜像里的二进制更新**，因此从第二次启动起，这道护栏匹配上的正是控制器自己的输出，`WriteConfig` 就此变成了永久的空操作。`rolodex.yml` 冻结在这台机器上跑过的第一个控制器所渲染出的样子，终其一生，任何镜像更新都推不动它。`RewriteConfig` 存在的唯一目的，就是在运维发起更改时绕开这一点。
+
+在一台机器首次启动之后才加进模板的每一个小节，因此从来没有到达过那台机器。这件事发生过两次——先是 `dnsbl:`（`31f7e80`），然后是 `metrics:`（`9689461`）——而第二次正是某台已部署的机器上压根没有 rolodex 指标监听器的原因。Prometheus 每 15 秒准点抓取 `127.0.0.2:9153`，那里从来没有东西在监听，`rolodex_*` 系列从未存在过，而每一块 DNS 面板渲染出的是**空图而不是错误**——与一台空闲的解析器无从分辨。全程 `systemctl --failed` 是空的，每一个容器都在运行。
+
+没有任何真实的东西被保护到。文件里的每一个值都是从 Town OS 的状态渲染出来的——DNS 端口、转发器、解析模式、两份阻断名单、指标端口——而每一条会改动其中之一的运行时路径，本来就已经不管不顾地覆盖了该文件（那正是 `RewriteConfig` 的全部）。手工编辑以前能活到下一次设置变更；现在它活到下一次启动。
+
+回归测试是 `TestWriteConfigReplacesConfigNewerThanTheBinary` 与 `TestWriteConfigAddsSectionsMissingFromAnOlderRendering`（单元），以及 `TestUpgradedControllerOpensRolodexMetricsListener`（集成）——后者放置一份 `9689461` 之前的配置并给它一个未来的 mtime，通过启动入口把它调和一遍，然后抓取一个真实 rolodex 容器随之打开的那个监听器。
 
 ### 本地转发器
 
@@ -1858,7 +1868,13 @@ Prometheus 与 Node Exporter 在启动时总是被启动。监控后端设置决
 - **`/metrics` 被排除在审计日志之外**，也被排除在它自己的请求计数器之外。否则 15 秒一次的抓取每天会写下约 5,700 行审计记录，而它们描述的不是任何运维做过的事，并且会主导它所服务的那个计数器。
 - **`metricsMiddleware` 注册在三者的最外层**（在审计与授权白名单之前），这样被任一道门拒绝的请求仍会被计数——一个无法解释的 403 恰恰是这个计数器要暴露的东西。它从返回的 error 中取状态码，因为返回 error 的处理器此时还没有写出自己的状态码。
 
-**抓取目标在任何地方都不会被重新拼装。** `MetricsScrapeTarget(listenAddr)` 从服务器绑定所用的同一个字符串推导它，而 `main.go` 把结果交给 `monitoring.Ports.ControllerMetrics`——与 `PackageNetworkState.FQDN` 和 `Manager.MetricsAddr()` 存在的理由相同，都是唯一事实来源。通配绑定（`:5309`、`0.0.0.0:5309`、`[::]:5309`）会被改写为 `localhost`，因为通配符不是任何东西能连接的地址；而显式指定的主机会被原样保留，因为改写它会把抓取指向控制器刻意不在的地址。结果为空时会省略该 job，而不是指向一个猜测。当 `TOWN_OS_TLS` 开启时，`ControllerMetricsScheme` 为 `https`，该 job 还会携带 `insecure_skip_verify`——叶子证书由本机自己的 CA 签发，Prometheus 没有理由信任它，也没有干净的途径拿到它，而这次抓取是宿主机命名空间内的环回通信，因此不可能有别的东西冒充它应答。
+**抓取目标在任何地方都不会被重新拼装。** `MetricsScrapeTarget(listenAddr)` 从服务器绑定所用的同一个字符串推导它，而 `main.go` 把结果交给 `monitoring.Ports.ControllerMetrics`——与 `PackageNetworkState.FQDN` 和 `Manager.MetricsAddr()` 存在的理由相同，都是唯一事实来源。通配绑定（`:5309`、`0.0.0.0:5309`、`[::]:5309`）会被改写为 `localhost`，因为通配符不是任何东西能连接的地址；而显式指定的主机会被原样保留，因为改写它会把抓取指向控制器刻意不在的地址。结果为空时会省略该 job，而不是指向一个猜测。
+
+**而协议是向套接字问出来的，不是第二次推导出来的。** 当 `systemcontroller.ListenerSpeaksTLS` 对控制器自己的监听器成功完成一次 TLS 握手时，`ControllerMetricsScheme` 为 `https`，该 job 还会携带 `insecure_skip_verify`——叶子证书由本机自己的 CA 签发，Prometheus 没有理由信任它，也没有干净的途径拿到它，而这次抓取是宿主机命名空间内的环回通信，因此不可能有别的东西冒充它应答。
+
+它以前的做法是把 `TOWN_OS_TLS` 再读一遍，而在一台已部署的机器上，这两次推导彼此不一致：`prometheus.yml` 里写着 `scheme: https`，而 `:5309` 提供的是明文，于是 Prometheus 发起 TLS 连接、收到明文 HTTP 应答，并在**这份配置的整个生命周期里让每一次抓取都失败**。`insecure_skip_verify` 对此毫无帮助——它放宽的是证书校验，而问题在于握手根本没有发生。上面那二十来个 `townos_*` 指标每一个都被导出、又被丢在地上，而唯一的痕迹是 Prometheus 自己的目标列表里有一个处于 `down` 的 job，这一点机器上没有任何东西会呈现出来。一次握手不可能与套接字意见相左；它同时还覆盖了 `TOWN_OS_TLS_CERT`/`TOWN_OS_TLS_KEY`——它们终结 TLS，却根本不经过旧推导所读的那个变量。
+
+这次探测有三秒的上限，当没有东西接受连接时回退到启动自身的判断——那时没有套接字可问，而不发出 job 与协议选错一样确凿地毁掉这次抓取。当观测到的协议与配置的协议不一致时，`SchemeDisagreement` 会在 stderr 上报告一次：抓取无论如何都会被修好，但一台在运维要求了 TLS 之后仍以明文提供登录密码的机器，是一个安全问题，而那次修复恰恰会把它掩盖掉。由 `TestListenerSpeaksTLS*`（单元）与 `TestPrometheusScrapesTheSchemeTheListenerActuallySpeaks`（集成）覆盖，后者用一个真实的 Prometheus 分别对明文监听器与 TLS 监听器各跑一遍。
 
 ### 监控 UI
 

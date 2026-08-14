@@ -61,7 +61,7 @@ Town OS がどう動くか: アーキテクチャ、各サブシステムの挙�
 12. **イメージのタグを解決する** —— `resolveImageTag()`: `TOWN_OS_TAG` の環境変数（install のビルドシステムが設定する）、無ければ `rc.latest-<arch>`（`defaultVersionTag()`。アーキテクチャは `runtime.GOARCH` を `archTag()` で `x86_64`/`aarch64` に対応付けたもの）。`/town-os.tag` のファイルも、コンパイル時の `Version` の固定も無い。兄弟のイメージのタグ（UI、rolodex、ネットワークコントローラ、ingress）はすべてこの一つの値から導かれる。push のタグはアーキテクチャ別なので、導かれる兄弟のタグもそうである。
 13. **NC のイメージを導出する** —— `quay.io/town/networkcontroller:<tag>`。`NC_IMAGE` で上書き可能。pull される（手順 18）のであってビルドされることはない。
 14. **背景でのリポジトリの更新を開始する** —— goroutine が 5 分ごとにポーリングする。
-15. **段階 `boot_dns`: Rolodex の設定を書き、変わっていれば再起動する** **(非致命的)** —— Rolodex は systemd が管理する起動サービスである。systemcontroller は `rolodex.yml` を書き出し（冪等である。ファイルがバイナリより新しく内容も変わっていなければ飛ばす）、実際にファイルを書いたときにのみサービスを再起動する。`resolution.mode` は `dns_resolution_mode` の設定から来る。保存されている値が解析できない場合は、rolodex が拒否するような設定を描き出すのではなく既定値にフォールバックする。`forwarders:` は `dns_local_forwarders` の設定から来る。これが有効なとき、この一覧は起動のたびにホストのリゾルバから発見されるので、ネットワークを移った機械はオペレーターが何もせずとも新しいものを拾う（[ローカルのフォワーダー](#ローカルのフォワーダー)を参照）。rolodex のコンテナは `--net host` で動き、DNS を直接 `127.0.0.2:{port}` にバインドする。続いて DNS の準備完了を待ち（TCP の接続によるポーリング）、systemd-resolved がその TLD を rolodex へ向けるよう設定する —— **`TOWN_OS_DNS_PORT` が rolodex を `:53` から動かしている場合は飛ばされる**。resolved のドメインごとのサーバーアドレスはポートを持たないので、その TLD へのすべてのクエリがブラックホールに落ちてしまうからである。
+15. **段階 `boot_dns`: Rolodex の設定を書き、変わっていれば再起動する** **(非致命的)** —— Rolodex は systemd が管理する起動サービスである。systemcontroller は `rolodex.yml` を書き出し（冪等である。描き出したバイト列がディスク上のものと一致するときにのみ飛ばす —— なぜファイルの mtime に譲らないのかは [凍りついた設定](#凍りついた設定) を参照）、実際にファイルを書いたときにのみサービスを再起動する。`resolution.mode` は `dns_resolution_mode` の設定から来る。保存されている値が解析できない場合は、rolodex が拒否するような設定を描き出すのではなく既定値にフォールバックする。`forwarders:` は `dns_local_forwarders` の設定から来る。これが有効なとき、この一覧は起動のたびにホストのリゾルバから発見されるので、ネットワークを移った機械はオペレーターが何もせずとも新しいものを拾う（[ローカルのフォワーダー](#ローカルのフォワーダー)を参照）。rolodex のコンテナは `--net host` で動き、DNS を直接 `127.0.0.2:{port}` にバインドする。続いて DNS の準備完了を待ち（TCP の接続によるポーリング）、systemd-resolved がその TLD を rolodex へ向けるよう設定する —— **`TOWN_OS_DNS_PORT` が rolodex を `:53` から動かしている場合は飛ばされる**。resolved のドメインごとのサーバーアドレスはポートを持たないので、その TLD へのすべてのクエリがブラックホールに落ちてしまうからである。
 16. **監視のバックエンドを読み、btrfs のディスクのデバイスを発見する** —— `monitoring_backend`（既定は `uplot`）。`monitoring.BtrfsDevices(btrfsPath)` **(非致命的)** が裏にあるブロックデバイスを `/monitoring/status` を通じて見えるようにする。
 17. **段階 `boot_services` の最初の一歩: 自己更新** **(非致命的)** —— `SelfUpdate` はコントローラ*自身*のイメージを取り直し、動いているタグが別のイメージを指すようになっていたときは systemd に `town-os-systemcontroller.service` の再起動を求め、この起動はそこで終える（*コントローラは自分自身を更新する*を参照）。
 18. **段階 `boot_services`: コアのコンテナイメージを pull する** **(非致命的)** —— NC のイメージ、Prometheus、Node Exporter、UI のイメージ、オブジェクトストレージ（gfeh）のイメージ、ingress のイメージ、そしてそのバックエンドが選ばれているときは Grafana を、`parallelEnsureImages` で並行に pull する（**流動的な**タグは起動のたびに pull し直し、固定されたタグは無いときだけ取得する —— *起動は流動的なイメージのタグを取り直す*を参照）。起動時のユニットが参照するイメージはすべてここに属する。イメージがローカルに無いユニットは `podman run` の内側で自分で pull するので、その準備完了の待ちがレジストリからのダウンロードと競走することになる。gfeh が、次いで ingress が、順にこの一覧から漏れており、そのたびに単にサービスが起動していないようにしか見えなかった。monitoring UI に独自の項目は要らない —— uPlot のバックエンドでは NC のイメージを動かしており、それは既にこの集合の先頭にある。
@@ -1447,7 +1447,7 @@ Town OS には `rolodex-dns` のコンテナが動かす統合されたローカ
 
 rolodex 自体は systemd がインストールして監督する起動サービスである —— systemcontroller はコンテナの水準でそれをインストールも、起動も、停止も、再起動もしない。代わりに `rolodex.Manager` は:
 
-- **`WriteConfig`** -- `DataDir` へ `rolodex.yml` を書く。冪等である。ファイルが存在し、systemcontroller のバイナリより新しく、期待する内容と既に一致しているときは書かずに飛ばす。ファイルが書かれたかどうかを示す真偽値を返す（呼び出し側が systemd のユニットを再起動するかを決められるように）。
+- **`WriteConfig`** -- `DataDir` へ `rolodex.yml` を描き出し、バイト列がディスク上のものと違えばいつでも書く。ファイルが実際に変わったかどうかを示す真偽値を返す（呼び出し側が、再起動する理由が本当にあるときだけ systemd のユニットを再起動できるように）。**無条件に調停する。そしてそれが荷重を担っている** —— [凍りついた設定](#凍りついた設定) を参照。
 - **`WaitForDNSReady`** -- `DNSLoopback:{port}` を TCP でポーリングし、接続を受け入れるか 30 秒の期限が過ぎるまで続ける。DNS に依存するあらゆる操作（イメージの pull など）の前に、起動時に呼ばれる。
 - **`SystemServices`** -- rolodex のシステムサービスのメタデータ（鍵、表示名、イメージ、ポート、ユニット名）を返すので、状態の応答と UI で他のシステムサービスと並んで現れる。
 - **`Status`** -- systemd のユニットの状態を問い合わせ、rolodex が動いているかを報告する。
@@ -1458,7 +1458,17 @@ rolodex のコンテナは `--net host` で動き、DNS を設定されたポー
 
 **素の `recursive` を既定にしてはならない。** それにはフォールバックが*無く*、rolodex の反復のリゾルバ（`src/resolver.rs`）は**ネームサーバーごとに 1500 ミリ秒の期限で、再送しない UDP のデータグラムを一つ**送る。現在の委譲の集合のすべてのサーバーが失敗すると `resolve()` はエラーになり、`iterative_query` は*あらゆる*エラーを SERVFAIL に変える。したがってパケットが一つ落ちれば問い合わせは SERVFAIL になり、外向きの :53 を遮断したり乗っ取ったりするネットワーク（ホテル、キャプティブポータル、一部の ISP）では*すべての*外部の名前が SERVFAIL になる。`auto` はネットワークが許すところでは再帰の持つプライバシーを保ち、許さないところでは失敗するのではなく劣化する。関連: rolodex の委譲のキャッシュと否定のキャッシュは `ce44bb5` で入ったが、それは**どのリリースのタグにも入っていない** —— それを載せたリリースが出るまで、recursive のモードはキャッシュされていない名前と NXDOMAIN のたびにルートから歩き直す（実測: 冷えた公開の名前で 0.6〜1.9 秒、RFC1918 の PTR で 2.7 秒）。
 
-このモードは `dns_resolution_mode` の設定（`auto` | `recursive` | `forward`。`ValidateDNSResolutionMode` が検証するので、解析できない値が `rolodex.yml` へ届いて DNS を壊すことは決してありえない）を通じて、実行時にオペレーターが設定できる。`main.go` は起動時にそれを `rolodex.Config` へ読み込む。`POST /settings/set` を通じた変更は `Controller.RefreshDNSResolutionMode` を走らせ、それが **`Manager.RewriteConfig()`** を呼んで rolodex のユニットを再起動する。`RewriteConfig` が存在するのは、まさに `WriteConfig` が systemcontroller のバイナリより新しい `rolodex.yml` の上書きを拒む（それを手で編集されたものとみなす）からである —— そして前回の起動で書かれたファイルは*常に*その条件を満たすので、`WriteConfig` ではオペレーターの起こした変更が黙って何もしないことになってしまう。起動時には `WriteConfig` を、実行時の変更には `RewriteConfig` を使うこと。
+このモードは `dns_resolution_mode` の設定（`auto` | `recursive` | `forward`。`ValidateDNSResolutionMode` が検証するので、解析できない値が `rolodex.yml` へ届いて DNS を壊すことは決してありえない）を通じて、実行時にオペレーターが設定できる。`main.go` は起動時にそれを `rolodex.Config` へ読み込む。`POST /settings/set` を通じた変更は `Controller.RefreshDNSResolutionMode` を走らせ、それが **`Manager.RewriteConfig()`** を呼んで rolodex のユニットを再起動する。`RewriteConfig` は今や `WriteConfig` の実行時の*名前*でしかなく、二つの振る舞いは同一である。かつては違っていて、その違いが次の節の主題である。
+
+### 凍りついた設定
+
+`WriteConfig` はかつて、mtime が systemcontroller のバイナリより新しい `rolodex.yml` を飛ばしていた。新しいファイルは手で編集されたものだろう、という理屈である。**どの起動が書くファイルも、それを書いたイメージの中のバイナリより新しい**ので、二度目の起動から先はその番人がコントローラ自身の出力に一致し、`WriteConfig` は永久の何もしない処理になった。`rolodex.yml` はその機械で最初に走ったコントローラが描き出したもののまま、機械の一生にわたって凍りつき、どんなイメージの更新もそれを動かせなかった。`RewriteConfig` は、オペレーターの起こした変更でこれを迂回するためだけに存在していた。
+
+したがって、ある機械の最初の起動より後にテンプレートへ加えられた節は、どれ一つとしてその機械へ届かなかった。これは二度出荷された —— `dnsbl:`（`31f7e80`）、次いで `metrics:`（`9689461`）—— そして二度目こそが、配備済みのある機械に rolodex のメトリクスの listener がまるごと無かった理由である。Prometheus は 15 秒ごとに予定どおり `127.0.0.2:9153` を収集し、そこには何一つバインドされておらず、`rolodex_*` の系列は一度も存在せず、そして DNS のパネルはどれも**エラーではなく空のグラフ**を描いた —— 暇なリゾルバと見分けがつかない。その間ずっと `systemctl --failed` は空で、コンテナはすべて上がっていた。
+
+守られていた実体は何も無かった。ファイルの中のどの値も Town OS の状態から描き出される —— DNS のポート、フォワーダー、解決のモード、二つのブロックリスト、メトリクスのポート —— そしてそのどれかを変える実行時の経路は、いずれにせよ既にファイルを上書きしていた（それが `RewriteConfig` の正体である）。手による編集は、以前は次の設定変更まで生き延びた。今は次の起動まで生き延びる。
+
+回帰のテストは `TestWriteConfigReplacesConfigNewerThanTheBinary` と `TestWriteConfigAddsSectionsMissingFromAnOlderRendering`（単体）、そして `TestUpgradedControllerOpensRolodexMetricsListener`（統合）である。最後のものは `9689461` より前の設定を未来の mtime とともに置き、起動の入口を通してそれを調停し、そのあと本物の rolodex のコンテナが開ける listener を収集する。
 
 ### ローカルのフォワーダー
 
@@ -1778,7 +1788,13 @@ Prometheus と Node Exporter は起動時に常に開始される。Grafana か 
 - **`/metrics` は監査のログから除外され**、自分自身の要求のカウンタからも除かれる。そうしないと 15 秒ごとの収集が、オペレーターの操作でないものを記述する監査の行を一日に約 5,700 行書き、自分が提供しているカウンタを支配してしまう。
 - **`metricsMiddleware` は三つのうち最も外側に登録される**（監査と権限付与の許可リストより前）ので、どちらの門で拒まれた要求も数えられる —— 説明のつかない 403 こそ、このカウンタが可視化するために存在するものである。ハンドラがエラーを返したときはそのエラーからステータスを取る。エラーを返したハンドラはまだ自分のステータスを書いていないからである。
 
-**収集の対象がどこかで組み立て直されることは無い。** `MetricsScrapeTarget(listenAddr)` はサーバーがバインドするのと同じ文字列からそれを導き、`main.go` がその結果を `monitoring.Ports.ControllerMetrics` へ渡す —— `PackageNetworkState.FQDN` と `Manager.MetricsAddr()` が存在するのと同じ、唯一の真実の出所という理由である。ワイルドカードのバインド（`:5309`、`0.0.0.0:5309`、`[::]:5309`）は `localhost` へ書き換えられる。ワイルドカードは何かが接続できるアドレスではないからである。明示的に固定されたホストはそのまま放っておかれる。書き換えれば、コントローラが意図的にいないアドレスへ収集を向けてしまうからである。結果が空のときは、推測へ向けるのではなくそのジョブを省く。`TOWN_OS_TLS` が入のとき、`ControllerMetricsScheme` は `https` になり、そのジョブは `insecure_skip_verify` も運ぶ —— リーフはこの機械自身の CA が発行したものであり、Prometheus にはそれを信じる理由も、それを綺麗に渡される手立ても無く、そしてこの収集はホストの名前空間の中のループバックなので、他の何かがそれとして答えることはできないからである。
+**収集の対象がどこかで組み立て直されることは無い。** `MetricsScrapeTarget(listenAddr)` はサーバーがバインドするのと同じ文字列からそれを導き、`main.go` がその結果を `monitoring.Ports.ControllerMetrics` へ渡す —— `PackageNetworkState.FQDN` と `Manager.MetricsAddr()` が存在するのと同じ、唯一の真実の出所という理由である。ワイルドカードのバインド（`:5309`、`0.0.0.0:5309`、`[::]:5309`）は `localhost` へ書き換えられる。ワイルドカードは何かが接続できるアドレスではないからである。明示的に固定されたホストはそのまま放っておかれる。書き換えれば、コントローラが意図的にいないアドレスへ収集を向けてしまうからである。結果が空のときは、推測へ向けるのではなくそのジョブを省く。
+
+**そして方式は、二度目の導出ではなくソケットに尋ねる。** `systemcontroller.ListenerSpeaksTLS` がコントローラ自身の listener に対して TLS のハンドシェイクを完了したとき `ControllerMetricsScheme` は `https` になり、そのジョブは `insecure_skip_verify` も運ぶ —— リーフはこの機械自身の CA が発行したものであり、Prometheus にはそれを信じる理由も、それを綺麗に渡される手立ても無く、そしてこの収集はホストの名前空間の中のループバックなので、他の何かがそれとして答えることはできないからである。
+
+以前はその代わりに `TOWN_OS_TLS` を二度目に読んでいて、配備済みのある機械では二つの導出が食い違った。`prometheus.yml` は `scheme: https` を運び、`:5309` は平文を提供していたので、Prometheus は TLS の接続を開き、平文の HTTP の応答を受け取り、**その設定の一生のあいだ収集をすべて失敗させた**。`insecure_skip_verify` はこれに何の助けにもならない —— それが緩めるのは証明書の検証であり、問題はハンドシェイクがそもそも一度も無いことだからである。上に並ぶ二十いくつの `townos_*` のメトリクスは一つ残らず、書き出されては床に落とされていた。そして唯一の痕跡は Prometheus 自身の対象一覧の中で `down` に座るジョブであり、それをこの機械の上の何かが表に出すことはない。ハンドシェイクはソケットと食い違えない。それはまた `TOWN_OS_TLS_CERT`/`TOWN_OS_TLS_KEY` も覆う —— これらは古い導出が読んでいた変数を経ずに TLS を終端する。
+
+この探りは三秒で区切られ、何も接続を受け付けないときは起動自身の見立てへ落ちる —— 尋ねるソケットが無く、ジョブを出さないことは誤った方式と同じだけ確実に収集を殺すからである。観測された方式と設定された方式が食い違うとき、`SchemeDisagreement` がそれを stderr へ一度だけ報告する。収集はどちらにせよ直るが、オペレーターが TLS を求めた後に login のパスワードを平文で提供している機械は、その修復が覆い隠してしまう安全上の問題である。`TestListenerSpeaksTLS*`（単体）と `TestPrometheusScrapesTheSchemeTheListenerActuallySpeaks`（統合）が覆っている。後者は本物の Prometheus を、平文の listener と TLS の listener の両方に対して走らせる。
 
 ### 監視の UI
 

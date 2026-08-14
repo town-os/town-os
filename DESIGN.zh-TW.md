@@ -59,7 +59,7 @@ Town OS 如何運作：架構、各子系統的行為、API 介面，以及維�
 12. **解析鏡像標籤** —— `resolveImageTag()`：優先取 `TOWN_OS_TAG` 環境變數（由 install 構建系統設定），否則取 `rc.latest-<arch>`（`defaultVersionTag()`，架構由 `runtime.GOARCH` 經 `archTag()` 對映為 `x86_64`/`aarch64`）。不存在 `/town-os.tag` 檔案，也沒有編譯期的 `Version` 固定值。每一個同族鏡像標籤（UI、rolodex、network controller、ingress）都由這一個值推導；推送標籤是按架構分的，因此推匯出的同族標籤也是。
 13. **推導 NC 鏡像** —— `quay.io/town/networkcontroller:<tag>`，可通過 `NC_IMAGE` 覆蓋。它是拉取的（第 18 步），從不構建。
 14. **啟動後台倉庫重新整理** —— goroutine 每 5 分鐘輪詢一次。
-15. **階段 `boot_dns`：寫入 Rolodex 配置，內容變化則重啟** **(非致命)** —— Rolodex 是由 systemd 管理的啟動服務。systemcontroller 寫出 `rolodex.yml`（冪等：若該檔案比二進位制更新且內容未變則跳過），並且僅在檔案確實被寫入時才重啟服務。`resolution.mode` 來自 `dns_resolution_mode` 設定；儲存值無法解析時回退到預設值，而不是渲染出一份 rolodex 會拒絕的配置。`forwarders:` 來自 `dns_local_forwarders` 設定：開啟時，該列表在每次啟動時從宿主機的解析器中發現，因此換了網路的機器無需操作者做任何事就能用上新的解析器（參見 [Local forwarders](#本地轉發器)）。rolodex 容器以 `--net host` 執行，並直接把 DNS 繫結到 `127.0.0.2:{port}`。隨後等待 DNS 就緒（TCP 連線輪詢），並配置 systemd-resolved 把該 TLD 路由到 rolodex——**當 `TOWN_OS_DNS_PORT` 已把 rolodex 從 `:53` 遷走時，這一步被跳過**，因為 resolved 的按域名伺服器地址不攜帶埠，那樣會讓該 TLD 下的每一次查詢都被黑洞吞掉。
+15. **階段 `boot_dns`：寫入 Rolodex 配置，內容變化則重啟** **(非致命)** —— Rolodex 是由 systemd 管理的啟動服務。systemcontroller 寫出 `rolodex.yml`（冪等：僅當渲染出的位元組與磁碟上已有的內容一致時才跳過——它為什麼不再理會檔案的 mtime，參見[凍住的那份配置](#凍住的那份配置)），並且僅在檔案確實被寫入時才重啟服務。`resolution.mode` 來自 `dns_resolution_mode` 設定；儲存值無法解析時回退到預設值，而不是渲染出一份 rolodex 會拒絕的配置。`forwarders:` 來自 `dns_local_forwarders` 設定：開啟時，該列表在每次啟動時從宿主機的解析器中發現，因此換了網路的機器無需操作者做任何事就能用上新的解析器（參見 [Local forwarders](#本地轉發器)）。rolodex 容器以 `--net host` 執行，並直接把 DNS 繫結到 `127.0.0.2:{port}`。隨後等待 DNS 就緒（TCP 連線輪詢），並配置 systemd-resolved 把該 TLD 路由到 rolodex——**當 `TOWN_OS_DNS_PORT` 已把 rolodex 從 `:53` 遷走時，這一步被跳過**，因為 resolved 的按域名伺服器地址不攜帶埠，那樣會讓該 TLD 下的每一次查詢都被黑洞吞掉。
 16. **讀取監控後端並發現 btrfs 磁碟裝置** —— `monitoring_backend`（預設 `uplot`）；`monitoring.BtrfsDevices(btrfsPath)` **(非致命)** 通過 `/monitoring/status` 暴露底層塊裝置。
 17. **階段 `boot_services` 的第一步：自我更新** **(非致命)** —— `SelfUpdate` 刷新控制器*自身*的鏡像；當它所執行的標籤已經指向另一個鏡像時，請求 systemd 重啟 `town-os-systemcontroller.service` 並就此結束本次啟動（見*控制器自我更新*）。
 18. **階段 `boot_services`：拉取核心容器鏡像** **(非致命)** —— NC 鏡像、Prometheus、Node Exporter、UI 鏡像、物件儲存（gfeh）鏡像、ingress 鏡像，以及在選中該後端時的 Grafana，通過 `parallelEnsureImages` 並行拉取（**浮動**標籤每次啟動都會重新拉取；固定標籤只在缺失時拉取——見*啟動會刷新浮動鏡像標籤*）。凡是被啟動期單元參照的鏡像都屬於這裡：鏡像不在本地的單元會在 `podman run` 內部自行拉取，於是它的就緒等待要與一次 registry 下載賽跑。gfeh 與隨後的 ingress 曾先後從這份清單中缺席，而每一次看上去都只是某個服務沒起來。監控 UI 無需單獨條目——在 uPlot 後端下它執行的就是 NC 鏡像，而後者已在集合的首位。
@@ -269,6 +269,19 @@ questions:
 ### 編譯
 
 編譯會校驗所有應答、施加型別相關的校驗、替換所有模板變數、規範化容器鏡像 URL，併產出一個已解析的 `Package` 結構體。對於 VM 包，記憶體字串會被解析為位元組數，並應用 CPU 預設值。更新後命令會被去除首尾空白。校驗錯誤會被收集起來一併返回。
+
+**任何會進入 systemd unit 的值都不得攜帶控制字元。** unit 檔案是按行組織的，而它的引號不跨行：無論被什麼引號包裹，一條指令都在第一個裸換行處結束。因此攜帶換行的值並不是弄壞它自己那一行——換行之後的一切都會被當作同一個 `[Service]` 小節裡的一條**新指令**解析，於是一個形如 `somevalue\nExecStartPre=/bin/sh -c '…'` 的環境變數值就往生成的 unit 裡加進了一條 `ExecStartPre`。這跨越的是一條許可權邊界，而不只是產出了糟糕的輸出：包作者本來就掌控鏡像與命令，那是對*容器內部*執行什麼的權力；而一條 systemd 指令是在 podman 被呼叫之前，以 **root 身份在宿主機上**執行的。
+
+`packages.ValidateNoControlChars` 拒絕每一個 C0 控制字元與 DEL。**製表符是唯一的例外**——它是合法的空白，而 systemd 的分詞器把它當作一個引號確實能夠包住的分隔符。
+
+這項檢查執行**兩次，且兩趟都是承重的**：
+
+- `InputPackage.Validate()` 覆蓋作者寫在 `environment`、`command` 與 `entrypoint` 中的字面量。它在 `Compile` 的*開頭*執行，因此它看到的永遠是替換之前的文字。
+- 在 `Compile` 末尾對**已編譯**的包做一趟掃描，覆蓋替換之後的一切：環境變數值、command、entrypoint、卷掛載點與 `post_update`。這才是要緊的那一趟。YAML 裡寫作裸 `@marker@` 的值自身不含控制字元，因而透過 `Validate()`；換行是隨*應答*到來的。而一個未宣告 `type:` 的問題，根本沒有別的東西會校驗它——這就使應答這條路徑成為真正帶著呼叫方選定的位元組抵達 unit 檔案的那一條。
+
+`systemd.quoteCommandArg` 作為兜底剝除同樣的字元，因為 unit 生成沒有錯誤返回值，而它是位元組被寫入 `/etc/systemd/system` 之前的最後一個點。它選擇**丟棄**而非轉義：systemd 確實會在引號內解析 C 風格轉義，但當根本沒有正當理由去投遞這個位元組時，把一條安全邊界押在解析器的某個細節上不會帶來任何收益。
+
+先前能工作的東西沒有一樣被拒絕。多行的值本來就已經產出壞掉的 unit；改變之處在於它現在會在編譯期大聲失敗，而不是悄無聲息地生成一個無人檢查的 unit。
 
 ### 更新後命令（Post-Update Commands）
 
@@ -982,6 +995,14 @@ gfeh:      GET  /gfeh             GET  /gfeh/principals      POST /gfeh/principa
 
 **被停用帳戶的令牌一到就是死的。** `Validate` 檢查 `Disabled` 並拒絕，因為登入之後的每一個請求都僅由該函式授權：沒有這項檢查，停用一個帳戶只是阻止它*再次*登入，而它已經持有的令牌在整個會話生命週期內仍然有效，並且會因被使用而自我續期。
 
+**沒有會話管理器意味著不提供服務，而不是敞開服務。** 這臺機器上的每一個授權判定，過去都由同一個 nil 推導而來：`requireAuth`、`requireAdmin`、`requireGrant`、`revokeSession`、`requireNetworkScope` 與 `callerIsAdmin` 都把 `GetSessionManager() == nil` 讀作「認證根本沒有配置，那就放行吧」。這就讓*沒有人可供認證*與*所有人都被授權*成了同一個狀態——整個授權面距離把 `POST /account/create` 與 `POST /packages/install` 端給一個匿名呼叫者，只差一個未設定的欄位；而這臺控制器是以 root 身份驅動宿主機 podman socket 的，型別系統裡沒有任何東西點出這一點，真發生了也不會有任何錯誤。
+
+現在這個條件是 **`ServerConfig.AuthDisabled`：明說，而非推斷**。在認證啟用的情況下缺少會話管理器屬於配置錯誤，`NewHandler` 會返回 `ErrAuthNotConfigured` 而不是一個 handler——在構造期拒絕，而不是每個請求各拒絕一次，因為一臺啟動之後對每條需鑑權路由都回 500 的機器是一場令人困惑的故障，而一臺拒絕啟動的機器會在日誌裡把問題說明白一次，趁它還能被修好。中介軟體同樣拒絕這一狀態，因此由任何其他路徑拼裝出來的 handler 集合也是關閉的。
+
+`InitTestServer` 會在——且僅在——配置未安裝會話管理器時設定 `AuthDisabled`。這正是讓那約 230 處從不構造會話管理器的測試呼叫點原封不動繼續工作的原因；而*確實*構造了會話管理器的測試，其鑑權仍舊被強制執行——在那裡關掉它會把整個測試套件裡的每一條授權斷言變成同義反覆。
+
+`callerIsAdmin` 是答案本身發生改變（而非僅僅換了位置）的那一處：對無法識別身份的呼叫者，它現在返回 **false**，而過去返回 true。抵達它的每一條路由都位於 `requireAuth` 或 `requireAdmin` 之後，而這兩者現在都會直接拒絕該狀態，因此實踐中它不可達——但一個做脫敏的輔助函式，不是可以憑這一點去慷慨的地方。
+
 `SessionManager` 介面提供：`Create`、`Validate`、`Revoke`、`RevokeAllForUser`、`Cleanup`、`List`、`GetUsername`、`HasActiveAdminSessions` 與 `StartCleanup`。
 
 會話 API 端點：
@@ -1010,6 +1031,20 @@ gfeh:      GET  /gfeh             GET  /gfeh/principals      POST /gfeh/principa
 - `GET /settings` —— 獲取所有設定（需要管理員）。
 - `POST /settings/get` —— 按鍵獲取特定設定（需要管理員）。
 - `POST /settings/set` —— 設定某項設定的值（需要管理員，計入審計）。位元組值類設定（`default_quota`、`max_archive_size`）接受人類可讀的字串（例如 "500GB"、"10MB"），它們會被解析並以數值位元組數儲存。
+
+**每一個帳戶管理器的每個方法都接收 context，而 `dbTimeout` 是一個上限，而非全部。** 它們過去每次查詢都自開一個根 context（`account.dbCtx`，現已移除），這意味著呼叫方的取消停在管理器邊界上：一個被放棄的 HTTP 請求仍在繼續幹活，優雅關閉也打斷不了一次查詢。這在此處比在別處更要緊，因為 `OpenDB` 設定了 `SetMaxOpenConns(1)` —— SQLite 只允許一個寫者，於是每一次查詢都被序列化在同一條連線之後，一次慢查詢會把其他每一個呼叫方都卡在一段無法打斷的 30 秒等待之後。
+
+`account.queryCtx` 改為從呼叫方派生：帶有更短 deadline 的呼叫方保留自己的 deadline，沒有 deadline 的呼叫方仍舊不會永遠掛住，而被取消的呼叫方會終止查詢，而不是任由它跑完自己的鐘。nil context 被讀作 `context.Background()` 而不是 panic ——管理器不是因為呼叫方漏傳一個引數就把整臺機器帶下去的那一層，而直接構造 handler 的測試會讓伺服端 context 保持為 nil。
+
+Handler 傳 `c.Request().Context()`；後臺 goroutine 傳伺服端作用域的 context，絕不傳請求的 —— 因為該操作必須比觸發它的那個請求活得更久。
+
+**`getLocale()` 是唯一一處刻意的例外**，它使用伺服端 context 而不是接收一個。它被約 55 處呼叫，幾乎全都在構造錯誤訊息；而請求 context 本來也是錯誤的界限：它唯一已被取消的情形是客戶端掛斷了，那時這條訊息無論如何都不會被送達。
+
+六個全部完成 —— `SettingsManager`、`AuditManager`、`PagesManager`、`NetworkManager`、`SessionManager` 與 `Manager` —— 連同 `OpenDB`，`dbCtx` 已經消失。
+
+有兩個方法取**伺服端** context 而非呼叫方的，且兩者都是刻意為之。`AuditManager.LogEntry` 由 `auditMiddleware` 在 handler 返回*之後*呼叫，用以記錄它做了什麼：傳請求 context 會讓一個中途掛斷的客戶端取消掉那條記錄該請求的寫入，於是最少被記錄下來的動作，恰好就是有人中途斷開的那些。`NetworkManager.ReapExpiredPeers` 是後臺的 peer 清掃，它只完成一半會留下活的 WireGuard 裝置仍在攜帶的 peer。
+
+`Manager.Authenticate` 接收的 context 約束它前後的兩次查詢，但**不**約束夾在中間的 argon2id 雜湊 —— argon2 沒有取消機制，而限制併發雜湊（每次 64 MiB）的是 `loginGate`。
 
 ### 設定 UI
 
@@ -1413,7 +1448,7 @@ Town OS 內建一個由 `rolodex-dns` 容器驅動的本地 DNS 解析器。rolo
 
 rolodex 本身是由 systemd 安裝與監管的啟動服務——systemcontroller 不在容器層面安裝、啟動、停止或重啟它。取而代之，`rolodex.Manager` 負責：
 
-- **`WriteConfig`** —— 把 `rolodex.yml` 寫入 `DataDir`。冪等：當該檔案存在、比 systemcontroller 二進位制更新、且內容已與預期一致時跳過寫入。返回一個布林值表示檔案是否被寫入（以便呼叫方決定是否重啟 systemd 單元）。
+- **`WriteConfig`** —— 把 `rolodex.yml` 渲染進 `DataDir`，只要位元組與磁碟上的不同就寫入。返回一個布林值表示檔案是否真的發生了變化（以便呼叫方僅在確有可重啟之事時才重啟 systemd 單元）。**它無條件地做調和，而這是承重的**——參見[凍住的那份配置](#凍住的那份配置)。
 - **`WaitForDNSReady`** —— 通過 TCP 輪詢 `DNSLoopback:{port}`，直到它接受連線或超過 30 秒截止時間。在啟動時、任何依賴 DNS 的操作（例如鏡像拉取）之前呼叫。
 - **`SystemServices`** —— 返回 rolodex 系統服務的後設資料（key、顯示名、鏡像、埠、單元名），使它與其他系統服務一同出現在狀態響應與 UI 中。
 - **`Status`** —— 查詢 systemd 單元狀態以報告 rolodex 是否在執行。
@@ -1424,7 +1459,17 @@ rolodex 容器以 `--net host` 執行，並把 DNS 繫結到 `DNSLoopback`（`12
 
 **不要把裸 `recursive` 作為預設值。** 它*沒有*回退，而且 rolodex 的迭代解析器（`src/resolver.rs`）對每個域名伺服器只發送**一個不重傳的 UDP 資料包，截止時間 1500 毫秒**；噹噹前委派集合中的每個伺服器都失敗時，`resolve()` 報錯，而 `iterative_query` 會把*任何*錯誤都轉換成 SERVFAIL。因此一個丟包就會讓一次查詢 SERVFAIL；而在過濾或劫持出站 :53 的網路上（酒店、強制門戶、某些 ISP），*每一個*外部名稱都會 SERVFAIL。`auto` 在網路允許的地方保留遞迴帶來的隱私性，在不允許的地方則降級而不是失敗。相關：rolodex 的委派快取與否定快取落在 `ce44bb5`，而該提交**不在任何已釋出的標籤中**——在釋出版本包含它之前，recursive 模式會為每一個未快取的名稱與每一次 NXDOMAIN 重新從根開始走一遍（實測：冷公共名稱 0.6–1.9 秒，RFC1918 PTR 為 2.7 秒）。
 
-該模式可由運維在執行時通過 `dns_resolution_mode` 設定配置（`auto` | `recursive` | `forward`；由 `ValidateDNSResolutionMode` 校驗，因此無法解析的值絕不可能到達 `rolodex.yml` 並把 DNS 弄砸）。`main.go` 在啟動時把它讀入 `rolodex.Config`；通過 `POST /settings/set` 的更改會執行 `Controller.RefreshDNSResolutionMode`，後者呼叫 **`Manager.RewriteConfig()`** 並重啟 rolodex 單元。`RewriteConfig` 之所以存在，正是因為 `WriteConfig` 拒絕覆蓋比 systemcontroller 二進位制更新的 `rolodex.yml`（它把那視為被手工編輯過）——而上一次啟動寫出的檔案*總是*滿足該條件，因此對於運維發起的更改 `WriteConfig` 會靜默地什麼也不做。啟動時用 `WriteConfig`，執行時更改用 `RewriteConfig`。
+該模式可由運維在執行時通過 `dns_resolution_mode` 設定配置（`auto` | `recursive` | `forward`；由 `ValidateDNSResolutionMode` 校驗，因此無法解析的值絕不可能到達 `rolodex.yml` 並把 DNS 弄砸）。`main.go` 在啟動時把它讀入 `rolodex.Config`；通過 `POST /settings/set` 的更改會執行 `Controller.RefreshDNSResolutionMode`，後者呼叫 **`Manager.RewriteConfig()`** 並重啟 rolodex 單元。`RewriteConfig` 如今只是 `WriteConfig` 在執行時的一個*名字*，除此之外別無區別——兩者行為完全一致。它們曾經並不一致，而那處區別正是下一節的主題。
+
+### 凍住的那份配置
+
+`WriteConfig` 曾經會跳過任何 mtime 比 systemcontroller 二進位制更新的 `rolodex.yml`，理由是更新的檔案想必是被手工編輯過的。**每一次啟動寫出的檔案，都比寫出它的那個鏡像裡的二進位制更新**，因此從第二次啟動起，這道護欄匹配上的正是控制器自己的輸出，`WriteConfig` 就此變成了永久的空操作。`rolodex.yml` 凍結在這臺機器上跑過的第一個控制器所渲染出的樣子，終其一生，任何鏡像更新都推不動它。`RewriteConfig` 存在的唯一目的，就是在運維發起更改時繞開這一點。
+
+在一臺機器首次啟動之後才加進模板的每一個小節，因此從來沒有到達過那臺機器。這件事發生過兩次——先是 `dnsbl:`（`31f7e80`），然後是 `metrics:`（`9689461`）——而第二次正是某臺已部署的機器上壓根沒有 rolodex 指標監聽器的原因。Prometheus 每 15 秒準點抓取 `127.0.0.2:9153`，那裡從來沒有東西在監聽，`rolodex_*` 系列從未存在過，而每一塊 DNS 面板渲染出的是**空圖而不是錯誤**——與一臺空閒的解析器無從分辨。全程 `systemctl --failed` 是空的，每一個容器都在執行。
+
+沒有任何真實的東西被保護到。檔案裡的每一個值都是從 Town OS 的狀態渲染出來的——DNS 埠、轉發器、解析模式、兩份阻斷名單、指標埠——而每一條會改動其中之一的執行時路徑，本來就已經不管不顧地覆蓋了該檔案（那正是 `RewriteConfig` 的全部）。手工編輯以前能活到下一次設定變更；現在它活到下一次啟動。
+
+回歸測試是 `TestWriteConfigReplacesConfigNewerThanTheBinary` 與 `TestWriteConfigAddsSectionsMissingFromAnOlderRendering`（單元），以及 `TestUpgradedControllerOpensRolodexMetricsListener`（整合）——後者放置一份 `9689461` 之前的配置並給它一個未來的 mtime，通過啟動入口把它調和一遍，然後抓取一個真實 rolodex 容器隨之開啟的那個監聽器。
 
 ### 本地轉發器
 
@@ -1488,6 +1533,32 @@ rolodex 客戶端，因此即便是冷啟動，home 作用域（以及每個網�
 
 1. 它的 **A 記錄**，2. 它的**葉子證書 SAN**，3. 它的 **DANE TLSA 屬主**，
 以及 4. 它在共享 `:443` 上的 **ingress vhost**。
+
+**三個釋出方現在都經由同一個校驗器來組裝這個名稱。** 一個包、一個 page、一個物件儲存
+分割槽，各自都會在某個網路的 TLD 之下拿到一個名稱，而過去它們各自組裝各自的——彼此對
+「什麼才算合法名稱」並不一致。`gfehFQDN` 會規範化標籤、按嚴格的 LDH 規則校驗每一個以點
+分隔的分量，並拒絕限定之後超過 253 字元的名稱；`packageFQDN` 是裸拼接，兩項檢查都沒有；
+`pageFQDN` 除了去除首尾空白之外什麼也不檢查。`qualifyPublishedName`
+（`src/svc/systemcontroller/published_name.go`）現在是唯一的組裝者，把 gfeh 的規則施加
+於三者；而 `validatePublishedName` 是它不做限定的那一半，供那些必須被檢查、卻不該被組裝
+的名稱使用。未通過的名稱會被**丟棄** —— 每個收集器本來就會跳過空的 FQDN，因此它貢獻的
+是「沒有記錄、沒有路由、沒有證書、沒有目錄」，而不是給這四樣東西各一個壞掉的 —— 並且這條
+拒絕記錄在 **Error** 級別，因為 `LOG_LEVEL` 預設就是 `error`，而一個悄無聲息地不再解析的
+服務，絕不能只有把日誌級別調高才能被發現。
+
+**page 的 domain 在 API 處就被校驗，而不只是在組裝時。** 對 page 而言這個名稱還是第
+*五*樣東西：它在磁碟上的子卷與 webroot 符號連結，因為 pages 的 Caddy 以 `/srv/<host>`
+為根。`ValidatePageDomain` 在 `POST /pages/create` 與 `POST /pages/update` 兩處都會執行，
+返回 400。要緊的是 update 這條路由：create 是被順帶覆蓋到的——`CreateFilesystem` 會執行
+`storage.ValidateFilesystemName`，handler 在抵達符號連結那段程式碼之前就已回滾；而
+`migratePageDir` 只是把 `RenameFilesystem` 的失敗記進日誌，然後照樣繼續執行
+`RemovePageSymlink` / `EnsurePageSymlink`。
+
+微妙之處在於：**公共 FQDN 豁免於限定，但不豁免於校驗**。`isPublicFQDN` 會把任何含點且不
+以該 TLD 結尾的名稱讀作運營者自己的域名，按原樣經 ACME 提供服務——這對 `blog.example.com`
+是正確的，同時也正是 `../escape.example.com`、`site.example.com/../../etc` 與
+`site.example.com other.example.com` 未經檢查就抵達 `filepath.Join` 和 Caddyfile 的途徑。
+「那是運營者的域名」是不該把它組裝到本機 TLD 之下的理由；它從來都不是不去檢查它的理由。
 
 為防止它們漂移，FQDN 只被計算**一次**——在 `applyPackageTLS` 中，與簽發葉子證書同一行——
 並作為 `PackageNetworkState.FQDN` 持久化（按包的網路狀態 JSON 中的 `fqdn`）。ingress 路由
@@ -1797,7 +1868,13 @@ Prometheus 與 Node Exporter 在啟動時總是被啟動。監控後端設定決
 - **`/metrics` 被排除在審計日誌之外**，也被排除在它自己的請求計數器之外。否則 15 秒一次的抓取每天會寫下約 5,700 行審計記錄，而它們描述的不是任何運維做過的事，並且會主導它所服務的那個計數器。
 - **`metricsMiddleware` 註冊在三者的最外層**（在審計與授權白名單之前），這樣被任一道門拒絕的請求仍會被計數——一個無法解釋的 403 恰恰是這個計數器要暴露的東西。它從返回的 error 中取狀態碼，因為返回 error 的處理器此時還沒有寫出自己的狀態碼。
 
-**抓取目標在任何地方都不會被重新拼裝。** `MetricsScrapeTarget(listenAddr)` 從伺服器繫結所用的同一個字串推導它，而 `main.go` 把結果交給 `monitoring.Ports.ControllerMetrics`——與 `PackageNetworkState.FQDN` 和 `Manager.MetricsAddr()` 存在的理由相同，都是唯一事實來源。通配繫結（`:5309`、`0.0.0.0:5309`、`[::]:5309`）會被改寫為 `localhost`，因為萬用字元不是任何東西能連線的地址；而顯式指定的主機會被原樣保留，因為改寫它會把抓取指向控制器刻意不在的地址。結果為空時會省略該 job，而不是指向一個猜測。當 `TOWN_OS_TLS` 開啟時，`ControllerMetricsScheme` 為 `https`，該 job 還會攜帶 `insecure_skip_verify`——葉子證書由本機自己的 CA 簽發，Prometheus 沒有理由信任它，也沒有乾淨的途徑拿到它，而這次抓取是宿主機名稱空間內的環回通訊，因此不可能有別的東西冒充它應答。
+**抓取目標在任何地方都不會被重新拼裝。** `MetricsScrapeTarget(listenAddr)` 從伺服器繫結所用的同一個字串推導它，而 `main.go` 把結果交給 `monitoring.Ports.ControllerMetrics`——與 `PackageNetworkState.FQDN` 和 `Manager.MetricsAddr()` 存在的理由相同，都是唯一事實來源。通配繫結（`:5309`、`0.0.0.0:5309`、`[::]:5309`）會被改寫為 `localhost`，因為萬用字元不是任何東西能連線的地址；而顯式指定的主機會被原樣保留，因為改寫它會把抓取指向控制器刻意不在的地址。結果為空時會省略該 job，而不是指向一個猜測。
+
+**而協議是向套接字問出來的，不是第二次推導出來的。** 當 `systemcontroller.ListenerSpeaksTLS` 對控制器自己的監聽器成功完成一次 TLS 握手時，`ControllerMetricsScheme` 為 `https`，該 job 還會攜帶 `insecure_skip_verify`——葉子證書由本機自己的 CA 簽發，Prometheus 沒有理由信任它，也沒有乾淨的途徑拿到它，而這次抓取是宿主機名稱空間內的環回通訊，因此不可能有別的東西冒充它應答。
+
+它以前的做法是把 `TOWN_OS_TLS` 再讀一遍，而在一臺已部署的機器上，這兩次推導彼此不一致：`prometheus.yml` 裡寫著 `scheme: https`，而 `:5309` 提供的是明文，於是 Prometheus 發起 TLS 連線、收到明文 HTTP 應答，並在**這份配置的整個生命週期裡讓每一次抓取都失敗**。`insecure_skip_verify` 對此毫無幫助——它放寬的是證書校驗，而問題在於握手根本沒有發生。上面那二十來個 `townos_*` 指標每一個都被匯出、又被丟在地上，而唯一的痕跡是 Prometheus 自己的目標列表裡有一個處於 `down` 的 job，這一點機器上沒有任何東西會呈現出來。一次握手不可能與套接字意見相左；它同時還覆蓋了 `TOWN_OS_TLS_CERT`/`TOWN_OS_TLS_KEY`——它們終結 TLS，卻根本不經過舊推導所讀的那個變數。
+
+這次探測有三秒的上限，當沒有東西接受連線時回退到啟動自身的判斷——那時沒有套接字可問，而不發出 job 與協議選錯一樣確鑿地毀掉這次抓取。當觀測到的協議與配置的協議不一致時，`SchemeDisagreement` 會在 stderr 上報告一次：抓取無論如何都會被修好，但一臺在運維要求了 TLS 之後仍以明文提供登入密碼的機器，是一個安全問題，而那次修復恰恰會把它掩蓋掉。由 `TestListenerSpeaksTLS*`（單元）與 `TestPrometheusScrapesTheSchemeTheListenerActuallySpeaks`（整合）覆蓋，後者用一個真實的 Prometheus 分別對明文監聽器與 TLS 監聽器各跑一遍。
 
 ### 監控 UI
 
