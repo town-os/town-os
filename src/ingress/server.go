@@ -13,6 +13,7 @@ package ingress
 import (
 	"context"
 	"sync"
+	"time"
 
 	"gitea.com/town-os/town-os/src/caddysup"
 	ingresspb "gitea.com/town-os/town-os/src/ingress/proto"
@@ -29,6 +30,18 @@ type Server struct {
 	httpsPort      int
 	httpPort       int
 	defaultBackend string
+	// lastReloadOK is when the last successful reload happened, guarded by mu
+	// and exported as townos_ingress_last_reload_success_time_seconds.
+	lastReloadOK time.Time
+
+	// caddyMetricsURL is the caddy child's admin metrics endpoint, passed
+	// through by the scrape handler. A field rather than the constant inline so
+	// a test can point it at an httptest server — or at "" to turn the
+	// passthrough off — without reaching a real admin API.
+	caddyMetricsURL string
+
+	metricsOnce  sync.Once
+	metricsStore *metricsState
 }
 
 // NewServer returns an ingress Server backed by the given caddy supervisor.
@@ -38,11 +51,12 @@ type Server struct {
 // hosts (the Town OS UI); empty means no fallback vhost is emitted.
 func NewServer(sup caddysup.CaddySupervisor, httpsPort, httpPort int, defaultBackend string) *Server {
 	return &Server{
-		routes:         make(map[string]*ingresspb.Route),
-		sup:            sup,
-		httpsPort:      httpsPort,
-		httpPort:       httpPort,
-		defaultBackend: defaultBackend,
+		routes:          make(map[string]*ingresspb.Route),
+		sup:             sup,
+		httpsPort:       httpsPort,
+		httpPort:        httpPort,
+		defaultBackend:  defaultBackend,
+		caddyMetricsURL: caddyAdminMetricsURL,
 	}
 }
 
@@ -57,18 +71,27 @@ func (s *Server) Bootstrap() error {
 
 // applyLocked renders the current route set and reloads caddy. The caller must
 // hold s.mu. Reload is a no-op when the rendered bytes are unchanged.
+//
+// Every render and every reload is tallied here rather than at the three call
+// sites, so a future mutation cannot be added that quietly reloads without
+// being counted.
 func (s *Server) applyLocked() error {
 	list := make([]*ingresspb.Route, 0, len(s.routes))
 	for _, r := range s.routes {
 		list = append(list, r)
 	}
-	return s.sup.Reload(renderCaddyfile(list, s.httpsPort, s.httpPort, s.defaultBackend))
+	content, tally := renderCaddyfileTally(list, s.httpsPort, s.httpPort, s.defaultBackend)
+	s.recordTally(tally)
+	err := s.sup.Reload(content)
+	s.recordReloadLocked(err)
+	return err
 }
 
 // SetRoutes replaces the entire route set (idempotent reconcile).
 func (s *Server) SetRoutes(_ context.Context, req *ingresspb.SetRoutesRequest) (*ingresspb.SetRoutesResponse, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.metricsCounters().routeChanges.Inc(opSetRoutes)
 	s.routes = make(map[string]*ingresspb.Route, len(req.GetRoutes()))
 	for _, r := range req.GetRoutes() {
 		if r.GetHostname() != "" {
@@ -86,6 +109,7 @@ func (s *Server) AddRoute(_ context.Context, req *ingresspb.AddRouteRequest) (*i
 	r := req.GetRoute()
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.metricsCounters().routeChanges.Inc(opAddRoute)
 	if r.GetHostname() != "" {
 		s.routes[r.GetHostname()] = r
 	}
@@ -99,6 +123,7 @@ func (s *Server) AddRoute(_ context.Context, req *ingresspb.AddRouteRequest) (*i
 func (s *Server) RemoveRoute(_ context.Context, req *ingresspb.RemoveRouteRequest) (*ingresspb.RemoveRouteResponse, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.metricsCounters().routeChanges.Inc(opRemoveRoute)
 	delete(s.routes, req.GetHostname())
 	if err := s.applyLocked(); err != nil {
 		return nil, err

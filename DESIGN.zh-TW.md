@@ -1400,9 +1400,43 @@ ingress 是共享的 Host 路由器：一個 sidecar，監管一個 Caddy 子程
 
 輸出**按主機名排序**，因此跨多次 reconcile 渲染出的位元組是確定性的——這正是讓監管程序對內容未變的過載做空操作的前提。全域配置為 `auto_https off`（證書由 Town OS 管理）與 `protocols h1 h2`（ingress 只發布 TCP，因此基於 UDP 的 H3/QUIC 不可達）。Caddy 的管理 API 被刻意**保持啟用**在其預設的容器本地 `localhost:2019` 上：監管程序用 `caddy reload` 編排新路由，而該命令正是與那個端點通訊，因此 `admin off` 會讓首次啟動之後的每一次路由更新都失效。
 
-ingress 是**與網路介面無關的**：它以 `-p 443:443` / `-p 80:80` 釋出且不指定宿主機 IP，其 Caddyfile 中**沒有 `bind` 指令**，因此 Caddy 在所有介面上監聽，並純粹依據 SNI/Host 選擇 vhost。區域網客戶端與 overlay peer 命中同一個監聽器、SNI 選中同一個 vhost、拿到同一張本地 CA 葉子證書，並被代理到同一個容器。不要新增 `bind` 指令，也不要新增按網路的監聽器。
+ingress 是**與網路介面無關的**：它以 `-p 443:443` / `-p 80:80` 釋出且不指定宿主機 IP，其 Caddyfile 中**沒有 `bind` 指令**，因此 Caddy 在所有介面上監聽，並純粹依據 SNI/Host 選擇 vhost。（唯一被釘在某個主機 IP 上的監聽器是 Prometheus 端點，它服務的是這臺機器自己而不是它的客戶端——參見 [ingress 的指標](#ingress-的指標)。）區域網客戶端與 overlay peer 命中同一個監聽器、SNI 選中同一個 vhost、拿到同一張本地 CA 葉子證書，並被代理到同一個容器。不要新增 `bind` 指令，也不要新增按網路的監聽器。
 
 生產環境繫結 443/80；整合測試傳入臨時埠（渲染為 `host:PORT`），因此 `make test-full` 絕不會在特權埠上衝突。啟動流程通過 `RebuildIngress` 以宣告式方式編排完整路由集，與 `RebuildDNS` 是同一種推送模型；包與 page 的增刪改則通過同一套 gRPC API 編排增量變更。
+
+### ingress 的指標
+
+ingress 在**屬於它自己的第三個監聽器**上提供 Prometheus 文字展示格式（`ingress.MetricsPath = "/metrics"`，`ingress.DefaultMetricsPort = 9146`），由 `src/metrics` 渲染，方式與控制器的端點完全相同。它不能搭在既有的那兩個監聽器上：那兩個是這臺機器的正門，一個 `/metrics` 的 vhost 會讓區域網與 overlay 上的任何人都能透過 SNI 存取到它。
+
+**它只釋出在 `127.0.0.1` 上**（`-p 127.0.0.1:9146:9146`），這是「ingress 與網路介面無關」這條規則唯一刻意的例外。這份抓取列出了這臺機器所服務的每一個主機名，並標出其中哪些還沒有憑證——一張「什麼已釋出、什麼只完成了一半」的地圖——而它前面沒有任何認證。Prometheus 以 `--net host` 執行，因此它經回環直達該釋出埠，無需 podman 網路跳轉，與 node-exporter 和控制器的目標完全一樣。
+
+**抓取目標不在任何地方被重新拼裝。** `ingressctl.MetricsAddrFor(port)` 同時構建 unit 的 `-p` 規格與 `monitoring.Ports.IngressMetrics`，與 `rolodex.Manager.MetricsAddr()` 是同一種單一事實來源的安排。當 `INGRESS_IMAGE` 為空時，該 job 被**省略**：一臺沒有 ingress 的機器應當報告「沒有 ingress」，而不是一個讀起來永久當機的路由器。
+
+`ingress` job 匯出的內容：
+
+| 指標 | 型別 | 說明 |
+|---|---|---|
+| `townos_ingress_up` | gauge | 只要在服務就恆為 1；不在服務時整個消失 |
+| `townos_ingress_start_time_seconds` | gauge | 執行時長是 `time() - 本值`，用抓取端的時鐘 |
+| `townos_ingress_caddy_up` | gauge | 本次抓取中 caddy 子行程的 admin API 有應答時為 1 |
+| `townos_ingress_routes{tls}` | gauge | `local`/`acme`/`pending`——`pending` 表示已編排但還沒有葉子憑證 |
+| `townos_ingress_route_https_ready{hostname}` | gauge | 每條路由 1/0，讓維運看到*哪個*名字無法提供 HTTPS |
+| `townos_ingress_path_backends` | gauge | 所有路由上按路徑劃分的後端總數 |
+| `townos_ingress_reloads_total{result}` | counter | `success`/`failure` |
+| `townos_ingress_route_changes_total{op}` | counter | `set`/`add`/`remove` |
+| `townos_ingress_dropped_total{kind,reason}` | counter | 渲染器拒絕掉的東西 |
+
+此外還有 **caddy 自己的指標族**：從子行程容器本地的 admin API（`127.0.0.1:2019/metrics`）取回，原樣附加在回應之後。它們的名稱空間是 `caddy_*`/`go_*`/`process_*`，不可能與 `townos_ingress_*` 衝突。透傳是它們能到達 Prometheus 的唯一途徑——admin API 是刻意不對外釋出的——而它們描述的正是真正服務這臺機器每一個請求的那個行程。回應體不會被重新渲染：把它解析回指標族只會丟失資訊（caddy 匯出直方圖，而 `src/metrics` 刻意不建模直方圖）。
+
+有幾點是刻意的：
+
+- **`townos_ingress_dropped_total` 正是 `renderCaddyfileTally` 存在的理由。** 主機名畸形、後端不可用或路徑匹配器不合法的路由會被**單獨**丟棄而不是讓整次渲染失敗——這意味著它經 gRPC 被接受、被記一行日誌，然後就再也沒有被服務過。日誌是錯誤的儀器：在已經知道出事之前，沒有人會去讀 ingress 的 journal。
+- **路徑後端按路由驗證一次，而不是按 vhost 驗證一次。** 一條 page 路由既 HTTPS 就緒又是 `ServeHttp`，會從同一份路徑集合渲染出兩個站點塊；在寫入器內部驗證會把每一次拒絕都記兩遍。
+- **每個 counter 序列都以零播種。** `metrics.Render` 會跳過沒有樣本的指標族，因此未播種的 `townos_ingress_reloads_total{result="failure"}` 在第一次失敗之前根本不存在——那樣的告警要等它所監視的事件已經發生過一次之後才可能觸發。
+- **`townos_ingress_last_reload_success_time_seconds` 在第一次重載成功之前被省略**，而不是發成 0：`time() - 0` 讀起來是一份 56 年前的設定，而不是「還沒有設定」。
+- **一次抓取絕不整體失敗**，也絕不拖垮路由器。搆不著的 caddy 子行程只讓一個 gauge 變成 0，而不是讓整個回應消失；繫結不上的指標監聽器會被記錄並被承受下來，因為為了一個監控缺口而拒絕轉發流量是錯誤的取捨。
+
+目前還沒有儀表板渲染這些序列——不像 `rolodex` 與 `systemcontroller` 兩個 job，它們的面板集是對著 `RolodexDashboardMetrics()`/`ControllerDashboardMetrics()` 宣告的。這些序列已被採集、可被查詢；面板集是另一次改動。
 
 ## 啟動狀態與重新整理
 
@@ -2185,6 +2219,7 @@ SIGINT 觸發 context 取消。HTTP 伺服器關閉，所有後台 goroutine 經
 - `TOWN_OS_PROMETHEUS_PORT` —— Prometheus 的環回 HTTP API 埠（預設 `9090`）。
 - `TOWN_OS_MONITORING_PORT` —— 唯一面向區域網的監控埠（預設 `5308`）。
 - `INGRESS_HTTPS_PORT` / `INGRESS_HTTP_PORT` —— ingress 釋出的埠（預設 `443` / `80`）。
+- `INGRESS_METRICS_PORT` —— ingress 提供 Prometheus `/metrics` 端點的埠，只釋出在 `127.0.0.1` 上（預設 `9146`）。它是上面兩者之外的第三個監聽器，出於與 rolodex 相同的理由需要自己的覆寫項；`ingressctl.MetricsAddrFor()` 是 unit 的 `-p` 規格與 Prometheus 抓取目標共同構建自的那一個函式，因此挪動它會同時挪動兩端。參見 [ingress 的指標](#ingress-的指標)。
 
 ## 設定項
 

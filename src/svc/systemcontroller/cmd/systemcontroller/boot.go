@@ -564,7 +564,12 @@ func (b *boot) readMonitoringSettings(ctx context.Context) {
 	if msg := systemcontroller.SchemeDisagreement(observedTLS, configuredTLS); msg != "" {
 		fmt.Fprintf(os.Stderr, "controller listener: %s\n", msg)
 	}
-	b.monPorts = withScrapeTargets(monitoringPortsFromEnv(), b.rolMgr, b.listenAddr, observedTLS)
+	// b.ingressImage is resolved by resolveRemainingImages, which runs
+	// immediately before this — the ingress scrape target has to be decided here
+	// rather than in startIngress, because prometheus.yml is written by
+	// startMonitoring and the ingress starts after it.
+	b.monPorts = withScrapeTargets(monitoringPortsFromEnv(), b.rolMgr, b.listenAddr,
+		ingressMetricsTarget(b.ingressImage), observedTLS)
 
 	// Determine monitoring backend (uplot or grafana).
 	b.monBackend = monitoring.BackendUPlot
@@ -710,6 +715,10 @@ func (b *boot) startIngress(ctx context.Context) {
 		// production ingress in the shared host netns (see ports.go).
 		HostPort:     envPortInt(EnvIngressHTTPSPort),
 		HTTPHostPort: envPortInt(EnvIngressHTTPPort),
+		// Read through the same helper the Prometheus target was built from in
+		// readMonitoringSettings, so the published port and the scrape target
+		// cannot disagree about where this ingress serves /metrics.
+		MetricsPort: ingressMetricsPortFromEnv(),
 	})
 	if startErr := b.ingressMgr.Start(ctx); startErr != nil {
 		fmt.Fprintf(os.Stderr, "ingress: %v\n", startErr)

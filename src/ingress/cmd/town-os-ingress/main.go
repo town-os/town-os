@@ -10,14 +10,18 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"syscall"
+	"time"
 
 	"google.golang.org/grpc"
 
@@ -33,6 +37,8 @@ func run() error {
 	defaultBackend := flag.String("default-backend", "", "container:port to reverse-proxy for hosts not matched by a route on :80 (the Town OS UI)")
 	caddyBin := flag.String("caddy", caddysup.DefaultCaddyBinary, "path to the caddy binary")
 	caddyCfg := flag.String("caddy-config", caddysup.DefaultCaddyConfigPath, "path to the rendered Caddyfile")
+	metricsPort := flag.Int("metrics-port", ingress.DefaultMetricsPort,
+		"TCP port to serve the Prometheus endpoint on (0 disables it)")
 	flag.Parse()
 
 	// Ensure the socket directory exists and clear a stale socket from a
@@ -64,9 +70,22 @@ func run() error {
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer cancel()
+
+	metricsSrv := startMetrics(ctx, srv, *metricsPort)
+
 	go func() {
 		<-ctx.Done()
 		grpcServer.GracefulStop()
+		if metricsSrv != nil {
+			// Its own context: ctx is already cancelled by the time this runs,
+			// and a cancelled one makes Shutdown return immediately without
+			// draining the scrape that may be in flight.
+			shutCtx, shutCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			defer shutCancel()
+			if mErr := metricsSrv.Shutdown(shutCtx); mErr != nil {
+				slog.Debug(fmt.Sprintf("metrics shutdown: %v", mErr))
+			}
+		}
 		if shErr := sup.Shutdown(); shErr != nil {
 			slog.Debug(fmt.Sprintf("caddy shutdown: %v", shErr))
 		}
@@ -74,6 +93,39 @@ func run() error {
 
 	slog.Info(fmt.Sprintf("ingress: serving gRPC on %s, https vhosts on :%d, http vhosts on :%d", *socket, *port, *httpPort))
 	return grpcServer.Serve(lis)
+}
+
+// startMetrics brings up the Prometheus endpoint on its own listener, returning
+// nil when it is disabled (port 0) or could not bind.
+//
+// A failure to bind is logged and survived rather than returned. The ingress's
+// job is to route traffic; refusing to start it because nothing can scrape it
+// would turn a monitoring gap into an outage — and the port is published to the
+// host loopback, where a leftover container from a previous run is exactly the
+// kind of transient collision that must not take the box's router down.
+func startMetrics(ctx context.Context, srv *ingress.Server, port int) *http.Server {
+	if port == 0 {
+		slog.Info("ingress: metrics endpoint disabled (--metrics-port=0)")
+		return nil
+	}
+	addr := net.JoinHostPort("", strconv.Itoa(port))
+	var lc net.ListenConfig
+	lis, err := lc.Listen(ctx, "tcp", addr)
+	if err != nil {
+		slog.Error(fmt.Sprintf("ingress: metrics endpoint not serving: %v", err))
+		return nil
+	}
+	// ReadHeaderTimeout is set because the default is none: a client that opens
+	// a connection and never finishes its headers would otherwise hold it
+	// forever.
+	metricsSrv := &http.Server{Handler: srv.MetricsHandler(), ReadHeaderTimeout: 10 * time.Second}
+	go func() {
+		if serveErr := metricsSrv.Serve(lis); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+			slog.Error(fmt.Sprintf("ingress: metrics endpoint stopped: %v", serveErr))
+		}
+	}()
+	slog.Info(fmt.Sprintf("ingress: serving %s on :%d", ingress.MetricsPath, port))
+	return metricsSrv
 }
 
 func main() {

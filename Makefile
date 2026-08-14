@@ -109,7 +109,8 @@ export LOG_DIR
 #
 # SYSTEM_PORT_FILES relocate the otherwise-fixed ports the system services bind:
 # rolodex :53 and its metrics :9153, node-exporter :9100, Prometheus :9090, the
-# monitoring UI :5308, and the ingress :443/:80. The test container runs
+# monitoring UI :5308, and the ingress :443/:80 and its metrics :9146. The test
+# container runs
 # --net host (deliberately —
 # bridge-network DNS breaks on captive networks), so those services bind in the
 # *host* namespace, and without these a `make test-full` and a `make dev` fight
@@ -119,7 +120,8 @@ export LOG_DIR
 SYSTEM_PORT_FILES := $(STATE_DIR)/.dns-port $(STATE_DIR)/.rolodex-metrics-port \
                      $(STATE_DIR)/.node-exporter-port \
                      $(STATE_DIR)/.prometheus-port $(STATE_DIR)/.monitoring-port \
-                     $(STATE_DIR)/.ingress-https-port $(STATE_DIR)/.ingress-http-port
+                     $(STATE_DIR)/.ingress-https-port $(STATE_DIR)/.ingress-http-port \
+                     $(STATE_DIR)/.ingress-metrics-port
 PORT_FILES := $(STATE_DIR)/.integration-port $(STATE_DIR)/.registry-port \
               $(STATE_DIR)/.gitea-port $(SYSTEM_PORT_FILES)
 export SYSTEM_PORT_FILES PORT_FILES

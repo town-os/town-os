@@ -76,6 +76,16 @@ type Ports struct {
 	//
 	// Empty omits the job.
 	ControllerMetrics string
+	// IngressMetrics is the "host:port" address the ingress serves its
+	// Prometheus endpoint on — an address rather than a port this stack binds,
+	// for the same reason RolodexMetrics is: the ingress container publishes its
+	// own listener, so monitoring is told where to scrape rather than deciding
+	// it. ingressctl.Manager.MetricsAddr() is the value to pass, which is built
+	// from the same port the unit publishes.
+	//
+	// Empty omits the job, which is what a box with the ingress disabled
+	// (INGRESS_IMAGE="") and every test building a bare Ports{} gets.
+	IngressMetrics string
 	// ControllerMetricsScheme is "https" when the controller's own listener is
 	// TLS-terminated (TOWN_OS_TLS), "" or "http" otherwise. It exists because
 	// that certificate is issued by the box's local CA, which Prometheus has no

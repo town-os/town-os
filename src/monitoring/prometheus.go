@@ -19,6 +19,13 @@ const RolodexJobName = "rolodex"
 // controller series, and is a constant for the same reason RolodexJobName is.
 const ControllerJobName = "systemcontroller"
 
+// IngressJobName is the Prometheus job label carried by every ingress series,
+// and is a constant for the same reason the other two are. The job also carries
+// caddy's own families (caddy_*, go_*, process_*), which the ingress passes
+// through from its child — so this label is what separates the box's router
+// from any other caddy a package might run.
+const IngressJobName = "ingress"
+
 // prometheusUID / prometheusGID are the user and group IDs that the
 // Prometheus container runs as (upstream image uses "nobody"). The
 // bind-mounted data directory must be owned by this uid:gid pair or
@@ -95,6 +102,16 @@ scrape_configs:
     static_configs:
       - targets: [%q]
 `, RolodexJobName, ports.RolodexMetrics)
+	}
+	// Same omit-rather-than-guess rule as rolodex above, and with one more
+	// reason: the ingress can be switched off entirely (INGRESS_IMAGE=""), and a
+	// job pointed at a service that was never started reads as a router that
+	// died rather than one that was never asked for.
+	if ports.IngressMetrics != "" {
+		fmt.Fprintf(&b, `  - job_name: %q
+    static_configs:
+      - targets: [%q]
+`, IngressJobName, ports.IngressMetrics)
 	}
 	// Same omit-rather-than-guess rule as rolodex above.
 	if ports.ControllerMetrics != "" {

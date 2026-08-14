@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"gitea.com/town-os/town-os/src/ingress/ingressctl"
 	"gitea.com/town-os/town-os/src/monitoring"
 	"gitea.com/town-os/town-os/src/rolodex"
 	"gitea.com/town-os/town-os/src/storage"
@@ -127,6 +128,7 @@ func TestPrometheusConfigWithAllJobsIsValid(t *testing.T) {
 				RolodexMetrics:          rolodex.DNSLoopback + ":" + findFreePort(t),
 				ControllerMetrics:       "localhost:" + findFreePort(t),
 				ControllerMetricsScheme: tc.scheme,
+				IngressMetrics:          ingressctl.MetricsHost + ":" + findFreePort(t),
 			}); err != nil {
 				t.Fatalf("WritePrometheusConfig: %v", err)
 			}

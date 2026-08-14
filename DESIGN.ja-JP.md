@@ -1399,9 +1399,43 @@ ingress は共有の Host のルーターである。Caddy の子プロセスを
 
 出力は**ホスト名で並べ替えられる**ので、描き出されたバイト列は reconcile をまたいで決定的である —— それが、内容の変わっていない再読み込みを監督者が何もしないで済ませられる理由である。全体の設定は `auto_https off`（証明書は Town OS が管理する）と `protocols h1 h2`（ingress は TCP のみを公開するので、UDP 上の H3/QUIC は到達できない）である。Caddy の admin の API は既定のコンテナ内の `localhost:2019` で意図的に**有効なまま**にしてある。監督者は新しい経路を `caddy reload` でプログラムし、それがそのエンドポイントと話すので、`admin off` にすると最初の起動より後のすべての経路の更新が壊れる。
 
-ingress は**インターフェイスに依らない**。`-p 443:443` / `-p 80:80` をホストの IP を指定せずに公開し、その Caddyfile は **`bind` の指示を一切運ばない**ので、Caddy はすべてのインターフェイスで listen し、vhost は純粋に SNI/Host で選ぶ。LAN のクライアントとオーバーレイの peer は同じ listener に当たり、SNI で同じ vhost を選び、同じローカル CA のリーフを得て、同じコンテナへプロキシされる。`bind` の指示やネットワークごとの listener を追加しないこと。
+ingress は**インターフェイスに依らない**。`-p 443:443` / `-p 80:80` をホストの IP を指定せずに公開し、その Caddyfile は **`bind` の指示を一切運ばない**ので、Caddy はすべてのインターフェイスで listen し、vhost は純粋に SNI/Host で選ぶ。（ホストの IP に固定される唯一の listener は Prometheus のエンドポイントで、これはクライアントのためではなくこの箱自身のためのものである —— [ingress のメトリクス](#ingress-のメトリクス) を参照。）LAN のクライアントとオーバーレイの peer は同じ listener に当たり、SNI で同じ vhost を選び、同じローカル CA のリーフを得て、同じコンテナへプロキシされる。`bind` の指示やネットワークごとの listener を追加しないこと。
 
 本番は 443/80 をバインドする。統合テストは一時的なポート（`host:PORT` として描き出される）を渡すので、`make test-full` が特権ポートで衝突することは決してない。起動は `RebuildIngress` を通じて経路の全集合を宣言的にプログラムする。`RebuildDNS` と同じ押し込みの模型である。パッケージと page の CRUD は同じ gRPC の API を通じて差分の変更をプログラムする。
+
+### ingress のメトリクス
+
+ingress は Prometheus のテキスト展示形式を**自分専用の三つ目の listener** で提供する（`ingress.MetricsPath = "/metrics"`、`ingress.DefaultMetricsPort = 9146`）。描き出すのは `src/metrics` で、コントローラのエンドポイントとまったく同じである。すでに持っている二つの listener に相乗りはできない。あの二つはこの箱の正面玄関であり、`/metrics` の vhost は LAN からもオーバーレイからも SNI で到達できてしまう。
+
+**公開は `127.0.0.1` のみ**（`-p 127.0.0.1:9146:9146`）で、ingress がインターフェイスに依らないという規則に対する唯一の意図的な例外である。この収集はこの箱が提供するすべてのホスト名を並べ、そのうちまだ証明書のないものに印を付ける —— 何が公開され、何が中途半端なままかの地図である —— そしてその前には認証が何もない。Prometheus は `--net host` で走るので、podman のネットワークを一跳びもせずにこのループバックの公開に届く。node-exporter やコントローラの対象とまったく同じである。
+
+**収集の対象はどこでも組み立て直されない。** `ingressctl.MetricsAddrFor(port)` が unit の `-p` の指定と `monitoring.Ports.IngressMetrics` の両方を作る。`rolodex.Manager.MetricsAddr()` と同じ、単一の真実の源という配置である。`INGRESS_IMAGE` が空のときこの job は**省かれる**。ingress のない箱は「ingress がない」と報告すべきであって、永久に落ちているように読めるルーターを報告すべきではない。
+
+`ingress` の job が出すもの:
+
+| メトリクス | 型 | 備考 |
+|---|---|---|
+| `townos_ingress_up` | gauge | 提供中は常に 1、そうでなければ存在しない |
+| `townos_ingress_start_time_seconds` | gauge | 稼働時間は `time() - これ`、収集側の時計で |
+| `townos_ingress_caddy_up` | gauge | この収集で caddy の子の admin API が応答したとき 1 |
+| `townos_ingress_routes{tls}` | gauge | `local`/`acme`/`pending` —— `pending` はプログラム済みだがリーフがまだない |
+| `townos_ingress_route_https_ready{hostname}` | gauge | 経路ごとの 1/0。*どの*名前が HTTPS を提供できないかが見える |
+| `townos_ingress_path_backends` | gauge | 全経路にわたるパス単位のバックエンド数 |
+| `townos_ingress_reloads_total{result}` | counter | `success`/`failure` |
+| `townos_ingress_route_changes_total{op}` | counter | `set`/`add`/`remove` |
+| `townos_ingress_dropped_total{kind,reason}` | counter | 描き出しが拒んだもの |
+
+加えて **caddy 自身のメトリクス族**を、子のコンテナ内 admin API（`127.0.0.1:2019/metrics`）から取ってきて、そのまま応答の後ろに付ける。名前空間は `caddy_*`/`go_*`/`process_*` なので `townos_ingress_*` と衝突しようがない。admin API は意図的に公開されていないので、素通ししか Prometheus に届く道はなく、しかもそれらはこの箱が答えるすべてのリクエストを実際に提供している当のプロセスを記述している。本体は描き出し直さない。族に解析し直しても情報を失うことしかできない（caddy はヒストグラムを出すが、`src/metrics` は意図的にそれを模型化していない）。
+
+いくつかの選択は偶然ではなく狙いである:
+
+- **`townos_ingress_dropped_total` は `renderCaddyfileTally` が存在する理由そのものである。** ホスト名が壊れている、バックエンドが使えない、パスの照合子が不正 —— そうした経路は描き出し全体を失敗させるのではなく**個別に**捨てられる。つまり gRPC では受け付けられ、一度ログに残り、そして単に提供されない。ログ行はこれには合わない道具である。すでに壊れていると分かるまで、誰も ingress の journal を読まない。
+- **パスのバックエンドは vhost ごとではなく経路ごとに一度だけ検証する。** page の経路は HTTPS の用意ができていて、かつ `ServeHttp` でもあるので、同じパス集合から二つのサイトブロックを描き出す。書き手の内側で検証すると、あらゆる拒否が二重に数えられる。
+- **counter の系列はすべてゼロで種を蒔く。** `metrics.Render` は標本のない族を省くので、種を蒔いていない `townos_ingress_reloads_total{result="failure"}` は最初の失敗まで存在しない —— 見張っている事象が一度起きてからでないと発火できない警報になる。
+- **`townos_ingress_last_reload_success_time_seconds` は再読み込みが成功するまで省かれる**。ゼロとして出さないのは、`time() - 0` が「まだ設定がない」ではなく「56 年前の設定」と読めてしまうからである。
+- **収集は一体として失敗しない**し、ルーターを道連れにもしない。届かない caddy の子が犠牲にするのは gauge 一つであって応答ではない。バインドできないメトリクスの listener は記録した上で受け入れる。監視の穴のためにトラフィックの転送を拒むのは誤った取り引きだからである。
+
+これらを描くダッシュボードはまだない —— パネル集合を `RolodexDashboardMetrics()`/`ControllerDashboardMetrics()` に対して宣言している `rolodex` と `systemcontroller` の job とは違う。系列は集められ、問い合わせできる。パネル集合は別の変更である。
 
 ## 起動ステータスと更新
 
@@ -2104,6 +2138,7 @@ SIGINT が context のキャンセルを引き起こす。HTTP のサーバー�
 - `TOWN_OS_PROMETHEUS_PORT` -- Prometheus のループバックの HTTP の API のポート（既定は `9090`）。
 - `TOWN_OS_MONITORING_PORT` -- LAN に面する唯一の監視のポート（既定は `5308`）。
 - `INGRESS_HTTPS_PORT` / `INGRESS_HTTP_PORT` -- ingress が公開するポート（既定は `443` / `80`）。
+- `INGRESS_METRICS_PORT` -- ingress が Prometheus の `/metrics` エンドポイントを提供するポート。公開は `127.0.0.1` のみ（既定は `9146`）。上の二つに加わる三つ目の listener であり、rolodex のそれと同じ理由で自分専用の上書きが要る。`ingressctl.MetricsAddrFor()` は unit の `-p` の指定と Prometheus の収集対象がともに作られる唯一の関数なので、ここを動かせば両端が動く。[ingress のメトリクス](#ingress-のメトリクス) を参照。
 
 ## 設定
 

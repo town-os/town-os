@@ -82,7 +82,8 @@ production-image:
 # Every per-run ephemeral port file is allocated the same way, so one pattern
 # rule covers them all: .integration-port, .registry-port, .gitea-port, and the
 # system-service ports (.dns-port, .node-exporter-port, .prometheus-port,
-# .monitoring-port, .ingress-https-port, .ingress-http-port) that keep a test
+# .monitoring-port, .ingress-https-port, .ingress-http-port,
+# .ingress-metrics-port) that keep a test
 # box from colliding with a dev box in the shared host netns — IRON RULE.
 $(STATE_DIR)/.%-port:
 	@make/port.sh $@

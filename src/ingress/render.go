@@ -14,7 +14,8 @@ import (
 	ingresspb "gitea.com/town-os/town-os/src/ingress/proto"
 )
 
-// renderCaddyfile renders the shared ingress Caddyfile for the given routes.
+// renderCaddyfileTally renders the shared ingress Caddyfile for the given
+// routes, along with a tally of what it refused to emit.
 // Each route gets an `https://<hostname>` vhost terminating TLS with the route's
 // file-pinned local-CA leaf (or an explicit ACME issuer for a public FQDN) and
 // reverse-proxying to the backend container on the ingress network. Each route
@@ -40,7 +41,14 @@ import (
 // (rendered as bare `https://host`/`http://host`); tests pass ephemeral ports
 // (rendered as `host:PORT`) so make test-full never collides on a privileged
 // port.
-func renderCaddyfile(routes []*ingresspb.Route, httpsPort, httpPort int, defaultBackend string) []byte {
+// The tally it returns counts what it refused to emit, by kind and reason. That
+// exists because every drop below is a silent one from the caller's side: the
+// route was accepted over gRPC, logged as dropped here, and then simply never
+// served. A log line is the wrong instrument for that — nobody reads the
+// ingress's journal until something is already known to be broken — so the
+// counts are exported (townos_ingress_dropped_total) and can be alerted on.
+func renderCaddyfileTally(routes []*ingresspb.Route, httpsPort, httpPort int, defaultBackend string) ([]byte, renderTally) {
+	var tally renderTally
 	sorted := append([]*ingresspb.Route(nil), routes...)
 	sort.Slice(sorted, func(i, j int) bool {
 		return sorted[i].GetHostname() < sorted[j].GetHostname()
@@ -72,13 +80,21 @@ func renderCaddyfile(routes []*ingresspb.Route, httpsPort, httpPort int, default
 			slog.Error("ingress: dropping a route whose hostname is not a hostname; "+
 				"it would restructure the Caddyfile or make caddy reject the whole config",
 				"hostname", strconv.Quote(host))
+			tally.drop(dropKindRoute, dropReasonHostname)
 			continue
 		}
 		if !validBackend(r.GetBackend()) {
 			slog.Error("ingress: dropping a route whose backend is not a host:port",
 				"hostname", host, "backend", strconv.Quote(r.GetBackend()))
+			tally.drop(dropKindRoute, dropReasonBackend)
 			continue
 		}
+		// Validated once per route rather than once per vhost: a route that is
+		// both HTTPS-ready and ServeHttp renders two site blocks from the same
+		// path backends, and validating inside the writer would tally every
+		// refused path twice — a drop counter that reports two of one mistake
+		// is a counter nobody can read a magnitude off.
+		paths := validPathBackends(r, &tally)
 		httpsReady := r.GetAcme() || r.GetCertDir() != ""
 		if httpsReady {
 			fmt.Fprintf(&b, "\nhttps://%s {\n", siteAddr(host, httpsPort, 443))
@@ -88,7 +104,7 @@ func renderCaddyfile(routes []*ingresspb.Route, httpsPort, httpPort int, default
 				cd := r.GetCertDir()
 				fmt.Fprintf(&b, "\ttls %s/cert.pem %s/key.pem\n", cd, cd)
 			}
-			writeRouteBody(&b, r)
+			writeRouteBody(&b, r, paths)
 			b.WriteString("}\n")
 		}
 		// :80 vhost. Pages serve over plain HTTP; packages redirect to HTTPS
@@ -97,7 +113,7 @@ func renderCaddyfile(routes []*ingresspb.Route, httpsPort, httpPort int, default
 		switch {
 		case r.GetServeHttp():
 			fmt.Fprintf(&b, "\nhttp://%s {\n", siteAddr(host, httpPort, 80))
-			writeRouteBody(&b, r)
+			writeRouteBody(&b, r, paths)
 			b.WriteString("}\n")
 		case httpsReady:
 			fmt.Fprintf(&b, "\nhttp://%s {\n\tredir https://%s{uri} permanent\n}\n",
@@ -110,14 +126,54 @@ func renderCaddyfile(routes []*ingresspb.Route, httpsPort, httpPort int, default
 	if defaultBackend != "" {
 		fmt.Fprintf(&b, "\n:%d {\n\treverse_proxy %s\n}\n", httpPortOrDefault(httpPort), defaultBackend)
 	}
-	return []byte(b.String())
+	return []byte(b.String()), tally
+}
+
+// renderCaddyfile renders the Caddyfile and discards the tally of what was
+// refused. The server uses renderCaddyfileTally, because a dropped route is
+// exactly the kind of failure that should be a number an alert can watch; this
+// plain form is for the render tests, which assert on the emitted bytes.
+func renderCaddyfile(routes []*ingresspb.Route, httpsPort, httpPort int, defaultBackend string) []byte {
+	content, _ := renderCaddyfileTally(routes, httpsPort, httpPort, defaultBackend)
+	return content
+}
+
+// Drop kinds and reasons, the two label values of townos_ingress_dropped_total.
+// They are constants because they are what an alert selects on: a typo'd
+// literal at one call site becomes its own permanent series that no query
+// names.
+const (
+	dropKindRoute       = "route"
+	dropKindPathBackend = "path_backend"
+
+	dropReasonHostname  = "hostname"
+	dropReasonBackend   = "backend"
+	dropReasonPath      = "path"
+	dropReasonDuplicate = "duplicate"
+)
+
+// renderTally counts the entries one render refused to emit, keyed by
+// (kind, reason). The zero value is usable and allocates nothing, which is the
+// common case: almost every render drops nothing at all.
+type renderTally struct {
+	dropped map[[2]string]uint64
+}
+
+// drop records one refused entry.
+func (t *renderTally) drop(kind, reason string) {
+	if t.dropped == nil {
+		t.dropped = make(map[[2]string]uint64, 1)
+	}
+	t.dropped[[2]string{kind, reason}]++
 }
 
 // writeRouteBody emits the routing half of a site block.
 //
 // One reverse_proxy for the ordinary route — one vhost, one service — and a
 // handle block per path-scoped backend when the route has any, with the route's
-// own backend as the catch-all.
+// own backend as the catch-all. paths is the already-validated path-backend set
+// (validPathBackends), passed in rather than derived here so a route rendering
+// two site blocks validates — and tallies — its paths exactly once.
 //
 // handle blocks are mutually exclusive and evaluated in the order written, so
 // the bare one has to come last: it matches everything, and anything after it
@@ -125,8 +181,7 @@ func renderCaddyfile(routes []*ingresspb.Route, httpsPort, httpPort int, default
 // in the order the caller supplied rather than sorted. Sorting would be safe for
 // the matchers Town OS actually programs (they do not overlap) and would quietly
 // change which one wins for a pair that did.
-func writeRouteBody(b *strings.Builder, r *ingresspb.Route) {
-	paths := validPathBackends(r)
+func writeRouteBody(b *strings.Builder, r *ingresspb.Route, paths []*ingresspb.PathBackend) {
 	if len(paths) == 0 {
 		writeReverseProxy(b, "\t", r.GetBackend(), r.GetBackendTls())
 		return
@@ -174,7 +229,7 @@ func writeReverseProxy(b *strings.Builder, indent, backend string, backendTLS bo
 // A duplicate path is dropped for a subtler reason than caddy refusing it: two
 // handle blocks with the same matcher are accepted, and the second is simply
 // unreachable. First wins, matching dedupeIngressRoutes.
-func validPathBackends(r *ingresspb.Route) []*ingresspb.PathBackend {
+func validPathBackends(r *ingresspb.Route, tally *renderTally) []*ingresspb.PathBackend {
 	pbs := r.GetPathBackends()
 	if len(pbs) == 0 {
 		return nil
@@ -186,16 +241,19 @@ func validPathBackends(r *ingresspb.Route) []*ingresspb.PathBackend {
 			slog.Error("ingress: dropping a path backend whose path is not a path; "+
 				"it would restructure the Caddyfile or make caddy reject the whole config",
 				"hostname", r.GetHostname(), "path", strconv.Quote(p.GetPath()))
+			tally.drop(dropKindPathBackend, dropReasonPath)
 			continue
 		}
 		if !validBackend(p.GetBackend()) {
 			slog.Error("ingress: dropping a path backend that is not a host:port",
 				"hostname", r.GetHostname(), "path", p.GetPath(), "backend", strconv.Quote(p.GetBackend()))
+			tally.drop(dropKindPathBackend, dropReasonBackend)
 			continue
 		}
 		if seen[p.GetPath()] {
 			slog.Warn("ingress: dropped a duplicate path backend; the second handle block would be unreachable",
 				"hostname", r.GetHostname(), "path", p.GetPath())
+			tally.drop(dropKindPathBackend, dropReasonDuplicate)
 			continue
 		}
 		seen[p.GetPath()] = true

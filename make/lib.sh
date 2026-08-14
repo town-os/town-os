@@ -481,7 +481,8 @@ warn_missing_repo_creds() {
 # system_port_env — populate the SYSTEM_PORT_ENV array with the podman -e flags
 #   that relocate the otherwise-fixed host ports the system services bind:
 #   rolodex :53 and its Prometheus endpoint :9153, node-exporter :9100,
-#   Prometheus :9090, the monitoring UI :5308, and the ingress :443/:80.
+#   Prometheus :9090, the monitoring UI :5308, and the ingress :443/:80 plus its
+#   Prometheus endpoint :9146.
 #
 #   The test container runs --net host (deliberately: bridge-network DNS breaks
 #   on captive networks), so every one of those services binds in the *host*
@@ -503,7 +504,8 @@ system_port_env() {
     "TOWN_OS_PROMETHEUS_PORT:.prometheus-port" \
     "TOWN_OS_MONITORING_PORT:.monitoring-port" \
     "INGRESS_HTTPS_PORT:.ingress-https-port" \
-    "INGRESS_HTTP_PORT:.ingress-http-port"; do
+    "INGRESS_HTTP_PORT:.ingress-http-port" \
+    "INGRESS_METRICS_PORT:.ingress-metrics-port"; do
     var="${pair%%:*}"
     file="${STATE_DIR}/${pair#*:}"
     if [ ! -f "${file}" ]; then

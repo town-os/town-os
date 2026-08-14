@@ -13,19 +13,23 @@ import (
 )
 
 // stubSupervisor records the Caddyfile content handed to Reload without
-// touching the filesystem or spawning caddy.
+// touching the filesystem or spawning caddy. reloadErr, when set, makes every
+// Reload fail — what a caddy that rejects the rendered config does, which is
+// otherwise unobservable because the child keeps serving the last good one.
 type stubSupervisor struct {
-	mu      sync.Mutex
-	reloads [][]byte
-	starts  int
+	mu        sync.Mutex
+	reloads   [][]byte
+	starts    int
+	reloadErr error
 }
 
 func (s *stubSupervisor) Start() error { s.mu.Lock(); s.starts++; s.mu.Unlock(); return nil }
 func (s *stubSupervisor) Reload(content []byte) error {
 	s.mu.Lock()
 	s.reloads = append(s.reloads, append([]byte(nil), content...))
+	err := s.reloadErr
 	s.mu.Unlock()
-	return nil
+	return err
 }
 func (s *stubSupervisor) Shutdown() error { return nil }
 func (s *stubSupervisor) last() string {

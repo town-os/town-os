@@ -230,7 +230,8 @@ case "$1" in
       rm -f "${STATE_DIR}/.dns-port" "${STATE_DIR}/.rolodex-metrics-port" \
         "${STATE_DIR}/.node-exporter-port" \
         "${STATE_DIR}/.prometheus-port" "${STATE_DIR}/.monitoring-port" \
-        "${STATE_DIR}/.ingress-https-port" "${STATE_DIR}/.ingress-http-port"
+        "${STATE_DIR}/.ingress-https-port" "${STATE_DIR}/.ingress-http-port" \
+        "${STATE_DIR}/.ingress-metrics-port"
       make/btrfs.sh clean 2>/dev/null || true
       # Prune orphaned volumes to free podman locks. Without this, repeated
       # test runs exhaust the lock table (default 2048).

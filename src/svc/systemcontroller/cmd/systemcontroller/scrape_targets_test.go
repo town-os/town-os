@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"gitea.com/town-os/town-os/src/ingress/ingressctl"
 	"gitea.com/town-os/town-os/src/monitoring"
 	"gitea.com/town-os/town-os/src/rolodex"
 )
@@ -27,19 +28,54 @@ func newScrapeTestManager(t *testing.T, metricsPort string) *rolodex.Manager {
 	})
 }
 
-// TestWithScrapeTargetsSetsBothTargets is the regression this file exists for.
+// TestWithScrapeTargetsSetsEveryTarget is the regression this file exists for.
 // Every other test of the scrape config hands WritePrometheusConfig a Ports
-// value already carrying these two fields, so nothing failed when the boot
-// never populated them — the box simply stopped collecting its own metrics.
-func TestWithScrapeTargetsSetsBothTargets(t *testing.T) {
+// value already carrying these fields, so nothing failed when the boot never
+// populated them — the box simply stopped collecting its own metrics.
+func TestWithScrapeTargetsSetsEveryTarget(t *testing.T) {
 	t.Parallel()
-	got := withScrapeTargets(monitoring.Ports{}, newScrapeTestManager(t, ""), ":5309", false)
+	ingressAddr := ingressctl.MetricsAddrFor(0)
+	got := withScrapeTargets(monitoring.Ports{}, newScrapeTestManager(t, ""), ":5309", ingressAddr, false)
 
 	if want := rolodex.DNSLoopback + ":" + rolodex.DefaultMetricsPort; got.RolodexMetrics != want {
 		t.Errorf("RolodexMetrics = %q, want %q", got.RolodexMetrics, want)
 	}
 	if got.ControllerMetrics != "localhost:5309" {
 		t.Errorf("ControllerMetrics = %q, want %q", got.ControllerMetrics, "localhost:5309")
+	}
+	if got.IngressMetrics != ingressAddr {
+		t.Errorf("IngressMetrics = %q, want %q", got.IngressMetrics, ingressAddr)
+	}
+}
+
+// A box with no ingress must produce no ingress job. The ingress is switched off
+// by INGRESS_IMAGE="" (dev mode), and a target invented for it would sit
+// permanently down — indistinguishable from a router that crashed.
+func TestWithScrapeTargetsOmitsDisabledIngress(t *testing.T) {
+	t.Parallel()
+	got := withScrapeTargets(monitoring.Ports{}, newScrapeTestManager(t, ""), ":5309", ingressMetricsTarget(""), false)
+
+	if got.IngressMetrics != "" {
+		t.Errorf("IngressMetrics = %q, want empty with the ingress disabled", got.IngressMetrics)
+	}
+	if got.ControllerMetrics == "" {
+		t.Error("the controller target must survive an absent ingress")
+	}
+}
+
+// The ingress target must come from ingressctl rather than a string composed
+// here, for the same reason the rolodex one comes from its manager: that
+// function is what the unit's published port is built from too, so a relocated
+// harness ingress is scraped where it actually listens — IRON RULE.
+func TestIngressMetricsTargetFollowsRelocatedPort(t *testing.T) {
+	t.Setenv(EnvIngressMetricsPort, "39146")
+
+	got := ingressMetricsTarget("quay.io/town/ingress:testtag")
+	if want := ingressctl.MetricsAddrFor(39146); got != want {
+		t.Errorf("ingressMetricsTarget = %q, want %q", got, want)
+	}
+	if got == ingressctl.MetricsAddrFor(0) {
+		t.Errorf("relocated ingress still scraped on the default port: %q", got)
 	}
 }
 
@@ -49,7 +85,7 @@ func TestWithScrapeTargetsSetsBothTargets(t *testing.T) {
 func TestWithScrapeTargetsRolodexMatchesManagerAddr(t *testing.T) {
 	t.Parallel()
 	mgr := newScrapeTestManager(t, "39153")
-	got := withScrapeTargets(monitoring.Ports{}, mgr, ":5309", false)
+	got := withScrapeTargets(monitoring.Ports{}, mgr, ":5309", "127.0.0.1:9146", false)
 
 	if got.RolodexMetrics != mgr.MetricsAddr() {
 		t.Errorf("RolodexMetrics = %q, want the manager's own %q", got.RolodexMetrics, mgr.MetricsAddr())
@@ -64,7 +100,7 @@ func TestWithScrapeTargetsRolodexMatchesManagerAddr(t *testing.T) {
 // a test box reporting a dev box's metrics, or neither. IRON RULE.
 func TestWithScrapeTargetsFollowsRelocatedListener(t *testing.T) {
 	t.Parallel()
-	got := withScrapeTargets(monitoring.Ports{}, newScrapeTestManager(t, "39153"), "127.0.0.1:41337", false)
+	got := withScrapeTargets(monitoring.Ports{}, newScrapeTestManager(t, "39153"), "127.0.0.1:41337", "127.0.0.1:9146", false)
 
 	if got.ControllerMetrics != "127.0.0.1:41337" {
 		t.Errorf("ControllerMetrics = %q, want the relocated listener", got.ControllerMetrics)
@@ -80,7 +116,7 @@ func TestWithScrapeTargetsFollowsRelocatedListener(t *testing.T) {
 // broken controller rather than a scheme mismatch.
 func TestWithScrapeTargetsTLSSetsHTTPSScheme(t *testing.T) {
 	t.Parallel()
-	got := withScrapeTargets(monitoring.Ports{}, newScrapeTestManager(t, ""), ":5309", true)
+	got := withScrapeTargets(monitoring.Ports{}, newScrapeTestManager(t, ""), ":5309", "127.0.0.1:9146", true)
 
 	if got.ControllerMetricsScheme != "https" {
 		t.Errorf("ControllerMetricsScheme = %q, want https", got.ControllerMetricsScheme)
@@ -91,7 +127,7 @@ func TestWithScrapeTargetsTLSSetsHTTPSScheme(t *testing.T) {
 // listener fails every scrape just as surely as the reverse.
 func TestWithScrapeTargetsPlaintextLeavesSchemeEmpty(t *testing.T) {
 	t.Parallel()
-	got := withScrapeTargets(monitoring.Ports{}, newScrapeTestManager(t, ""), ":5309", false)
+	got := withScrapeTargets(monitoring.Ports{}, newScrapeTestManager(t, ""), ":5309", "127.0.0.1:9146", false)
 
 	if got.ControllerMetricsScheme != "" {
 		t.Errorf("ControllerMetricsScheme = %q, want empty for a cleartext listener", got.ControllerMetricsScheme)
@@ -102,7 +138,7 @@ func TestWithScrapeTargetsPlaintextLeavesSchemeEmpty(t *testing.T) {
 // underivable -listen read as a TLS decision.
 func TestWithScrapeTargetsNoSchemeWithoutTarget(t *testing.T) {
 	t.Parallel()
-	got := withScrapeTargets(monitoring.Ports{}, newScrapeTestManager(t, ""), "not-an-address", true)
+	got := withScrapeTargets(monitoring.Ports{}, newScrapeTestManager(t, ""), "not-an-address", "127.0.0.1:9146", true)
 
 	if got.ControllerMetrics != "" {
 		t.Errorf("ControllerMetrics = %q, want empty for an underivable listen address", got.ControllerMetrics)
@@ -119,7 +155,7 @@ func TestWithScrapeTargetsNoSchemeWithoutTarget(t *testing.T) {
 func TestWithScrapeTargetsPreservesHostPorts(t *testing.T) {
 	t.Parallel()
 	in := monitoring.Ports{NodeExporter: "39100", Prometheus: "39090", External: "35308"}
-	got := withScrapeTargets(in, newScrapeTestManager(t, "39153"), ":41337", false)
+	got := withScrapeTargets(in, newScrapeTestManager(t, "39153"), ":41337", "127.0.0.1:9146", false)
 
 	if got.NodeExporter != in.NodeExporter || got.Prometheus != in.Prometheus || got.External != in.External {
 		t.Errorf("host ports clobbered: got %+v, want the %+v that came in", got, in)
@@ -131,7 +167,7 @@ func TestWithScrapeTargetsPreservesHostPorts(t *testing.T) {
 // broken DNS. The controller's own target is independent and must survive.
 func TestWithScrapeTargetsNilRolodexOmitsOnlyRolodex(t *testing.T) {
 	t.Parallel()
-	got := withScrapeTargets(monitoring.Ports{}, nil, ":5309", false)
+	got := withScrapeTargets(monitoring.Ports{}, nil, ":5309", "127.0.0.1:9146", false)
 
 	if got.RolodexMetrics != "" {
 		t.Errorf("RolodexMetrics = %q, want empty with no manager", got.RolodexMetrics)
@@ -141,16 +177,17 @@ func TestWithScrapeTargetsNilRolodexOmitsOnlyRolodex(t *testing.T) {
 	}
 }
 
-// TestWithScrapeTargetsRendersBothJobs closes the loop the individual field
+// TestWithScrapeTargetsRendersEveryJob closes the loop the individual field
 // assertions leave open: it carries the boot's own Ports value all the way
 // through to the YAML Prometheus actually reads. Asserting the fields alone
 // would still pass if the two halves disagreed about what a populated target
 // means.
-func TestWithScrapeTargetsRendersBothJobs(t *testing.T) {
+func TestWithScrapeTargetsRendersEveryJob(t *testing.T) {
 	t.Parallel()
 	base := t.TempDir()
 	mgr := newScrapeTestManager(t, "39153")
-	ports := withScrapeTargets(monitoringPortsFromEnv(), mgr, "127.0.0.1:41337", false)
+	ingressAddr := ingressctl.MetricsAddrFor(39146)
+	ports := withScrapeTargets(monitoringPortsFromEnv(), mgr, "127.0.0.1:41337", ingressAddr, false)
 
 	if err := monitoring.WritePrometheusConfig(base, ports); err != nil {
 		t.Fatalf("WritePrometheusConfig: %v", err)
@@ -166,6 +203,8 @@ func TestWithScrapeTargetsRendersBothJobs(t *testing.T) {
 		`targets: ["` + mgr.MetricsAddr() + `"]`,
 		`- job_name: "` + monitoring.ControllerJobName + `"`,
 		`targets: ["127.0.0.1:41337"]`,
+		`- job_name: "` + monitoring.IngressJobName + `"`,
+		`targets: ["` + ingressAddr + `"]`,
 	} {
 		if !strings.Contains(raw, want) {
 			t.Errorf("prometheus.yml missing %s:\n%s", want, raw)

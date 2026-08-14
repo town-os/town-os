@@ -1476,9 +1476,43 @@ sirve `/` desde el contenedor de pages mientras todas las demás rutas de
 
 La salida está **ordenada por nombre de host** para que los bytes renderizados sean deterministas entre reconciliaciones — eso es lo que deja al supervisor no hacer nada ante una recarga cuyo contenido no cambió. Los globales son `auto_https off` (Town OS administra los certificados) y `protocols h1 h2` (el ingress publica solo TCP, así que H3/QUIC sobre UDP no se alcanza). La API de administración de Caddy se deja a propósito **habilitada** en su `localhost:2019` local al contenedor: el supervisor programa las rutas nuevas con `caddy reload`, que habla con ese endpoint, así que `admin off` rompería todas las actualizaciones de rutas después del primer arranque.
 
-El ingress es **agnóstico a la interfaz**: publica `-p 443:443` / `-p 80:80` sin ninguna IP de host y su Caddyfile no trae **ninguna directiva `bind`**, así que Caddy escucha en todas las interfaces y escoge el vhost puramente por SNI/Host. Un cliente de la LAN y un par de la superposición llegan al mismo listener, escogen por SNI el mismo vhost, obtienen la misma hoja de la CA local y se les hace proxy al mismo contenedor. No agregues directivas `bind` ni listeners por red.
+El ingress es **agnóstico a la interfaz**: publica `-p 443:443` / `-p 80:80` sin ninguna IP de host y su Caddyfile no trae **ninguna directiva `bind`**, así que Caddy escucha en todas las interfaces y escoge el vhost puramente por SNI/Host. (El único listener fijado a una IP de host es el endpoint de Prometheus, que es para la propia caja y no para sus clientes — véase [Métricas del ingress](#métricas-del-ingress).) Un cliente de la LAN y un par de la superposición llegan al mismo listener, escogen por SNI el mismo vhost, obtienen la misma hoja de la CA local y se les hace proxy al mismo contenedor. No agregues directivas `bind` ni listeners por red.
 
 Producción enlaza 443/80; las pruebas de integración pasan puertos efímeros (renderizados como `host:PUERTO`) para que `make test-full` nunca choque en un puerto privilegiado. El arranque programa el conjunto completo de rutas de forma declarativa con `RebuildIngress`, el mismo modelo de empuje que `RebuildDNS`; el CRUD de paquetes y páginas programa cambios incrementales por la misma API gRPC.
+
+### Métricas del ingress
+
+El ingress sirve el formato de exposición de texto de Prometheus en un **tercer listener propio** (`ingress.MetricsPath = "/metrics"`, `ingress.DefaultMetricsPort = 9146`), renderizado por `src/metrics` igual que el endpoint del controlador. No puede ir montado en los dos listeners que ya tiene: esos son la puerta de entrada de la caja, y un vhost para `/metrics` quedaría alcanzable por SNI desde la LAN y desde la overlay.
+
+**Se publica solo en `127.0.0.1`** (`-p 127.0.0.1:9146:9146`), la única excepción deliberada a que el ingress sea agnóstico a la interfaz. El scrape nombra cada hostname que sirve la caja y marca los que todavía no tienen certificado — un mapa de lo publicado y de lo que quedó a medio aprovisionar — y nada lo autentica. Prometheus corre con `--net host`, así que alcanza la publicación en loopback sin salto por red de podman, igual que los objetivos de node-exporter y del controlador.
+
+**El objetivo del scrape no se recompone en ninguna parte.** `ingressctl.MetricsAddrFor(port)` construye tanto la especificación `-p` de la unidad como `monitoring.Ports.IngressMetrics`, el mismo arreglo de fuente única de verdad que tiene `rolodex.Manager.MetricsAddr()`. El job se **omite** cuando `INGRESS_IMAGE` está vacío: una caja sin ingress debe reportar que no hay ingress, no un router que se lee como permanentemente caído.
+
+Lo que se exporta bajo el job `ingress`:
+
+| Métrica | Tipo | Notas |
+|---|---|---|
+| `townos_ingress_up` | gauge | siempre 1 mientras sirve; ausente cuando no |
+| `townos_ingress_start_time_seconds` | gauge | el uptime es `time() - esto`, en el reloj del scraper |
+| `townos_ingress_caddy_up` | gauge | 1 cuando el hijo caddy respondió a su API de admin en este scrape |
+| `townos_ingress_routes{tls}` | gauge | `local`/`acme`/`pending` — `pending` está programada pero aún sin hoja |
+| `townos_ingress_route_https_ready{hostname}` | gauge | 1/0 por ruta, para ver *cuál* nombre no puede servir HTTPS |
+| `townos_ingress_path_backends` | gauge | backends por ruta de acceso en todas las rutas |
+| `townos_ingress_reloads_total{result}` | counter | `success`/`failure` |
+| `townos_ingress_route_changes_total{op}` | counter | `set`/`add`/`remove` |
+| `townos_ingress_dropped_total{kind,reason}` | counter | lo que el renderizador rechazó |
+
+Más las **familias propias de caddy**, traídas de la API de admin local al contenedor del hijo (`127.0.0.1:2019/metrics`) y agregadas a la respuesta tal cual. Van bajo `caddy_*`/`go_*`/`process_*` y no pueden chocar con las `townos_ingress_*`. Pasarlas es la única forma de que lleguen a Prometheus, porque la API de admin está deliberadamente sin publicar, y describen el proceso que de hecho sirve cada petición que la caja contesta. El cuerpo no se vuelve a renderizar: analizarlo de regreso a familias solo podría perder información (caddy exporta histogramas, que `src/metrics` deliberadamente no modela).
+
+Varias decisiones son el punto, no un accidente:
+
+- **`townos_ingress_dropped_total` es la razón de que exista `renderCaddyfileTally`.** Una ruta con un hostname malformado, un backend inservible o un matcher de ruta de acceso inválido se descarta **individualmente** en vez de hacer fallar el render — o sea, se acepta por gRPC, se registra una vez y luego nunca se sirve. Un renglón de log es el instrumento equivocado: nadie lee el journal del ingress hasta que ya se sabe que algo está roto.
+- **Los backends por ruta de acceso se validan una vez por ruta, no una vez por vhost.** Una ruta de página está lista para HTTPS y además es `ServeHttp`, así que renderiza dos bloques de sitio a partir del mismo conjunto; validar dentro del escritor contaría cada rechazo dos veces.
+- **Cada serie de counter se siembra en cero.** `metrics.Render` omite una familia sin muestras, así que un `townos_ingress_reloads_total{result="failure"}` sin sembrar estaría ausente hasta la primera falla — una alerta que no puede dispararse hasta que el evento que vigila ya ocurrió.
+- **`townos_ingress_last_reload_success_time_seconds` se omite hasta que una recarga tiene éxito**, en vez de emitirse como cero: `time() - 0` se lee como una configuración de hace 56 años en lugar de "todavía no hay configuración".
+- **Un scrape nunca falla como unidad**, y nunca tumba el router. Un hijo caddy inalcanzable cuesta un gauge, no la respuesta; un listener de métricas que no puede enlazar se registra y se sobrevive, porque negarse a enrutar tráfico por un hueco de monitoreo es el intercambio equivocado.
+
+Ningún dashboard renderiza esto todavía — a diferencia de los jobs `rolodex` y `systemcontroller`, cuyos paneles se declaran contra `RolodexDashboardMetrics()`/`ControllerDashboardMetrics()`. Las series se recogen y se pueden consultar; un conjunto de paneles es un cambio aparte.
 
 ## Estado de Arranque y Refresco
 
@@ -2386,6 +2420,7 @@ Cada una de estas mueve uno de ellos y **usa por omisión el puerto de producci�
 - `TOWN_OS_PROMETHEUS_PORT` -- el puerto de la API HTTP de loopback de Prometheus (`9090` por omisión).
 - `TOWN_OS_MONITORING_PORT` -- el único puerto de monitoreo que da a la LAN (`5308` por omisión).
 - `INGRESS_HTTPS_PORT` / `INGRESS_HTTP_PORT` -- los puertos publicados del ingress (`443` / `80` por omisión).
+- `INGRESS_METRICS_PORT` -- el puerto en el que el ingress sirve su endpoint `/metrics` de Prometheus, publicado solo en `127.0.0.1` (`9146` por omisión). Es un tercer listener junto a los dos de arriba y necesita su propia anulación por la misma razón que el de rolodex; `ingressctl.MetricsAddrFor()` es la única función de la que se construyen tanto la especificación `-p` de la unidad como el objetivo del scrape, así que reubicarlo mueve los dos. Véase [Métricas del ingress](#métricas-del-ingress).
 
 ## Ajustes
 

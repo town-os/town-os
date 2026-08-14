@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"gitea.com/town-os/town-os/src/ingress/ingressctl"
 	"gitea.com/town-os/town-os/src/monitoring"
 	"gitea.com/town-os/town-os/src/rolodex"
 	"gitea.com/town-os/town-os/src/svc/systemcontroller"
@@ -44,6 +45,9 @@ const (
 	EnvIngressHTTPSPort = "INGRESS_HTTPS_PORT"
 	// EnvIngressHTTPPort relocates the ingress's published HTTP port.
 	EnvIngressHTTPPort = "INGRESS_HTTP_PORT"
+	// EnvIngressMetricsPort relocates the loopback port the ingress serves its
+	// Prometheus /metrics endpoint on.
+	EnvIngressMetricsPort = "INGRESS_METRICS_PORT"
 )
 
 // envPort reads a port number from the named environment variable.
@@ -109,9 +113,32 @@ func rolodexMetricsPortFromEnv() string {
 	return envPort(EnvRolodexMetricsPort)
 }
 
-// withScrapeTargets fills in the two scrape targets that are addresses rather
-// than ports this stack binds: rolodex's Prometheus endpoint and the
-// controller's own. Everything else in ports is passed through untouched.
+// ingressMetricsPortFromEnv resolves the ingress's Prometheus endpoint port. An
+// empty result is 0, which both ingressctl.Config and ingressctl.MetricsAddrFor
+// read as "use the default" — so the unit and the scrape target agree even when
+// nothing is set.
+func ingressMetricsPortFromEnv() int {
+	return envPortInt(EnvIngressMetricsPort)
+}
+
+// ingressMetricsTarget returns the address Prometheus should scrape the ingress
+// at, or "" when the ingress is not running on this box.
+//
+// The empty case is a real one rather than a defensive branch: `make dev` and
+// any INGRESS_IMAGE="" boot skip the ingress entirely, and a job aimed at a
+// service that was never started sits permanently down — which reads as a
+// broken router, the same misreading the rolodex and controller omissions exist
+// to avoid.
+func ingressMetricsTarget(ingressImage string) string {
+	if ingressImage == "" {
+		return ""
+	}
+	return ingressctl.MetricsAddrFor(ingressMetricsPortFromEnv())
+}
+
+// withScrapeTargets fills in the three scrape targets that are addresses rather
+// than ports this stack binds: rolodex's Prometheus endpoint, the ingress's, and
+// the controller's own. Everything else in ports is passed through untouched.
 //
 // This is a function rather than four lines inline in main() because it is the
 // single point at which the box decides to collect its own metrics at all, and
@@ -130,13 +157,16 @@ func rolodexMetricsPortFromEnv() string {
 // second time from TOWN_OS_TLS can disagree with the socket, and when it did,
 // every controller scrape failed with "server gave HTTP response to HTTPS
 // client" and nothing on the box reported it.
-func withScrapeTargets(ports monitoring.Ports, rolMgr *rolodex.Manager, listenAddr string, tls bool) monitoring.Ports {
+func withScrapeTargets(ports monitoring.Ports, rolMgr *rolodex.Manager, listenAddr, ingressMetrics string, tls bool) monitoring.Ports {
 	// Taken from the manager rather than recomposed from the port, so the
 	// target is by construction the same string rolodex.yml binds — the same
 	// single-source-of-truth reason PackageNetworkState.FQDN exists.
 	if rolMgr != nil {
 		ports.RolodexMetrics = rolMgr.MetricsAddr()
 	}
+	// Built by ingressctl from the same port the unit publishes, and empty when
+	// the ingress is disabled — see ingressMetricsTarget.
+	ports.IngressMetrics = ingressMetrics
 	// Derived from the same -listen value the server binds, so the target
 	// cannot drift from the listener — and so a relocated harness instance
 	// scrapes itself rather than whichever process happens to hold :5309.

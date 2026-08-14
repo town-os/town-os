@@ -22,7 +22,8 @@ clean_integration() {
   rm -f "${STATE_DIR}/.dns-port" "${STATE_DIR}/.rolodex-metrics-port" \
     "${STATE_DIR}/.node-exporter-port" \
     "${STATE_DIR}/.prometheus-port" "${STATE_DIR}/.monitoring-port" \
-    "${STATE_DIR}/.ingress-https-port" "${STATE_DIR}/.ingress-http-port"
+    "${STATE_DIR}/.ingress-https-port" "${STATE_DIR}/.ingress-http-port" \
+    "${STATE_DIR}/.ingress-metrics-port"
   ${MAKE} clean-btrfs
 }
 
