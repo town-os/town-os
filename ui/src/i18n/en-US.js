@@ -943,6 +943,7 @@ const enUS = {
   'objects.link_disabled': 'This link is disabled and is not being served.',
   'objects.col_filename': 'Filename',
   'objects.no_links': 'No published links.',
+  'objects.links_public_notice': 'Every enabled link is also listed publicly at this partition\'s HTTP view, where anyone who can reach that name can see it. Withdraw a link to take it off that list.',
   'objects.withdraw_link': 'Withdraw',
   'objects.withdraw_link_confirm': 'Withdraw this link? It will stop resolving immediately.',
   'objects.toast_user_added': 'User added',

@@ -938,6 +938,7 @@ const slSI = {
   'objects.link_disabled': 'Ta povezava je onemogočena in se ne streže.',
   'objects.col_filename': 'Ime datoteke',
   'objects.no_links': 'Ni objavljenih povezav.',
+  'objects.links_public_notice': 'Vsaka omogočena povezava je javno navedena tudi v pogledu HTTP te particije, kjer jo vidi vsak, ki doseže to ime. Umaknite povezavo, da jo odstranite s tega seznama.',
   'objects.withdraw_link': 'Umakni',
   'objects.withdraw_link_confirm': 'Umaknem to povezavo? Takoj se bo prenehala razreševati.',
   'objects.toast_user_added': 'Uporabnik je dodan',

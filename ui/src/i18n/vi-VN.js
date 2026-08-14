@@ -922,6 +922,7 @@ const viVN = {
   'objects.link_disabled': 'Liên kết này đã bị vô hiệu hóa và không được phục vụ.',
   'objects.col_filename': 'Filename',
   'objects.no_links': 'No published links.',
+  'objects.links_public_notice': 'Mọi liên kết đang bật cũng được liệt kê công khai trên chế độ xem HTTP của phân vùng này, nơi bất kỳ ai tiếp cận được tên đó đều thấy nó. Hãy thu hồi liên kết để gỡ nó khỏi danh sách đó.',
   'objects.withdraw_link': 'Withdraw',
   'objects.withdraw_link_confirm': 'Withdraw this link? It will stop resolving immediately.',
   'objects.toast_user_added': 'User added',

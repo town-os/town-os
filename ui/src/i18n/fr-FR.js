@@ -931,6 +931,7 @@ const frFR = {
   'objects.link_disabled': 'Ce lien est désactivé et n\'est pas servi.',
   'objects.col_filename': 'Nom de fichier',
   'objects.no_links': 'Aucun lien publié.',
+  'objects.links_public_notice': 'Chaque lien activé est aussi listé publiquement sur la vue HTTP de cette partition, où quiconque atteint ce nom peut le voir. Retirez un lien pour l\'ôter de cette liste.',
   'objects.withdraw_link': 'Retirer',
   'objects.withdraw_link_confirm': 'Retirer ce lien ? Il cessera immédiatement de se résoudre.',
   'objects.toast_user_added': 'Utilisateur ajouté',

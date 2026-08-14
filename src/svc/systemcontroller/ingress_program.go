@@ -137,7 +137,11 @@ func gfehIngressRoutes(ctx context.Context, nm account.NetworkManager, reg GfehR
 	// It is I/O in a function named "build", which the leaf issuing above
 	// already established: a route cannot be programmed before the bytes it
 	// serves exist.
-	reconcileGfehIndexes(btrfsBase, all)
+	//
+	// published is that rule made explicit for the second index: it names the
+	// http views whose root now has a page, and only those get the path backend
+	// that sends "/" to the pages container.
+	published := reconcileGfehIndexes(ctx, reg, btrfsBase, all)
 
 	var routes []*ingresspb.Route
 	issued := map[string]string{}
@@ -167,9 +171,10 @@ func gfehIngressRoutes(ctx context.Context, nm account.NetworkManager, reg GfehR
 		}
 
 		routes = append(routes, &ingresspb.Route{
-			Hostname: site.FQDN,
-			Backend:  site.Backend,
-			CertDir:  certDir,
+			Hostname:     site.FQDN,
+			Backend:      site.Backend,
+			CertDir:      certDir,
+			PathBackends: gfehPublicIndexBackends(site, published),
 		})
 	}
 	return routes

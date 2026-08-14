@@ -930,6 +930,7 @@ const itIT = {
   'objects.link_disabled': 'Questo collegamento è disattivato e non viene servito.',
   'objects.col_filename': 'Filename',
   'objects.no_links': 'No published links.',
+  'objects.links_public_notice': 'Ogni collegamento attivo è anche elencato pubblicamente nella vista HTTP di questa partizione, dove può vederlo chiunque raggiunga quel nome. Ritira un collegamento per toglierlo da quell\'elenco.',
   'objects.withdraw_link': 'Withdraw',
   'objects.withdraw_link_confirm': 'Withdraw this link? It will stop resolving immediately.',
   'objects.toast_user_added': 'User added',

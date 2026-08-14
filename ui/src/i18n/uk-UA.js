@@ -931,6 +931,7 @@ const ukUA = {
   'objects.link_disabled': 'Це посилання вимкнено й не обслуговується.',
   'objects.col_filename': 'Filename',
   'objects.no_links': 'No published links.',
+  'objects.links_public_notice': 'Кожне увімкнене посилання також публічно перелічене в поданні HTTP цього розділу, де його бачить кожен, хто дістанеться до цього імені. Відкличте посилання, щоб прибрати його з того списку.',
   'objects.withdraw_link': 'Withdraw',
   'objects.withdraw_link_confirm': 'Withdraw this link? It will stop resolving immediately.',
   'objects.toast_user_added': 'User added',

@@ -156,11 +156,17 @@ func gfehIndexHostnames(ctx context.Context, reg GfehRegistry, nm account.Networ
 		return out
 	}
 	for network := range reg.Clients() {
-		fqdn := gfehFQDN(gfeh.IndexLabel, gfehNetworkTLD(ctx, nm, network, globalTLD))
-		if fqdn == "" {
-			continue
+		tld := gfehNetworkTLD(ctx, nm, network, globalTLD)
+		// Both generated names: the partition index, and the http view's root.
+		// The second belongs here for exactly the reason the first does — the
+		// pages prune deletes any webroot entry it cannot account for, and the
+		// published-files index owns its entry just as much even though the name
+		// is also an ingress route to gfehd for /f/<token>.
+		for _, label := range []string{gfeh.IndexLabel, gfeh.ViewLabel(gfeh.ViewHTTP)} {
+			if fqdn := gfehFQDN(label, tld); fqdn != "" {
+				out[fqdn] = struct{}{}
+			}
 		}
-		out[fqdn] = struct{}{}
 	}
 	return out
 }
@@ -172,6 +178,17 @@ func gfehIndexHostnames(ctx context.Context, reg GfehRegistry, nm account.Networ
 // the pages container serves from the filesystem and re-reads per request, so
 // unlike the Caddyfile there is nothing to reload.
 func writeGfehIndexContent(btrfsBase, fqdn string, page gfeh.IndexPage) (bool, error) {
+	return writeGfehIndexFile(btrfsBase, fqdn, gfeh.RenderIndex(page))
+}
+
+// writeGfehIndexFile puts already-rendered bytes at a name's index path and
+// links that name into the pages webroot.
+//
+// Split from writeGfehIndexContent so the published-files index
+// (gfeh_public_index.go) lands through exactly the same directory check,
+// write-if-changed, and symlink as the partition index. Two writers would be two
+// opinions about where an index lives and which names the prune may remove.
+func writeGfehIndexFile(btrfsBase, fqdn string, content []byte) (bool, error) {
 	dir, err := gfehIndexDir(btrfsBase, fqdn)
 	if err != nil {
 		return false, err
@@ -181,7 +198,6 @@ func writeGfehIndexContent(btrfsBase, fqdn string, page gfeh.IndexPage) (bool, e
 	}
 
 	path := filepath.Join(dir, gfehIndexFileName)
-	content := gfeh.RenderIndex(page)
 	prev, readErr := os.ReadFile(path) //nolint:gosec // G304 -- path under the trusted btrfs base, traversal-checked above
 	if readErr != nil && !os.IsNotExist(readErr) {
 		return false, fmt.Errorf("read existing gfeh index: %w", readErr)
@@ -306,13 +322,15 @@ func removeGfehIndexSymlink(btrfsBase, name string) {
 // this same pass. Two collections would be two answers from a daemon that is
 // free to have restarted between them, and the index would then advertise a name
 // the route set does not carry.
-func reconcileGfehIndexes(btrfsBase string, sites []GfehSite) {
+// It returns the http-view names that now have a published-files index on disk,
+// so the caller can path-route only the ones whose bytes exist.
+func reconcileGfehIndexes(ctx context.Context, reg GfehRegistry, btrfsBase string, sites []GfehSite) map[string]struct{} {
 	if btrfsBase == "" {
-		return
+		return nil
 	}
 	if err := EnsurePagesWebroot(btrfsBase); err != nil {
 		slog.Debug("gfeh index: ensure pages webroot", "error", err)
-		return
+		return nil
 	}
 
 	pages := map[string]*gfeh.IndexPage{}
@@ -354,7 +372,22 @@ func reconcileGfehIndexes(btrfsBase string, sites []GfehSite) {
 		}
 	}
 
+	// The http view's own root, from the same site set.
+	published := reconcileGfehPublicIndexes(ctx, reg, btrfsBase, sites)
+
+	// What the prune may remove is decided by the names the box *has*, not by
+	// the ones this pass managed to render — the same rule gfehIndexHostnames
+	// states for the webroot, and it matters here for the same reason. These
+	// pages share one root with the partition indexes, so a valid set built from
+	// `published` would delete the page of every partition whose daemon happened
+	// to be unreachable, which is precisely the case reconcileGfehPublicIndexes
+	// declines to rewrite because a brief outage is not a withdrawal.
+	for fqdn := range gfehPublicIndexSites(sites) {
+		valid[fqdn] = struct{}{}
+	}
+
 	pruneGfehIndexes(btrfsBase, valid)
+	return published
 }
 
 // gfehTLDOfFQDN recovers the zone a gfeh name was qualified under.

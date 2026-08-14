@@ -46,35 +46,7 @@ func gfehBootReconcile(t *testing.T, networks ...string) (*systemd.MockManager, 
 	for _, name := range networks {
 		nm.Seed(&account.Network{Name: name, TLD: name, Enabled: true})
 	}
-	return sd, st, nm, gfehBootTempDir(t)
-}
-
-// gfehBootTempDir is t.TempDir() with a short name, and the length is the whole
-// point.
-//
-// A partition's admin socket lands at <base>/gfeh-control/<network>/run/admin.sock
-// — 40-odd characters below whatever base it is given — and a Unix socket path
-// cannot exceed sockaddr_un's 108-byte sun_path (107 usable). t.TempDir() builds
-// its directory out of the *test's own name*, so a descriptively-named test here
-// pushes the socket past the limit and bind fails with EINVAL, which reads as
-// "invalid argument" and looks nothing like "your path is too long".
-//
-// MkdirTemp with a short prefix sits on the same filesystem t.TempDir() would
-// have used and is still unique per run — IRON RULE — it just spends ~60 fewer
-// characters getting there.
-func gfehBootTempDir(t *testing.T) string {
-	t.Helper()
-
-	dir, err := os.MkdirTemp("", "gfehboot") //nolint:usetesting // t.TempDir() names the directory after the test, which overflows sun_path here
-	if err != nil {
-		t.Fatalf("temp dir: %v", err)
-	}
-	t.Cleanup(func() {
-		if err := os.RemoveAll(dir); err != nil {
-			t.Errorf("remove temp dir: %v", err)
-		}
-	})
-	return dir
+	return sd, st, nm, gfehTempDir(t)
 }
 
 // TestIntegrationGfehPartitionIsReportedDownNotAbsent is the reported bug,

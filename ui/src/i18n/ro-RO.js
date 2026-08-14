@@ -944,6 +944,7 @@ const roRO = {
   'objects.link_disabled': 'Acest link este dezactivat și nu este servit.',
   'objects.col_filename': 'Nume de fișier',
   'objects.no_links': 'Niciun link publicat.',
+  'objects.links_public_notice': 'Fiecare link activat este listat public și în vizualizarea HTTP a acestei partiții, unde îl poate vedea oricine ajunge la acel nume. Retrage un link pentru a-l scoate din acea listă.',
   'objects.withdraw_link': 'Retrage',
   'objects.withdraw_link_confirm': 'Retrageți acest link? Va înceta imediat să se rezolve.',
   'objects.toast_user_added': 'Utilizatorul a fost adăugat',

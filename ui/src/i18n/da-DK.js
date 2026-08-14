@@ -922,6 +922,7 @@ const daDK = {
   'objects.link_disabled': 'Dette link er deaktiveret og serveres ikke.',
   'objects.col_filename': 'Filename',
   'objects.no_links': 'No published links.',
+  'objects.links_public_notice': 'Ethvert aktiveret link er også offentligt anført på denne partitions HTTP-visning, hvor alle, der kan nå det navn, kan se det. Træk et link tilbage for at fjerne det fra den liste.',
   'objects.withdraw_link': 'Withdraw',
   'objects.withdraw_link_confirm': 'Withdraw this link? It will stop resolving immediately.',
   'objects.toast_user_added': 'User added',

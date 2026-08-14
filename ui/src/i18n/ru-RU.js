@@ -922,6 +922,7 @@ const ruRU = {
   'objects.link_disabled': 'Эта ссылка отключена и не обслуживается.',
   'objects.col_filename': 'Filename',
   'objects.no_links': 'No published links.',
+  'objects.links_public_notice': 'Каждая включённая ссылка также публично указана в HTTP-представлении этого раздела, где её видит любой, кто доберётся до этого имени. Отзовите ссылку, чтобы убрать её из того списка.',
   'objects.withdraw_link': 'Withdraw',
   'objects.withdraw_link_confirm': 'Withdraw this link? It will stop resolving immediately.',
   'objects.toast_user_added': 'User added',

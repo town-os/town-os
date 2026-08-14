@@ -922,6 +922,7 @@ const zhCN = {
   'objects.link_disabled': '此链接已禁用，未提供服务。',
   'objects.col_filename': '文件名',
   'objects.no_links': '没有已发布的链接。',
+  'objects.links_public_notice': '每一个启用的链接也会公开列在此分区的 HTTP 视图上，任何能访问该名称的人都能看到它。撤回链接即可把它从那份列表中移除。',
   'objects.withdraw_link': '撤回',
   'objects.withdraw_link_confirm': '撤回此链接？它将立即停止解析。',
   'objects.toast_user_added': '已添加用户',

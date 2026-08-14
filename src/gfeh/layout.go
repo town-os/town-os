@@ -31,6 +31,23 @@ const (
 	ControlDirName = "gfeh-control"
 )
 
+// ViewLabel is the hostname label Town OS publishes a view under.
+//
+// Pinned rather than left to gfehd's derived "<view>.<partition>", which would
+// produce "s3.home" and then "s3.home.home" once the zone is appended. Three
+// labels, the same shape a package gets (<name>.<repo>.<tld>), with "gfeh" in
+// the repo slot — so a partition's names cannot collide with a page's, which
+// are <domain>.<tld>.
+//
+// It lives here, beside VolumePrefix and IndexLabel, because two sides need the
+// same string from different directions: gfehctl composes it to tell gfehd what
+// to call itself, and the index reconcile composes it to know which names it
+// owns without asking a daemon. A second copy of "view + . + gfeh" is how those
+// two come to disagree about where a view is published.
+func ViewLabel(view string) string {
+	return view + "." + VolumePrefix
+}
+
 // DefaultNetworkName is the network a partition belongs to when none is
 // named. Mirrors account.DefaultNetworkName, duplicated here so this package
 // stays free of the account package (and so of the whole database layer) for

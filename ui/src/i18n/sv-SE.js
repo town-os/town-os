@@ -922,6 +922,7 @@ const svSE = {
   'objects.link_disabled': 'Denna länk är inaktiverad och tillhandahålls inte.',
   'objects.col_filename': 'Filename',
   'objects.no_links': 'No published links.',
+  'objects.links_public_notice': 'Varje aktiverad länk listas också offentligt i den här partitionens HTTP-vy, där alla som når det namnet kan se den. Dra tillbaka en länk för att ta bort den från den listan.',
   'objects.withdraw_link': 'Withdraw',
   'objects.withdraw_link_confirm': 'Withdraw this link? It will stop resolving immediately.',
   'objects.toast_user_added': 'User added',

@@ -83,7 +83,7 @@ El arranque es **observable**: `:5309` se enlaza antes de que pase cualquier tra
     - Reconcilia pages: asegura subvolúmenes, enlaces simbólicos y contenido de las páginas.
     Después persiste el SHA de la imagen actual en `<btrfsPath>/town-os-version`.
 25. **Reconciliar el DNS y las redes** — marca el socket gRPC de rolodex (reintentando hasta 30 s). `RebuildDNS` limpia y reconstruye rolodex desde cero para descartar la deriva de una corrida previa que se cayó; `RebuildNetworkDNS` vuelve a registrar los registros globales que dan a la LAN (y los anclajes DANE) de los paquetes que no están en la red predeterminada. `ReconcileNetworks` reconcilia entonces el TLD de la red del hogar contra `dns_tld` y levanta la interfaz WireGuard de cada red habilitada, pasando el cliente de rolodex para que el alcance del TLD de cada red tenga dueño — incluido el alcance solo-DNS del hogar. Todo no fatal. Después se reconcilia el almacenamiento de objetos **por segunda vez** (idempotente), de modo que una red que este paso levantó obtiene su partición sin esperar a un reinicio.
-26. **Programar el ingress** **(no fatal)** — espera a que esté listo, marca su socket gRPC y `RebuildIngress` empuja el conjunto completo de rutas (paquetes HTTP + páginas + vistas e índices del almacenamiento de objetos) de forma declarativa, el mismo modelo que `RebuildDNS`. También renderiza la página de índice de cada partición a partir de exactamente el mismo conjunto de sitios con el que se construyen esas rutas, en la misma pasada — una ruta no se puede programar antes de que existan los bytes que sirve ([El índice de la partición](#el-índice-de-la-partición)).
+26. **Programar el ingress** **(no fatal)** — espera a que esté listo, marca su socket gRPC y `RebuildIngress` empuja el conjunto completo de rutas (paquetes HTTP + páginas + vistas e índices del almacenamiento de objetos) de forma declarativa, el mismo modelo que `RebuildDNS`. También renderiza las dos páginas que genera una partición — su [índice](#el-índice-de-la-partición) y su [índice de archivos publicados](#el-índice-de-archivos-publicados) — a partir de exactamente el mismo conjunto de sitios con el que se construyen esas rutas, en la misma pasada, porque una ruta no se puede programar antes de que existan los bytes que sirve.
 27. **Arrancar el contenedor de la interfaz** **(no fatal)** — `town-os-system--ui.service`; se omite cuando `UI_IMAGE` está explícitamente vacío (modo de desarrollo, donde bun sirve la interfaz).
 28. **Etapa `restart_packages`: etapa de frescura** — si el proceso anterior dejó una marca de refresco, reinicia en serie todas las unidades de paquetes instalados, emitiendo un evento de progreso por paquete para que la interfaz renderice un renglón por cada uno. Una marca vieja de una caída es inofensiva.
 29. **Crear el manejador HTTP** — conecta todos los administradores a `ServerConfig`, arranca los sondeos de fondo (IP externa cada hora, reparación de deriva de DNS, segador de pares vencidos) y configura el router Echo con CORS, la lista blanca de permisos otorgados que falla en cerrado, la autenticación y el middleware de auditoría.
@@ -738,10 +738,56 @@ indexa. No hay ningún nombre nuevo que aprender: las vistas ya son `s3.gfeh`,
 - **`pruneStalePageSymlinks` pliega `gfehIndexHostnames`.** Un índice no es una página, así que sin esto el primer `reconcilePages` borra todos los enlaces de índice — y un equipo con almacenamiento de objetos y sin páginas se topa con el caso más agresivo de eso en cada pasada. El conjunto válido se deriva **únicamente del conjunto de redes**, nunca preguntándoles a los demonios, así que a una partición que nada más tarda en arrancar no se le puede podar su propio índice: lo que se puede borrar tiene que poder decidirse a partir de estado del que Town OS es dueño.
 - **Los índices los renderiza `reconcileGfehIndexes`, desde `RebuildIngress`**, no desde `ReconcileGfeh`. Esa colocación carga peso: la reconstrucción del ingress corre al arrancar, en la reconciliación de cada hora, en el CRUD de paquetes y páginas y, sobre todo, en `publishGfehNames` — la primera pasada en un arranque en frío en la que algún demonio está contestando siquiera, ya que gfehd sondea `/status/ping`, que da 503 hasta el intercambio del manejador. Un índice escrito desde la reconciliación de gfeh se escribiría antes de que los demonios pudieran decir qué sirven, y se quedaría viejo hasta la hora siguiente.
 
-El índice trae **solo las vistas**, que ya están en el DNS. Ni exposiciones, ni
-principales, ni permisos otorgados, ni cuota: se sirve sin ninguna autenticación
-enfrente, y cada enlace `/f/<token>` publicado es una credencial al portador —
-justo lo que una página sin autenticar nunca debe enumerar.
+El índice trae **solo las vistas**, que ya están en el DNS. Ni principales, ni
+permisos otorgados, ni cuota, y tampoco los enlaces publicados: es la página que
+un operador reparte para explicar qué es el almacenamiento de objetos, y un
+`/f/<token>` en ella es una credencial al portador que nadie pidió publicar ahí.
+Los enlaces publicados tienen su propia página, más abajo.
+
+### El índice de archivos publicados
+
+`http.gfeh.<tld>` es el único nombre cuyo propósito entero es entregarle
+archivos a la gente, y era también el que daba 404: gfehd contesta `/f/<token>`
+y nada más, incluida su propia raíz. Esa raíz ahora sirve un **índice de
+archivos publicados** — cada exposición habilitada, con nombre y enlazada al
+token bajo el que se sirve.
+
+Este es el único nombre del equipo con **dos backends**, y para eso existe
+`PathBackend` en una `Route` del ingress (ver [Ingress](#ingress)):
+
+- **La `/` la atiende el contenedor de pages**, renderizando
+  `gfeh.RenderPublicIndex` desde `gfeh-index/http.gfeh.<tld>/`, pasando por
+  exactamente la misma revisión de directorio, la misma escritura solo si
+  cambió, el mismo enlace simbólico y la misma poda que el índice de la
+  partición (`writeGfehIndexFile`). Dos escritores serían dos opiniones sobre
+  dónde vive un índice y qué nombres puede borrar la poda.
+- **Todas las demás rutas siguen siendo de gfehd.** El matcher es la raíz y nada
+  más: un prefijo taparía rutas que gfehd pueda agregar después, que es justo la
+  falla que esta página arregla, al revés. La raíz es la única ruta que gfehd ha
+  dicho que no sirve, dando 404 en ella.
+- **Solo se programa un backend por ruta para un nombre cuyos bytes existen.**
+  `reconcileGfehPublicIndexes` devuelve lo que escribió y
+  `gfehPublicIndexBackends` enruta solo eso, porque mandar la `/` al contenedor
+  de pages para un nombre sin entrada en el webroot cambia el 404 de gfehd por
+  el de Caddy — la misma falla con otro logotipo.
+- **`gfehIndexHostnames` cubre también este nombre**, o la poda de pages borra su
+  entrada del webroot en la primera pasada y el índice da 404 hasta la siguiente
+  reconstrucción del ingress.
+- **Un demonio inalcanzable conserva su página.** Si `ListExposures` falla, el
+  render anterior se queda donde está en lugar de reescribirse a "todavía no se
+  ha publicado nada": una caída breve no es prueba de que alguien haya retirado
+  todos los archivos, y una reconciliación que actuara así vaciaría el índice en
+  cada reinicio para volver a llenarlo una pasada después.
+
+**Enumera credenciales al portador, a propósito.** Una URL `/f/<token>` es una
+capacidad — tenerla es toda la autorización — así que publicar un archivo ya no
+significa "alcanzable por quien reciba el enlace" y pasa a significar "listado
+para cualquiera que pueda resolver el nombre". Ese es el trato que es esta
+página: un directorio de archivos publicados vale la pena, y uno que omitiera
+los enlaces sería una lista de nombres de archivo que nadie podría abrir. De ahí
+se sigue que **retirar es lo único que vuelve a hacer privado un archivo**; una
+exposición deshabilitada no aporta ningún renglón, porque ese renglón anunciaría
+un enlace que no resuelve a nada.
 
 ### Protocolo 4: el proxy de la interfaz (`/gfeh/*`)
 
@@ -826,7 +872,7 @@ Dos detalles de esa pantalla existen para que un lector no actúe sobre un núme
 o un token que no se puede usar:
 
 - **La columna Port de Overview está en blanco para una vista HTTP.** El puerto que gfehd reporta para una es un *puerto de backend del lado del contenedor* al que el ingress le hace proxy, inalcanzable desde donde está sentado cualquier lector — imprimir `9000` junto a "Ingress (HTTPS)" invita a marcar `s3.gfeh.home:9000` y concluir que la función está rota. SMB conserva su número, que sí sería un puerto real del host.
-- **La pestaña Links renderiza la URL completa, compuesta en el servidor.** `GfehExposureView.URL` se construye a partir de `gfehPublishedLinkBase` — `https://<fqdn-vista-http>/f/` — que viene del mismo recolector que nombra el vhost del ingress y el SAN de la hoja, así que un enlace publicado es por construcción un nombre que el ingress enruta y que el certificado cubre. No se compone en el navegador porque la interfaz tendría que saber cuatro cosas que el servidor ya guarda: que el nombre que sirve es el de la *vista http* y no el de la partición ni el del equipo, que se califica bajo el TLD de la propia red de la partición y no bajo el global, que la ruta es `/f/<token>` y que el puerto reportado nunca debe aparecer. El campo queda vacío cuando la partición no sirve ninguna vista HTTP — la respuesta honesta, ya que entonces no hay nada sirviendo ese token — y una exposición deshabilitada se renderiza como texto plano en lugar de como un 404 al que se le puede hacer clic.
+- **La pestaña Links renderiza la URL completa, compuesta en el servidor.** `GfehExposureView.URL` se construye a partir de `gfehPublishedLinkBase` — `https://<fqdn-vista-http>/f/` — que viene del mismo recolector que nombra el vhost del ingress y el SAN de la hoja, así que un enlace publicado es por construcción un nombre que el ingress enruta y que el certificado cubre. No se compone en el navegador porque la interfaz tendría que saber cuatro cosas que el servidor ya guarda: que el nombre que sirve es el de la *vista http* y no el de la partición ni el del equipo, que se califica bajo el TLD de la propia red de la partición y no bajo el global, que la ruta es `/f/<token>` y que el puerto reportado nunca debe aparecer. El campo queda vacío cuando la partición no sirve ninguna vista HTTP — la respuesta honesta, ya que entonces no hay nada sirviendo ese token — y una exposición deshabilitada se renderiza como texto plano en lugar de como un 404 al que se le puede hacer clic. Todo enlace habilitado de esta pestaña queda además listado públicamente en la raíz de la vista http ([el índice de archivos publicados](#el-índice-de-archivos-publicados)), así que lo que deja de listar un archivo es retirarlo, no nada más dejar de compartirlo — y la pestaña lo dice arriba de la tabla (`objects.links_public_notice`), porque es la única pantalla que muestra estos enlaces y por lo tanto la única que puede decirlo antes de que alguien publique otro creyéndolo privado para quien se lo mandó. El aviso está condicionado a que un enlace esté **habilitado y servido a la vez**, el mismo campo `URL` que condiciona la columna: una partición sin vista HTTP no tiene raíz donde asentar el índice, así que un aviso ahí describiría una exposición que no está pasando.
 
 **Esta pantalla es el único lugar donde se administra el almacenamiento de objetos.** La pantalla de servicios no trae ninguna sección de almacenamiento de objetos: una partición ES un servicio del sistema — una unidad `town-os-system--gfeh-<red>` cada una — así que ya es un renglón en la tabla de Servicios del Sistema de esa pantalla, `Object Storage (<red>)`, con la misma insignia de estado y las mismas acciones de arrancar/detener/reiniciar/registros que cualquier otro servicio del sistema. Un panel junto a ella repetía ese renglón y consultaba por su cuenta, así que una unidad tenía dos controles a dos niveles que podían discrepar; además se renderizaba incondicionalmente mientras la tabla dependía de que su consulta hubiera regresado, lo cual dejaba al almacenamiento de objetos solito hasta arriba de la pantalla en el primer pintado y metía los servicios del sistema encima un momento después. `?expand=objects` en la pantalla de servicios abre Servicios del Sistema, que es donde vive el renglón.
 
@@ -1395,6 +1441,36 @@ El ingress es el router de Host compartido: un sidecar que supervisa un hijo Cad
 - **`:443`** — un vhost `https://<hostname>` por ruta, terminando TLS con la hoja de la CA local fijada al archivo de esa ruta, o con un emisor ACME explícito para un FQDN público, y haciendo proxy inverso al contenedor de backend en la red podman compartida `town-os-ingress`.
 - **`:80`** — enrutado por Host: las páginas (`ServeHttp`) se sirven directo por HTTP simple (contenido estático, nada sensible), los paquetes reciben una redirección HTTP→HTTPS para que se queden solo en HTTPS, y cualquier host que no coincida con una ruta cae al backend predeterminado — la interfaz de Town OS, para que el inicio de sesión por IP pelona (`http://<ip-del-equipo>/`) siga funcionando ahora que la interfaz ya no ocupa el `:80` del host.
 - Una ruta **sin hoja emitida todavía** (no ACME, directorio de certificados vacío) se salta para HTTPS, así que una entrada a medio aprovisionar nunca hace que Caddy rechace toda la configuración; una página sigue obteniendo su vhost de `:80`, que no necesita certificado. Los paquetes solo se redirigen una vez que el destino HTTPS de veras existe, así que nada redirige hacia un certificado que todavía no se aprovisiona.
+
+### Un vhost, dos backends: `PathBackend`
+
+Una ruta normalmente nombra un servicio, y casi todas las rutas del equipo lo
+hacen. `Route.path_backends` es la excepción: una lista de pares `(ruta,
+backend)` renderizada como bloques `handle` de Caddy por delante de un `handle`
+pelón que lleva el backend propio de la ruta. Existe porque un backend puede ser
+dueño de un nombre sin serlo de todas las rutas debajo de él — su único llamador
+es el [índice de archivos publicados](#el-índice-de-archivos-publicados), que
+sirve `/` desde el contenedor de pages mientras todas las demás rutas de
+`http.gfeh.<tld>` llegan a gfehd.
+
+- **El `handle` pelón siempre va al final.** Los bloques `handle` son mutuamente
+  excluyentes y se evalúan en el orden escrito, y uno pelón empata con todo, así
+  que cualquier cosa después de él sería configuración muerta.
+- **Los backends por ruta se renderizan en el orden en que se dieron**, no
+  ordenados. Ordenarlos sería seguro para los matchers que Town OS programa de
+  verdad (no se traslapan) y cambiaría en silencio cuál gana para un par que sí
+  lo hiciera.
+- **Una ruta se valida igual que un nombre de host y un backend**
+  (`validPathMatcher`: absoluta, caracteres URL no reservados más `*`, con
+  longitud acotada). Una mala se tira **individualmente**, no junto con su ruta:
+  el backend propio de la ruta es el comodín, así que perder un backend por ruta
+  cuesta la única ruta que reclamaba mientras el servicio detrás del nombre
+  sigue contestando. Una ruta duplicada también se tira — Caddy acepta dos
+  matchers idénticos y sencillamente nunca llega al segundo.
+- **Un backend por ruta no tiene `backend_tls` propio** y se proxea por HTTP
+  plano. Esa bandera describe el servicio *para el que es* una ruta, y lo único
+  que este campo existe para alcanzar habla HTTP en el `:80` como cualquier otra
+  página.
 
 ### Renderizado
 

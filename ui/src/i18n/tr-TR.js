@@ -922,6 +922,7 @@ const trTR = {
   'objects.link_disabled': 'Bu bağlantı devre dışı ve sunulmuyor.',
   'objects.col_filename': 'Filename',
   'objects.no_links': 'No published links.',
+  'objects.links_public_notice': 'Etkin her bağlantı bu bölümün HTTP görünümünde de herkese açık olarak listelenir; o ada erişebilen herkes onu görebilir. Bir bağlantıyı o listeden çıkarmak için geri çekin.',
   'objects.withdraw_link': 'Withdraw',
   'objects.withdraw_link_confirm': 'Withdraw this link? It will stop resolving immediately.',
   'objects.toast_user_added': 'User added',

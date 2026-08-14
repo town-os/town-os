@@ -87,4 +87,39 @@ describe('LinksTab', () => {
       expect(screen.getByText(/no published links/i)).toBeTruthy()
     })
   })
+
+  // Publishing a file lists it at the http view's root, where anyone who can
+  // resolve the name reads it. This tab is the only screen that shows these
+  // links, so it is the only place that can say so before somebody publishes
+  // another one believing the link is private to whoever they sent it to.
+  it('warns that enabled links are listed publicly', async () => {
+    render(<LinksTab network="home" canManage />)
+
+    await screen.findByRole('link', { name: /abc123/ })
+    expect(screen.getByText(/listed publicly/i)).toBeTruthy()
+  })
+
+  // Nothing is being listed, so the warning would describe exposure that is not
+  // happening: a disabled exposure contributes no row to the public index, and
+  // an empty URL means no HTTP view is served for it to sit at.
+  it('does not warn when nothing is actually being served', async () => {
+    mockClient.listGfehExposures.mockResolvedValue([
+      { token: 'off456', path: '/docs/tax.pdf', filename: 'tax.pdf', enabled: false, url: 'https://http.gfeh.home/f/off456' },
+      { token: 'noview7', path: '/misc/x.bin', filename: 'x.bin', enabled: true, url: '' },
+    ])
+    render(<LinksTab network="home" canManage />)
+
+    await screen.findByText('noview7')
+    expect(screen.queryByText(/listed publicly/i)).toBeNull()
+  })
+
+  it('does not warn on an empty partition', async () => {
+    mockClient.listGfehExposures.mockResolvedValue([])
+    render(<LinksTab network="home" canManage />)
+
+    await waitFor(() => {
+      expect(screen.getByText(/no published links/i)).toBeTruthy()
+    })
+    expect(screen.queryByText(/listed publicly/i)).toBeNull()
+  })
 })

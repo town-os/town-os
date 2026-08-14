@@ -922,6 +922,7 @@ const jaJP = {
   'objects.link_disabled': 'このリンクは無効になっており、提供されていません。',
   'objects.col_filename': 'ファイル名',
   'objects.no_links': '公開リンクはありません。',
+  'objects.links_public_notice': '有効なリンクはどれも、このパーティションの HTTP ビューで公開の一覧にも載り、その名前に到達できる人は誰でも見ることができます。一覧から外すには、リンクを取り下げてください。',
   'objects.withdraw_link': '取り下げ',
   'objects.withdraw_link_confirm': 'このリンクを取り下げますか？直ちに解決されなくなります。',
   'objects.toast_user_added': 'ユーザーを追加しました',

@@ -922,6 +922,7 @@ const fiFI = {
   'objects.link_disabled': 'Tämä linkki on poistettu käytöstä eikä sitä tarjoilla.',
   'objects.col_filename': 'Filename',
   'objects.no_links': 'No published links.',
+  'objects.links_public_notice': 'Jokainen käytössä oleva linkki on myös julkisesti luettelossa tämän osion HTTP-näkymässä, jossa sen näkee kuka tahansa, joka tavoittaa kyseisen nimen. Peru linkki, niin se poistuu luettelosta.',
   'objects.withdraw_link': 'Withdraw',
   'objects.withdraw_link_confirm': 'Withdraw this link? It will stop resolving immediately.',
   'objects.toast_user_added': 'User added',

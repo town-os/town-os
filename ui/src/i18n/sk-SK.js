@@ -938,6 +938,7 @@ const skSK = {
   'objects.link_disabled': 'Tento odkaz je zakázaný a nie je poskytovaný.',
   'objects.col_filename': 'Názov súboru',
   'objects.no_links': 'Žiadne publikované odkazy.',
+  'objects.links_public_notice': 'Každý povolený odkaz je aj verejne uvedený v zobrazení HTTP tohto oddielu, kde ho vidí každý, kto sa dostane na ten názov. Stiahnutím odkazu ho z tohto zoznamu odstránite.',
   'objects.withdraw_link': 'Stiahnuť',
   'objects.withdraw_link_confirm': 'Stiahnuť tento odkaz? Okamžite sa prestane prekladať.',
   'objects.toast_user_added': 'Používateľ bol pridaný',

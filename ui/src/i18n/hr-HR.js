@@ -938,6 +938,7 @@ const hrHR = {
   'objects.link_disabled': 'Ova je poveznica onemogućena i ne poslužuje se.',
   'objects.col_filename': 'Naziv datoteke',
   'objects.no_links': 'Nema objavljenih poveznica.',
+  'objects.links_public_notice': 'Svaka omogućena poveznica također je javno navedena na HTTP prikazu ove particije, gdje je vidi svatko tko dosegne to ime. Povucite poveznicu da je maknete s tog popisa.',
   'objects.withdraw_link': 'Povuci',
   'objects.withdraw_link_confirm': 'Povući ovu poveznicu? Odmah se prestaje razrješavati.',
   'objects.toast_user_added': 'Korisnik je dodan',

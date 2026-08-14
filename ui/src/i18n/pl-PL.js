@@ -922,6 +922,7 @@ const plPL = {
   'objects.link_disabled': 'Ten odnośnik jest wyłączony i nie jest serwowany.',
   'objects.col_filename': 'Filename',
   'objects.no_links': 'No published links.',
+  'objects.links_public_notice': 'Każdy włączony odnośnik jest też publicznie wymieniony w widoku HTTP tej partycji, gdzie zobaczy go każdy, kto dotrze do tej nazwy. Wycofaj odnośnik, aby usunąć go z tej listy.',
   'objects.withdraw_link': 'Withdraw',
   'objects.withdraw_link_confirm': 'Withdraw this link? It will stop resolving immediately.',
   'objects.toast_user_added': 'User added',

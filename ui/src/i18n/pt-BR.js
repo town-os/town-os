@@ -922,6 +922,7 @@ const ptBR = {
   'objects.link_disabled': 'Este link está desativado e não está sendo servido.',
   'objects.col_filename': 'Filename',
   'objects.no_links': 'No published links.',
+  'objects.links_public_notice': 'Todo link ativado também fica listado publicamente na visão HTTP desta partição, onde qualquer um que alcance esse nome pode vê-lo. Retire um link para tirá-lo dessa lista.',
   'objects.withdraw_link': 'Withdraw',
   'objects.withdraw_link_confirm': 'Withdraw this link? It will stop resolving immediately.',
   'objects.toast_user_added': 'User added',

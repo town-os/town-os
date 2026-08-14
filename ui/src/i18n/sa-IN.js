@@ -922,6 +922,7 @@ const saIN = {
   'objects.link_disabled': 'अयं संयोजः निष्क्रियः अस्ति, न च सेव्यते।',
   'objects.col_filename': 'Filename',
   'objects.no_links': 'No published links.',
+  'objects.links_public_notice': 'प्रत्येकः सक्रियः संयोजः अस्याः विभाजन्याः HTTP-दृश्ये सार्वजनिकरूपेण अपि सूचितः भवति, यत्र तत् नाम प्राप्नुवन् कोऽपि तं पश्यति। सूचीतः अपनेतुं संयोजं प्रत्याहरतु।',
   'objects.withdraw_link': 'Withdraw',
   'objects.withdraw_link_confirm': 'Withdraw this link? It will stop resolving immediately.',
   'objects.toast_user_added': 'User added',

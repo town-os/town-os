@@ -46,6 +46,25 @@ message Route {
   // nothing sensitive). When false (the default, used by packages) the :80
   // vhost is an HTTP->HTTPS redirect so the route stays HTTPS-only.
   bool serve_http = 6;
+  // Paths that go somewhere other than backend. Empty for almost every route:
+  // one vhost, one service, is the norm.
+  //
+  // It exists because a backend can own a name without owning every path under
+  // it. gfeh's http view answers exactly /f/<token> and 404s its own root, so
+  // the object-storage index is served at "/" by the pages container while
+  // every published link still reaches gfehd (see gfehIngressRoutes).
+  repeated PathBackend path_backends = 7;
+}
+
+// PathBackend sends one path of a route somewhere other than the route's own
+// backend.
+message PathBackend {
+  // Caddy path matcher: "/" matches the root and nothing else, "/f/*" matches
+  // a prefix. Rendered into a `handle` block, so it must be a path and nothing
+  // more — the ingress drops one that is not.
+  string path = 1;
+  // reverse_proxy target as "container:port" on the ingress network.
+  string backend = 2;
 }
 
 message SetRoutesRequest {

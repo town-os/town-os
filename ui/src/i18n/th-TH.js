@@ -922,6 +922,7 @@ const thTH = {
   'objects.link_disabled': 'ลิงก์นี้ถูกปิดใช้งานและไม่ได้ให้บริการ',
   'objects.col_filename': 'Filename',
   'objects.no_links': 'No published links.',
+  'objects.links_public_notice': 'ทุกลิงก์ที่เปิดใช้งานจะถูกแสดงต่อสาธารณะบนมุมมอง HTTP ของพาร์ทิชันนี้ด้วย ซึ่งใครก็ตามที่เข้าถึงชื่อนั้นได้จะเห็นลิงก์นั้น ถอนลิงก์เพื่อนำออกจากรายการดังกล่าว',
   'objects.withdraw_link': 'Withdraw',
   'objects.withdraw_link_confirm': 'Withdraw this link? It will stop resolving immediately.',
   'objects.toast_user_added': 'User added',

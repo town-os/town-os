@@ -80,7 +80,7 @@ The boot is **observable**: `:5309` is bound before any work happens, backed by 
     - Reconciles pages: ensures subvolumes, symlinks, and page content.
     Then persist the current image SHA to `<btrfsPath>/town-os-version`.
 25. **Reconcile DNS and networks** — dial the rolodex gRPC socket (retry up to 30s). `RebuildDNS` wipes and rebuilds rolodex from scratch so drift from a crashed prior run is discarded; `RebuildNetworkDNS` re-registers the LAN-facing global records (and DANE pins) for non-default-network packages. `ReconcileNetworks` then reconciles the home network's TLD against `dns_tld` and brings up every enabled network's WireGuard interface, passing the rolodex client so each network's TLD scope is owned — including the DNS-only home scope. All non-fatal. Object storage is then reconciled **a second time** (idempotent), so a network this step brought up gets its partition without waiting for a restart.
-26. **Program the ingress** **(non-fatal)** — wait for readiness, dial its gRPC socket, and `RebuildIngress` pushes the full route set (HTTP packages + pages + object-storage views and indexes) declaratively, the same model as `RebuildDNS`. It also renders each partition's index page from exactly the site set those routes are built from, on the same pass — a route cannot be programmed before the bytes it serves exist ([The partition index](#the-partition-index)).
+26. **Program the ingress** **(non-fatal)** — wait for readiness, dial its gRPC socket, and `RebuildIngress` pushes the full route set (HTTP packages + pages + object-storage views and indexes) declaratively, the same model as `RebuildDNS`. It also renders both of a partition's generated pages — its [index](#the-partition-index) and its [published-files index](#the-published-files-index) — from exactly the site set those routes are built from, on the same pass, because a route cannot be programmed before the bytes it serves exist.
 27. **Start the UI container** **(non-fatal)** — `town-os-system--ui.service`; skipped when `UI_IMAGE` is explicitly empty (dev mode, where bun serves the UI).
 28. **Stage `restart_packages`: freshness stage** — if the previous process left a refresh marker, restart every installed package unit serially, emitting a per-package progress event so the UI renders a row each. A stale marker from a crash is harmless.
 29. **Create the HTTP handler** — wires all managers into `ServerConfig`, starts the background pollers (external IP hourly, DNS drift repair, expired-peer reaper), configures the Echo router with CORS, the fail-closed grant allowlist, auth, and audit middleware.
@@ -734,10 +734,54 @@ is no new name to learn: the views are already `s3.gfeh`, `http.gfeh`,
 - **`pruneStalePageSymlinks` folds in `gfehIndexHostnames`.** An index is not a page, so without this the first `reconcilePages` deletes every index link — and a box with object storage and no pages hits the most aggressive case of that on every pass. The valid set is derived from the **network set alone**, never by asking the daemons, so a partition that is merely slow to start cannot have its own index pruned: what may be deleted has to be decidable from state Town OS owns.
 - **Indexes are rendered by `reconcileGfehIndexes`, from `RebuildIngress`**, not from `ReconcileGfeh`. That placement is load-bearing: the ingress rebuild runs on boot, the hourly reconcile, package and page CRUD, and critically `publishGfehNames` — the first pass on a cold boot at which any daemon is answering at all, since gfehd polls `/status/ping`, which is 503 until the handler swap. An index written from the gfeh reconcile would be written before the daemons could say what they serve, and would sit stale until the next hour.
 
-The index carries **only the views**, which are already in DNS. Not exposures,
-principals, grants, or quota: it is served with no authentication in front of
-it, and every published `/f/<token>` link is a bearer credential — precisely
-the thing an unauthenticated page must never enumerate.
+The index carries **only the views**, which are already in DNS. Not principals,
+grants, or quota, and not the published links either — it is the page an
+operator hands round to explain what object storage is, and a `/f/<token>` on it
+is a bearer credential nobody asked to publish there. Published links have their
+own page, below.
+
+### The published-files index
+
+`http.gfeh.<tld>` is the one name whose entire purpose is handing files to
+people, and it was also the one that 404'd: gfehd answers `/f/<token>` and
+nothing else, including its own root. Its root now serves a **published-files
+index** — every enabled exposure, named and linked at the token it is served
+under.
+
+This is the only name on the box with **two backends**, and that is what
+`PathBackend` on an ingress `Route` exists for (see [Ingress](#ingress)):
+
+- **`/` is handled by the pages container**, rendering `gfeh.RenderPublicIndex`
+  out of `gfeh-index/http.gfeh.<tld>/`, through exactly the same directory
+  check, write-if-changed, symlink and prune as the partition index
+  (`writeGfehIndexFile`). Two writers would be two opinions about where an index
+  lives and which names the prune may remove.
+- **Every other path stays gfehd's.** The matcher is the root and nothing more:
+  a prefix would shadow paths gfehd may grow later, which is the failure this
+  page fixes, inverted. The root is the one path gfehd has said it does not
+  serve, by 404ing it.
+- **A path backend is programmed only for a name whose bytes exist.**
+  `reconcileGfehPublicIndexes` returns what it wrote and
+  `gfehPublicIndexBackends` routes only those, because sending `/` to the pages
+  container for a name it has no webroot entry for replaces gfehd's 404 with
+  Caddy's — the same failure with a different logo.
+- **`gfehIndexHostnames` covers this name too**, or the pages prune deletes its
+  webroot entry on the first pass and the index 404s until the ingress is next
+  rebuilt.
+- **A daemon that cannot be reached keeps its page.** `ListExposures` failing
+  leaves the previous render in place rather than rewriting it to "nothing
+  published yet": a brief outage is not evidence that somebody withdrew every
+  file, and acting on it that way would empty the index on every restart and
+  refill it a pass later.
+
+**It enumerates bearer credentials, deliberately.** A `/f/<token>` URL is a
+capability — holding it is the whole of the authorization — so publishing a file
+no longer means "reachable by whoever I sent the link to" and now means "listed
+to anyone who can resolve the name". That is the trade the page is: a directory
+of published files is worth having, and one that omitted the links would be a
+list of filenames nobody could open. What follows is that **withdrawing is the
+only thing that makes a file private again**; a disabled exposure contributes no
+row, because a row would advertise a link that resolves to nothing.
 
 ### Protocol 4: the UI proxy (`/gfeh/*`)
 
@@ -822,7 +866,7 @@ Two details on that screen exist to stop a reader acting on a number or a token
 that cannot be used:
 
 - **The Overview's Port column is blank for an HTTP view.** The port gfehd reports for one is a *container-side backend port* the ingress proxies to, reachable from nowhere a reader sits — printing `9000` beside "Ingress (HTTPS)" invites dialling `s3.gfeh.home:9000` and concluding the feature is broken. SMB keeps its number, which would be a real host port.
-- **The Links tab renders the complete URL, composed server-side.** `GfehExposureView.URL` is built from `gfehPublishedLinkBase` — `https://<http-view-fqdn>/f/` — which comes from the same collector that names the ingress vhost and the leaf's SAN, so a published link is by construction a name the ingress routes and the certificate covers. It is not composed in the browser because the UI would have to know four things the server already holds: that the serving name is the *http view's* rather than the partition's or the box's, that it is qualified under the partition's own network TLD rather than the global one, that the route is `/f/<token>`, and that the reported port must never appear. The field is empty when the partition serves no HTTP view — the honest answer, since nothing is then serving that token — and a disabled exposure renders as plain text rather than a clickable 404.
+- **The Links tab renders the complete URL, composed server-side.** `GfehExposureView.URL` is built from `gfehPublishedLinkBase` — `https://<http-view-fqdn>/f/` — which comes from the same collector that names the ingress vhost and the leaf's SAN, so a published link is by construction a name the ingress routes and the certificate covers. It is not composed in the browser because the UI would have to know four things the server already holds: that the serving name is the *http view's* rather than the partition's or the box's, that it is qualified under the partition's own network TLD rather than the global one, that the route is `/f/<token>`, and that the reported port must never appear. The field is empty when the partition serves no HTTP view — the honest answer, since nothing is then serving that token — and a disabled exposure renders as plain text rather than a clickable 404. Every enabled link in this tab is also listed publicly at the http view's root ([the published-files index](#the-published-files-index)), so withdrawing is what makes a file unlisted, not merely unshared — and the tab says so above the table (`objects.links_public_notice`), because this is the only screen that shows these links and therefore the only one that can say it before somebody publishes another believing it private to whoever they sent it to. The notice is gated on a link being **both enabled and served**, the same `URL` field the column is gated on: a partition with no HTTP view has no root for the index to sit at, so a warning there would describe exposure that is not happening.
 
 **This screen is the only place object storage is managed.** The services screen carries no object-storage section: a partition IS a system service — one `town-os-system--gfeh-<network>` unit each — so it is already a row in that screen's System Services table, `Object Storage (<network>)`, with the same status badge and the same start/stop/restart/logs actions as every other system service. A panel beside it repeated that row and polled independently of it, so one unit had two controls at two levels that could disagree; it also rendered unconditionally while the table was gated on its poll having returned, which put object storage alone at the top of the screen on first paint and dropped system services in above it a moment later. `?expand=objects` on the services screen opens System Services, where the row lives.
 
@@ -1391,6 +1435,32 @@ The ingress is the shared Host router: a sidecar that supervises a Caddy child a
 - **`:443`** — one `https://<hostname>` vhost per route, terminating TLS with the route's file-pinned local-CA leaf, or an explicit ACME issuer for a public FQDN, and reverse-proxying to the backend container on the shared `town-os-ingress` podman network.
 - **`:80`** — Host-routed: pages (`ServeHttp`) are served directly over plain HTTP (static content, nothing sensitive), packages get an HTTP→HTTPS redirect so they stay HTTPS-only, and any host not matched by a route falls through to the default backend — the Town OS UI, so bare-IP login (`http://<box-ip>/`) keeps working now that the UI no longer squats the host's `:80`.
 - A route with **no issued leaf yet** (non-ACME, empty cert dir) is skipped for HTTPS, so a half-provisioned entry never makes Caddy reject the whole config; a page still gets its `:80` vhost, which needs no cert. Packages are only redirected once the HTTPS target actually exists, so nothing redirects into a not-yet-provisioned cert.
+
+### One vhost, two backends: `PathBackend`
+
+A route normally names one service, and almost every route on the box does.
+`Route.path_backends` is the exception: a list of `(path, backend)` pairs
+rendered as Caddy `handle` blocks ahead of a bare `handle` carrying the route's
+own backend. It exists because a backend can own a name without owning every
+path under it — its only caller is the [published-files
+index](#the-published-files-index), which serves `/` out of the pages container
+while every other path on `http.gfeh.<tld>` reaches gfehd.
+
+- **The bare `handle` is always last.** `handle` blocks are mutually exclusive
+  and evaluated in the order written, and a bare one matches everything, so
+  anything after it would be dead config.
+- **Path backends render in the order supplied**, not sorted. Sorting would be
+  safe for the matchers Town OS actually programs (they do not overlap) and
+  would quietly change which one wins for a pair that did.
+- **A path is validated like a hostname and a backend are** (`validPathMatcher`:
+  absolute, unreserved URL characters plus `*`, length-bounded). A bad one is
+  dropped **individually**, not with its route: the route's own backend is the
+  catch-all, so losing a path backend costs the one path it claimed while the
+  service behind the name keeps answering. A duplicate path is dropped too —
+  Caddy accepts two identical matchers and simply never reaches the second.
+- **A path backend has no `backend_tls` of its own** and is proxied over plain
+  HTTP. The flag describes the service a route is *for*, and the one thing this
+  field exists to reach speaks HTTP on `:80` like every other page.
 
 ### Rendering
 

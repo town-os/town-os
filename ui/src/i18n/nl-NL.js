@@ -922,6 +922,7 @@ const nlNL = {
   'objects.link_disabled': 'Deze link is uitgeschakeld en wordt niet geserveerd.',
   'objects.col_filename': 'Filename',
   'objects.no_links': 'No published links.',
+  'objects.links_public_notice': 'Elke ingeschakelde link staat ook openbaar vermeld op de HTTP-weergave van deze partitie, waar iedereen die die naam bereikt hem kan zien. Trek een link in om hem van die lijst te halen.',
   'objects.withdraw_link': 'Withdraw',
   'objects.withdraw_link_confirm': 'Withdraw this link? It will stop resolving immediately.',
   'objects.toast_user_added': 'User added',

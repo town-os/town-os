@@ -38,6 +38,40 @@ func ncTestImage() string {
 	return "localhost/town-os-networkcontroller:local"
 }
 
+// gfehTempDir is t.TempDir() with a short name, and the length is the whole
+// point.
+//
+// A partition's admin socket lands at <base>/gfeh-control/<network>/run/admin.sock
+// — 40-odd characters below whatever base it is given — and a Unix socket path
+// cannot exceed sockaddr_un's 108-byte sun_path (107 usable). t.TempDir() builds
+// its directory out of the *test's own name*, so a descriptively-named test
+// pushes the socket past the limit and bind fails with EINVAL, which reads as
+// "invalid argument" and looks nothing like "your path is too long".
+//
+// MkdirTemp with a short prefix sits on the same filesystem t.TempDir() would
+// have used and is still unique per run — IRON RULE — it just spends ~60 fewer
+// characters getting there.
+//
+// Every gfeh test that binds a fake daemon's socket uses this, not only the ones
+// whose names are long enough to overflow today. t.TempDir()'s random component
+// varies in width, so a test sitting near the limit fails on the runs that draw
+// a wide one and passes on the rest — which is how the published-index tests
+// came to fail one at a time.
+func gfehTempDir(t *testing.T) string {
+	t.Helper()
+
+	dir, err := os.MkdirTemp("", "gfeh") //nolint:usetesting // t.TempDir() names the directory after the test, which overflows sun_path here
+	if err != nil {
+		t.Fatalf("temp dir: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.RemoveAll(dir); err != nil {
+			t.Errorf("remove temp dir: %v", err)
+		}
+	})
+	return dir
+}
+
 func addRepoWithCreds(c *systemcontroller.SystemdClient, name, rawURL string) error {
 	user, pass := scRepoCredentials()
 	return c.AddRepository(context.TODO(), name, rawURL, user, pass)

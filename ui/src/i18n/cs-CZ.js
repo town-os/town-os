@@ -938,6 +938,7 @@ const csCZ = {
   'objects.link_disabled': 'Tento odkaz je zakázán a není poskytován.',
   'objects.col_filename': 'Název souboru',
   'objects.no_links': 'Žádné publikované odkazy.',
+  'objects.links_public_notice': 'Každý povolený odkaz je také veřejně uveden v zobrazení HTTP tohoto oddílu, kde jej vidí každý, kdo se na ten název dostane. Stažením odkazu jej z toho seznamu odeberete.',
   'objects.withdraw_link': 'Stáhnout',
   'objects.withdraw_link_confirm': 'Stáhnout tento odkaz? Okamžitě se přestane překládat.',
   'objects.toast_user_added': 'Uživatel byl přidán',

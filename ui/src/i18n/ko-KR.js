@@ -922,6 +922,7 @@ const koKR = {
   'objects.link_disabled': '이 링크는 비활성화되어 제공되지 않습니다.',
   'objects.col_filename': 'Filename',
   'objects.no_links': 'No published links.',
+  'objects.links_public_notice': '활성화된 모든 링크는 이 파티션의 HTTP 뷰에도 공개적으로 나열되며, 그 이름에 도달할 수 있는 사람은 누구나 볼 수 있습니다. 목록에서 빼려면 링크를 철회하세요.',
   'objects.withdraw_link': 'Withdraw',
   'objects.withdraw_link_confirm': 'Withdraw this link? It will stop resolving immediately.',
   'objects.toast_user_added': 'User added',

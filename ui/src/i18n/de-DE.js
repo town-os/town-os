@@ -922,6 +922,7 @@ const deDE = {
   'objects.link_disabled': 'Dieser Link ist deaktiviert und wird nicht bereitgestellt.',
   'objects.col_filename': 'Dateiname',
   'objects.no_links': 'Keine veröffentlichten Links.',
+  'objects.links_public_notice': 'Jeder aktivierte Link ist außerdem öffentlich in der HTTP-Ansicht dieser Partition aufgeführt, wo ihn jeder sehen kann, der diesen Namen erreicht. Ziehen Sie einen Link zurück, um ihn von dieser Liste zu nehmen.',
   'objects.withdraw_link': 'Zurückziehen',
   'objects.withdraw_link_confirm': 'Diesen Link zurückziehen? Er wird sofort nicht mehr aufgelöst.',
   'objects.toast_user_added': 'Benutzer hinzugefügt',

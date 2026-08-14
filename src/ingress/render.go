@@ -88,7 +88,7 @@ func renderCaddyfile(routes []*ingresspb.Route, httpsPort, httpPort int, default
 				cd := r.GetCertDir()
 				fmt.Fprintf(&b, "\ttls %s/cert.pem %s/key.pem\n", cd, cd)
 			}
-			writeReverseProxy(&b, r)
+			writeRouteBody(&b, r)
 			b.WriteString("}\n")
 		}
 		// :80 vhost. Pages serve over plain HTTP; packages redirect to HTTPS
@@ -97,7 +97,7 @@ func renderCaddyfile(routes []*ingresspb.Route, httpsPort, httpPort int, default
 		switch {
 		case r.GetServeHttp():
 			fmt.Fprintf(&b, "\nhttp://%s {\n", siteAddr(host, httpPort, 80))
-			writeReverseProxy(&b, r)
+			writeRouteBody(&b, r)
 			b.WriteString("}\n")
 		case httpsReady:
 			fmt.Fprintf(&b, "\nhttp://%s {\n\tredir https://%s{uri} permanent\n}\n",
@@ -113,18 +113,124 @@ func renderCaddyfile(routes []*ingresspb.Route, httpsPort, httpPort int, default
 	return []byte(b.String())
 }
 
-// writeReverseProxy emits the reverse_proxy directive for a route, proxying over
-// https with verification skipped when the backend itself speaks TLS.
-func writeReverseProxy(b *strings.Builder, r *ingresspb.Route) {
-	if r.GetBackendTls() {
+// writeRouteBody emits the routing half of a site block.
+//
+// One reverse_proxy for the ordinary route — one vhost, one service — and a
+// handle block per path-scoped backend when the route has any, with the route's
+// own backend as the catch-all.
+//
+// handle blocks are mutually exclusive and evaluated in the order written, so
+// the bare one has to come last: it matches everything, and anything after it
+// would be dead config. That ordering is also why the path backends are emitted
+// in the order the caller supplied rather than sorted. Sorting would be safe for
+// the matchers Town OS actually programs (they do not overlap) and would quietly
+// change which one wins for a pair that did.
+func writeRouteBody(b *strings.Builder, r *ingresspb.Route) {
+	paths := validPathBackends(r)
+	if len(paths) == 0 {
+		writeReverseProxy(b, "\t", r.GetBackend(), r.GetBackendTls())
+		return
+	}
+	for _, p := range paths {
+		fmt.Fprintf(b, "\thandle %s {\n", p.GetPath())
+		// A path backend has no backend_tls of its own, so it is proxied over
+		// plain HTTP. That is not an omission: the flag describes the service a
+		// route is *for*, and the one thing this field exists to reach — the
+		// pages container serving the object-storage index — speaks HTTP on :80
+		// like every other page.
+		writeReverseProxy(b, "\t\t", p.GetBackend(), false)
+		b.WriteString("\t}\n")
+	}
+	b.WriteString("\thandle {\n")
+	writeReverseProxy(b, "\t\t", r.GetBackend(), r.GetBackendTls())
+	b.WriteString("\t}\n")
+}
+
+// writeReverseProxy emits one reverse_proxy directive at the given indent,
+// proxying over https with verification skipped when the backend speaks TLS.
+func writeReverseProxy(b *strings.Builder, indent, backend string, backendTLS bool) {
+	if backendTLS {
 		// Backend serves HTTPS (e.g. a self-signed admin UI): proxy over https
 		// and skip verification on the internal hop — the browser still
 		// validates the ingress's trusted leaf.
-		fmt.Fprintf(b, "\treverse_proxy https://%s {\n\t\ttransport http {\n\t\t\ttls_insecure_skip_verify\n\t\t}\n\t}\n", r.GetBackend())
+		fmt.Fprintf(b, "%sreverse_proxy https://%s {\n%s\ttransport http {\n%s\t\ttls_insecure_skip_verify\n%s\t}\n%s}\n",
+			indent, backend, indent, indent, indent, indent)
 		return
 	}
-	fmt.Fprintf(b, "\treverse_proxy %s\n", r.GetBackend())
+	fmt.Fprintf(b, "%sreverse_proxy %s\n", indent, backend)
 }
+
+// validPathBackends drops the path backends of a route that cannot safely be
+// rendered, keeping the first of any duplicate path.
+//
+// Dropped individually rather than failing the route, and the difference
+// matters: the route's own backend is the catch-all, so losing a path backend
+// costs the one path it claimed while the service behind the name keeps
+// answering. Failing the route would take the whole name off the air to fix a
+// sub-path, and rendering it anyway would put unvalidated text inside a handle
+// directive — where a brace does not break one path but makes caddy reject the
+// entire config, taking every vhost on the box down with it.
+//
+// A duplicate path is dropped for a subtler reason than caddy refusing it: two
+// handle blocks with the same matcher are accepted, and the second is simply
+// unreachable. First wins, matching dedupeIngressRoutes.
+func validPathBackends(r *ingresspb.Route) []*ingresspb.PathBackend {
+	pbs := r.GetPathBackends()
+	if len(pbs) == 0 {
+		return nil
+	}
+	out := make([]*ingresspb.PathBackend, 0, len(pbs))
+	seen := make(map[string]bool, len(pbs))
+	for _, p := range pbs {
+		if !validPathMatcher(p.GetPath()) {
+			slog.Error("ingress: dropping a path backend whose path is not a path; "+
+				"it would restructure the Caddyfile or make caddy reject the whole config",
+				"hostname", r.GetHostname(), "path", strconv.Quote(p.GetPath()))
+			continue
+		}
+		if !validBackend(p.GetBackend()) {
+			slog.Error("ingress: dropping a path backend that is not a host:port",
+				"hostname", r.GetHostname(), "path", p.GetPath(), "backend", strconv.Quote(p.GetBackend()))
+			continue
+		}
+		if seen[p.GetPath()] {
+			slog.Warn("ingress: dropped a duplicate path backend; the second handle block would be unreachable",
+				"hostname", r.GetHostname(), "path", p.GetPath())
+			continue
+		}
+		seen[p.GetPath()] = true
+		out = append(out, p)
+	}
+	return out
+}
+
+// validPathMatcher reports whether a string can be pasted into a caddy handle
+// directive as a path matcher.
+//
+// An absolute path of unreserved URL characters, plus "*" for caddy's wildcard.
+// Narrow for the same reason validSiteHost is: every path the ingress is
+// programmed with is a literal route prefix Town OS composed itself, so
+// anything outside this set is a bug upstream rather than a shape somebody
+// needs. Whitespace is refused because caddy reads a space-separated matcher
+// list as several matchers, which would claim paths nobody asked for.
+func validPathMatcher(p string) bool {
+	if p == "" || !strings.HasPrefix(p, "/") || len(p) > maxPathMatcherLen {
+		return false
+	}
+	for _, r := range p {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		case r == '/', r == '-', r == '_', r == '.', r == '*', r == '~':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// maxPathMatcherLen bounds a path matcher. Nothing in caddy needs the limit;
+// it is here so a pathological value cannot be rendered into the config at all.
+const maxPathMatcherLen = 255
 
 // siteAddr returns the Caddy site address for a host on the given port. The
 // scheme's default port (defaultPort, or 0) renders as a bare host so Caddy uses

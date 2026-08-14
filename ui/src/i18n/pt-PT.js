@@ -308,6 +308,7 @@ export const ptPTOverrides = {
     'O daemon desta partição não está a responder, portanto nenhum endereço é publicado. O Town OS tenta novamente a cada poucos minutos.',
   'objects.link_unavailable': 'A visualização HTTP não está a ser servida, portanto nada responde a esta ligação.',
   'objects.link_disabled': 'Esta ligação está desativada e não está a ser servida.',
+  'objects.links_public_notice': 'Todas as ligações ativadas ficam também listadas publicamente na visualização HTTP desta partição, onde qualquer pessoa que alcance esse nome as pode ver. Retire uma ligação para a tirar dessa lista.',
 }
 
 /** Portuguese (Portugal) — pt-BR with the European departures applied. */

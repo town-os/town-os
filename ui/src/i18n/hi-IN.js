@@ -922,6 +922,7 @@ const hiIN = {
   'objects.link_disabled': 'यह लिंक निष्क्रिय है और सर्व नहीं किया जा रहा है।',
   'objects.col_filename': 'Filename',
   'objects.no_links': 'No published links.',
+  'objects.links_public_notice': 'हर सक्रिय लिंक इस पार्टीशन के HTTP व्यू पर सार्वजनिक रूप से भी सूचीबद्ध होता है, जहाँ उस नाम तक पहुँचने वाला कोई भी उसे देख सकता है। सूची से हटाने के लिए लिंक वापस लें।',
   'objects.withdraw_link': 'Withdraw',
   'objects.withdraw_link_confirm': 'Withdraw this link? It will stop resolving immediately.',
   'objects.toast_user_added': 'User added',

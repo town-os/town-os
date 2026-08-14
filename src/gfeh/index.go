@@ -26,15 +26,21 @@ import (
 // the views are s3.gfeh, http.gfeh, drive.gfeh, ipfs.gfeh, and the index is
 // gfeh.
 //
-// What it deliberately does NOT carry: exposures, principals, grants, quota, or
-// anything else read off the admin socket. It is served by the pages static
-// server with no authentication in front of it, so it can only hold what is
-// already public — and every published /f/<token> link is a bearer credential,
-// which is exactly the thing an unauthenticated index must never enumerate. It
-// lists the *views*, which are already in DNS.
+// What it deliberately does NOT carry: principals, grants, quota, or anything
+// else read off the admin socket. It is served by the pages static server with
+// no authentication in front of it, so it can only hold what is already public.
+// It lists the *views*, which are already in DNS.
+//
+// Exposures are not on it either, but that is now a statement about this page
+// rather than about the box: the http view's own root lists them
+// (public_index.go). The split is that this page is a directory of *endpoints*,
+// which is useful to someone configuring a client and says nothing about
+// content, while the published-files index is the http view describing what it
+// serves. Adding published links here would put a bearer credential on the page
+// an operator hands round to explain what object storage is.
 
 // IndexLabel is the label a partition's index is published under: the parent of
-// every view label, since gfehctl names views "<view>.gfeh" (viewLabel).
+// every view label, since views are named "<view>.gfeh" (ViewLabel).
 //
 // Deriving it from VolumePrefix rather than writing "gfeh" a second time is the
 // point — the two must be the same string, or the index lands somewhere that is

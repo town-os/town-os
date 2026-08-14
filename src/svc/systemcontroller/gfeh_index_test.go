@@ -18,11 +18,15 @@ import (
 // errGfehIndexTestDown stands in for a daemon that is not answering.
 var errGfehIndexTestDown = errors.New("connection refused")
 
-// homeSites is the site set a partition on the default network produces.
+// homeRegistry is one partition on the default network, serving every view.
+func homeRegistry() stubGfehRegistry {
+	return stubGfehRegistry{clients: map[string]gfeh.Client{"home": allViews("home", "")}}
+}
+
+// homeSites is the site set that partition produces.
 func homeSites(t *testing.T) []GfehSite {
 	t.Helper()
-	reg := stubGfehRegistry{clients: map[string]gfeh.Client{"home": allViews("home", "")}}
-	return collectGfehSites(gfehTLSCtx(t), reg, nil, "home", "")
+	return collectGfehSites(gfehTLSCtx(t), homeRegistry(), nil, "home", "")
 }
 
 // The index content, the webroot symlink and the mount in the pages unit have
@@ -111,7 +115,7 @@ func TestGfehIndexRefusesATraversingName(t *testing.T) {
 // on the same pass, so the page cannot advertise a name the route set omits.
 func TestReconcileGfehIndexesRendersTheServedViews(t *testing.T) {
 	base := t.TempDir()
-	reconcileGfehIndexes(base, homeSites(t))
+	reconcileGfehIndexes(context.Background(), homeRegistry(), base, homeSites(t))
 
 	raw, err := os.ReadFile(filepath.Join(base, GfehIndexDirName, "gfeh.home", "index.html"))
 	if err != nil {
@@ -141,7 +145,7 @@ func TestReconcileGfehIndexesRendersTheServedViews(t *testing.T) {
 // and a webroot entry pointing at nothing.
 func TestReconcileGfehIndexesPrunesWhatIsNoLongerServed(t *testing.T) {
 	base := t.TempDir()
-	reconcileGfehIndexes(base, homeSites(t))
+	reconcileGfehIndexes(context.Background(), homeRegistry(), base, homeSites(t))
 
 	stale := filepath.Join(base, GfehIndexDirName, "gfeh.office")
 	if err := os.MkdirAll(stale, 0o755); err != nil {
@@ -151,7 +155,7 @@ func TestReconcileGfehIndexesPrunesWhatIsNoLongerServed(t *testing.T) {
 		t.Fatalf("seed stale symlink: %v", err)
 	}
 
-	reconcileGfehIndexes(base, homeSites(t))
+	reconcileGfehIndexes(context.Background(), homeRegistry(), base, homeSites(t))
 
 	if _, err := os.Stat(stale); !os.IsNotExist(err) {
 		t.Error("a stale index directory survived the reconcile")
@@ -238,9 +242,9 @@ func TestEnsureGfehIndexSymlinkReplacesWhatIsInTheWay(t *testing.T) {
 // deleted, and the index names 404 until the ingress is next rebuilt.
 func TestReconcilePagesKeepsTheGfehIndexEntries(t *testing.T) {
 	base := t.TempDir()
-	reg := stubGfehRegistry{clients: map[string]gfeh.Client{"home": allViews("home", "")}}
+	reg := homeRegistry()
 
-	reconcileGfehIndexes(base, homeSites(t))
+	reconcileGfehIndexes(context.Background(), reg, base, homeSites(t))
 	link := filepath.Join(base, PagesWebrootDir, "gfeh.home")
 	if _, err := os.Readlink(link); err != nil {
 		t.Fatalf("no webroot entry to begin with: %v", err)

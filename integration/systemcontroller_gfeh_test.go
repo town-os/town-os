@@ -10,7 +10,9 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -37,14 +39,28 @@ import (
 // The remaining half (that gfehd itself answers this shape) is proved by gfeh's
 // own suite; the two meet at the wire format in TOWNOS_CONTRACT.md.
 
-// fakeGfehd serves the one route Town OS calls on the admin socket.
+// fakeGfehd serves the routes Town OS calls on the admin socket.
 type fakeGfehd struct {
 	server *http.Server
 	calls  int
+
+	// mu guards exposures, which a test sets after the server is already
+	// accepting. Everything else here is written before the first request.
+	mu        sync.Mutex
+	exposures []gfeh.Exposure
+}
+
+// Publish makes a file appear in GET /v1/exposures, the way sharing one out of
+// a partition does.
+func (f *fakeGfehd) Publish(exposures ...gfeh.Exposure) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.exposures = exposures
 }
 
 // startFakeGfehd binds a Unix socket inside the test's own temp dir and serves
-// GET /v1/names. Per-test path, so concurrent runs cannot collide — IRON RULE.
+// GET /v1/names and GET /v1/exposures. Per-test path, so concurrent runs cannot
+// collide — IRON RULE.
 func startFakeGfehd(t *testing.T, socket string, list gfeh.NameList) *fakeGfehd {
 	t.Helper()
 
@@ -73,6 +89,19 @@ func startFakeGfehd(t *testing.T, socket string, list gfeh.NameList) *fakeGfehd 
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(list); err != nil {
 			t.Errorf("encode names: %v", err)
+		}
+	})
+
+	mux.HandleFunc("/v1/exposures", func(w http.ResponseWriter, _ *http.Request) {
+		fake.mu.Lock()
+		out := slices.Clone(fake.exposures)
+		fake.mu.Unlock()
+		if out == nil {
+			out = []gfeh.Exposure{}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(out); err != nil {
+			t.Errorf("encode exposures: %v", err)
 		}
 	})
 

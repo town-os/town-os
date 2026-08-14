@@ -922,6 +922,7 @@ const bnBD = {
   'objects.link_disabled': 'এই লিঙ্কটি নিষ্ক্রিয় এবং পরিবেশন করা হচ্ছে না।',
   'objects.col_filename': 'Filename',
   'objects.no_links': 'No published links.',
+  'objects.links_public_notice': 'সক্রিয় প্রতিটি লিঙ্ক এই পার্টিশনের HTTP ভিউতেও প্রকাশ্যে তালিকাভুক্ত থাকে, যেখানে ওই নামে পৌঁছাতে পারা যে কেউ তা দেখতে পান। তালিকা থেকে সরাতে লিঙ্কটি প্রত্যাহার করুন।',
   'objects.withdraw_link': 'Withdraw',
   'objects.withdraw_link_confirm': 'Withdraw this link? It will stop resolving immediately.',
   'objects.toast_user_added': 'User added',

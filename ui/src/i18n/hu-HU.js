@@ -938,6 +938,7 @@ const huHU = {
   'objects.link_disabled': 'Ez a hivatkozás le van tiltva, és nincs kiszolgálva.',
   'objects.col_filename': 'Fájlnév',
   'objects.no_links': 'Nincsenek közzétett hivatkozások.',
+  'objects.links_public_notice': 'Minden engedélyezett hivatkozás nyilvánosan is szerepel ennek a partíciónak a HTTP-nézetén, ahol bárki láthatja, aki eléri azt a nevet. Vonja vissza a hivatkozást, hogy lekerüljön arról a listáról.',
   'objects.withdraw_link': 'Visszavonás',
   'objects.withdraw_link_confirm': 'Visszavonja ezt a hivatkozást? Azonnal megszűnik a feloldása.',
   'objects.toast_user_added': 'A felhasználó hozzáadva',

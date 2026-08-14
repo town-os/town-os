@@ -128,8 +128,25 @@ export default function LinksTab({ network, canManage }) {
     },
   ]
 
+  // Whether anything on this partition is actually listed on the public page.
+  //
+  // Gated on `url` as well as `enabled` for the same reason the Link column is:
+  // an empty URL means the partition serves no HTTP view, so there is no root
+  // for the published-files index to sit at and nothing is being listed. A
+  // notice shown then would warn about exposure that is not happening.
+  const anyPubliclyListed = exposures.some((e) => e.enabled && e.url)
+
   return (
     <div className="space-y-4">
+      {anyPubliclyListed && (
+        // The Links tab is the only place a reader sees these links, so it is
+        // the only place that can tell them the list is not private. Publishing
+        // a file puts it on the http view's root, where anyone who can resolve
+        // the name reads it -- so withdrawing, not merely not-sharing, is what
+        // unlists a file.
+        <p className="text-sm text-muted-foreground">{t('objects.links_public_notice')}</p>
+      )}
+
       {exposures.length === 0 ? (
         <p className="text-sm text-muted-foreground">{t('objects.no_links')}</p>
       ) : (

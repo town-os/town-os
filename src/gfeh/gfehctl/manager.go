@@ -167,19 +167,19 @@ func (m *Manager) RenderConfig(smbUsers []gfeh.SmbUserConfig) ([]byte, error) {
 		// persist, and nothing that can collide with a concurrent test run.
 		S3: &gfeh.S3Config{
 			Bind:     bindAll(gfeh.PortS3),
-			Hostname: viewLabel(gfeh.ViewS3),
+			Hostname: gfeh.ViewLabel(gfeh.ViewS3),
 		},
 		HTTP: &gfeh.HTTPConfig{
 			Bind:     bindAll(gfeh.PortHTTP),
-			Hostname: viewLabel(gfeh.ViewHTTP),
+			Hostname: gfeh.ViewLabel(gfeh.ViewHTTP),
 		},
 		Drive: &gfeh.DriveConfig{
 			Bind:     bindAll(gfeh.PortDrive),
-			Hostname: viewLabel(gfeh.ViewDrive),
+			Hostname: gfeh.ViewLabel(gfeh.ViewDrive),
 		},
 		IPFS: &gfeh.IPFSConfig{
 			Bind:     bindAll(gfeh.PortIPFS),
-			Hostname: viewLabel(gfeh.ViewIPFS),
+			Hostname: gfeh.ViewLabel(gfeh.ViewIPFS),
 		},
 	}
 
@@ -203,7 +203,7 @@ func (m *Manager) RenderConfig(smbUsers []gfeh.SmbUserConfig) ([]byte, error) {
 			Share:     m.cfg.Network,
 			Principal: gfeh.SMBFallbackPrincipal,
 			Users:     smbUsers,
-			Hostname:  viewLabel(gfeh.ViewSMB),
+			Hostname:  gfeh.ViewLabel(gfeh.ViewSMB),
 		}
 	}
 
@@ -217,17 +217,6 @@ func (m *Manager) RenderConfig(smbUsers []gfeh.SmbUserConfig) ([]byte, error) {
 // loopback would make each view reachable only from inside its own container.
 func bindAll(port uint16) string {
 	return "0.0.0.0:" + strconv.Itoa(int(port))
-}
-
-// viewLabel is the hostname label Town OS publishes a view under.
-//
-// Pinned rather than left to gfeh's derived "<view>.<partition>", which would
-// produce "s3.home" and then "s3.home.home" once the zone is appended. Three
-// labels, the same shape a package gets (<name>.<repo>.<tld>), with "gfeh" in
-// the repo slot — so a partition's names cannot collide with a page's, which
-// are <domain>.<tld>.
-func viewLabel(view string) string {
-	return view + "." + gfeh.VolumePrefix
 }
 
 // unitConfig builds the systemd unit.

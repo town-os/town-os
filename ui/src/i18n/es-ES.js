@@ -922,6 +922,7 @@ const esES = {
   'objects.link_disabled': 'Este enlace está desactivado y no se sirve.',
   'objects.col_filename': 'Nombre de archivo',
   'objects.no_links': 'No hay enlaces publicados.',
+  'objects.links_public_notice': 'Todo enlace habilitado aparece además listado públicamente en la vista HTTP de esta partición, donde puede verlo cualquiera que alcance ese nombre. Retira un enlace para quitarlo de esa lista.',
   'objects.withdraw_link': 'Retirar',
   'objects.withdraw_link_confirm': '¿Retirar este enlace? Dejará de resolverse de inmediato.',
   'objects.toast_user_added': 'Usuario añadido',

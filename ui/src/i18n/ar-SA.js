@@ -922,6 +922,7 @@ const arSA = {
   'objects.link_disabled': 'هذا الرابط معطَّل ولا يتم تقديمه.',
   'objects.col_filename': 'Filename',
   'objects.no_links': 'No published links.',
+  'objects.links_public_notice': 'كل رابط مُفعَّل مُدرَج أيضًا علنًا في عرض HTTP لهذا القسم، حيث يمكن لأي شخص يصل إلى ذلك الاسم أن يراه. اسحب الرابط لإزالته من تلك القائمة.',
   'objects.withdraw_link': 'Withdraw',
   'objects.withdraw_link_confirm': 'Withdraw this link? It will stop resolving immediately.',
   'objects.toast_user_added': 'User added',

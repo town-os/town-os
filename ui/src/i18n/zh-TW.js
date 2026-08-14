@@ -922,6 +922,7 @@ const zhTW = {
   'objects.link_disabled': '此連結已停用，未提供服務。',
   'objects.col_filename': 'Filename',
   'objects.no_links': 'No published links.',
+  'objects.links_public_notice': '每一個啟用的連結也會公開列在此分割槽的 HTTP 檢視上，任何能存取該名稱的人都能看到它。撤回連結即可把它從那份清單中移除。',
   'objects.withdraw_link': 'Withdraw',
   'objects.withdraw_link_confirm': 'Withdraw this link? It will stop resolving immediately.',
   'objects.toast_user_added': 'User added',
