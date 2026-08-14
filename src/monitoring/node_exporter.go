@@ -34,6 +34,20 @@ func NodeExporterUnitConfig(ports Ports) systemd.SystemServiceUnitConfig {
 			"--pid", "host",
 			"--cap-add", "SYS_TIME",
 			"-v", "/:/host:ro,rslave",
+			// The diskstats collector reads udev's database to label disks
+			// with their real device properties, and it looks for it at the
+			// absolute /run/udev/data — NOT under --path.rootfs. Podman gives
+			// the container its own tmpfs /run, so without this the directory
+			// simply is not there and node-exporter logs
+			//
+			//   level=ERROR collector=diskstats path=/run/udev/data
+			//     msg="Failed to open directory, disabling udev device properties"
+			//
+			// and then serves node_disk_* stripped of that metadata for the
+			// life of the process. Read-only: this is a lookup table, and
+			// nothing in the monitoring stack has any business writing to
+			// udev's runtime state.
+			"-v", "/run/udev:/run/udev:ro",
 		},
 		Command: []string{
 			"--path.rootfs=/host",
