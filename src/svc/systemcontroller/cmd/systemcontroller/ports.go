@@ -124,6 +124,12 @@ func rolodexMetricsPortFromEnv() string {
 // guessed address sits permanently down and reads as a broken rolodex or a
 // broken controller, which is worse than an absent scrape — see the omit
 // branches in monitoring.WritePrometheusConfig.
+//
+// tls is what the listener was OBSERVED to speak (systemcontroller.
+// ListenerSpeaksTLS), not what the environment asked for. A scheme derived a
+// second time from TOWN_OS_TLS can disagree with the socket, and when it did,
+// every controller scrape failed with "server gave HTTP response to HTTPS
+// client" and nothing on the box reported it.
 func withScrapeTargets(ports monitoring.Ports, rolMgr *rolodex.Manager, listenAddr string, tls bool) monitoring.Ports {
 	// Taken from the manager rather than recomposed from the port, so the
 	// target is by construction the same string rolodex.yml binds — the same

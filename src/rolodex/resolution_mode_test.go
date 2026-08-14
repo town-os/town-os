@@ -69,46 +69,54 @@ func TestSetResolutionModeChangesRenderedConfig(t *testing.T) {
 	assertConfigMode(t, dir, ResolutionModeForward)
 }
 
-// TestRewriteConfigIgnoresMtimeGuard is the whole reason RewriteConfig exists.
-// WriteConfig refuses to overwrite a rolodex.yml that is newer than the
-// systemcontroller binary (it assumes an operator hand-edited it) — and the file
-// written at the previous boot ALWAYS satisfies that condition. If the settings
-// handler used WriteConfig, changing dns_resolution_mode would silently no-op.
-func TestRewriteConfigIgnoresMtimeGuard(t *testing.T) {
+// TestBothEntryPointsIgnoreMtime is what is left of the mtime guard: nothing.
+//
+// WriteConfig used to refuse to overwrite a rolodex.yml newer than the
+// systemcontroller binary, on the theory that an operator had hand-edited it —
+// and the file written at the previous boot ALWAYS satisfies that condition, so
+// the guard froze the file permanently instead. RewriteConfig existed only to
+// route around it. Both names now reconcile, and a settings change reaching
+// rolodex must not depend on which one the caller reached for.
+func TestBothEntryPointsIgnoreMtime(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
-	m := NewManager(Config{DataDir: dir})
+	for _, tc := range []struct {
+		name  string
+		write func(*Manager) (bool, error)
+	}{
+		{name: "WriteConfig", write: (*Manager).WriteConfig},
+		{name: "RewriteConfig", write: (*Manager).RewriteConfig},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	if _, err := m.RewriteConfig(); err != nil {
-		t.Fatalf("RewriteConfig: %v", err)
-	}
+			dir := t.TempDir()
+			m := NewManager(Config{DataDir: dir})
 
-	// Make the config far newer than the binary, which is what trips
-	// WriteConfig's guard.
-	path := filepath.Join(dir, "rolodex.yml")
-	future := time.Now().Add(24 * time.Hour)
-	if err := os.Chtimes(path, future, future); err != nil {
-		t.Fatalf("Chtimes: %v", err)
-	}
+			if _, err := m.RewriteConfig(); err != nil {
+				t.Fatalf("seed RewriteConfig: %v", err)
+			}
 
-	m.SetResolutionMode(ResolutionModeForward)
+			// Far newer than any binary — what the old guard keyed on, and the
+			// state every boot leaves behind.
+			path := filepath.Join(dir, "rolodex.yml")
+			future := time.Now().Add(24 * time.Hour)
+			if err := os.Chtimes(path, future, future); err != nil {
+				t.Fatalf("Chtimes: %v", err)
+			}
 
-	if written, err := m.WriteConfig(); err != nil {
-		t.Fatalf("WriteConfig: %v", err)
-	} else if written {
-		t.Fatal("WriteConfig should have skipped a config newer than the binary")
-	}
-	assertConfigMode(t, dir, ResolutionModeAuto) // untouched, as expected
+			m.SetResolutionMode(ResolutionModeForward)
 
-	written, err := m.RewriteConfig()
-	if err != nil {
-		t.Fatalf("RewriteConfig: %v", err)
+			written, err := tc.write(m)
+			if err != nil {
+				t.Fatalf("%s: %v", tc.name, err)
+			}
+			if !written {
+				t.Fatalf("%s skipped a config newer than the binary", tc.name)
+			}
+			assertConfigMode(t, dir, ResolutionModeForward)
+		})
 	}
-	if !written {
-		t.Fatal("RewriteConfig must overwrite regardless of mtime")
-	}
-	assertConfigMode(t, dir, ResolutionModeForward)
 }
 
 func TestRewriteConfigReportsNoWriteWhenUnchanged(t *testing.T) {

@@ -87,10 +87,11 @@ func initLocalForwardersTest(t *testing.T) localForwardersEnv {
 // network that blocks external DNS is resolving again NOW rather than after a
 // reboot they have no reason to think would help.
 //
-// The on-disk assertion is the load-bearing one. rolodex.yml written at the
-// previous boot is always newer than the systemcontroller binary, which is
-// exactly the condition WriteConfig treats as "user-modified, do not touch". A
-// handler that called WriteConfig would return 200 and change nothing.
+// The on-disk assertion is the load-bearing one. WriteConfig used to skip any
+// rolodex.yml newer than the systemcontroller binary, and the file written at
+// the previous boot always is — so a handler on that path returned 200 and
+// changed nothing. Both entry points reconcile now, and this is what holds
+// them to it.
 func TestIntegrationSetDNSLocalForwardersRewritesConfigAndRestartsRolodex(t *testing.T) {
 	t.Parallel()
 

@@ -551,7 +551,20 @@ func (b *boot) resolveRemainingImages() {
 func (b *boot) readMonitoringSettings(ctx context.Context) {
 	// Host ports for the three monitoring system services. The zero value means
 	// the production defaults; the harness relocates them (see ports.go).
-	b.monPorts = withScrapeTargets(monitoringPortsFromEnv(), b.rolMgr, b.listenAddr, b.srv.TLSConfig != nil)
+	//
+	// The controller's own scrape scheme is taken from the SOCKET, not from the
+	// TLS decision made earlier in this boot. Both are supposed to say the same
+	// thing, and on a deployed box they did not — prometheus.yml claimed https
+	// while :5309 served cleartext, so every scrape of the controller failed and
+	// nothing anywhere said so. The listener has been bound since start(), so
+	// there is something to ask by the time this runs; b.srv.TLSConfig is the
+	// fallback for the case where it cannot be reached at all.
+	configuredTLS := b.srv.TLSConfig != nil
+	observedTLS := systemcontroller.ListenerSpeaksTLS(ctx, b.listenAddr, configuredTLS)
+	if msg := systemcontroller.SchemeDisagreement(observedTLS, configuredTLS); msg != "" {
+		fmt.Fprintf(os.Stderr, "controller listener: %s\n", msg)
+	}
+	b.monPorts = withScrapeTargets(monitoringPortsFromEnv(), b.rolMgr, b.listenAddr, observedTLS)
 
 	// Determine monitoring backend (uplot or grafana).
 	b.monBackend = monitoring.BackendUPlot

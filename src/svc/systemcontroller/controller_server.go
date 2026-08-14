@@ -264,10 +264,11 @@ func (s *serverBase) MonitoringUIPending() bool { return s.monUIPending.Load() }
 // the config and restarts the rolodex unit so the change takes effect without a
 // reboot.
 //
-// RewriteConfig (not WriteConfig) is deliberate: WriteConfig refuses to
-// overwrite a rolodex.yml newer than the systemcontroller binary, and the file
-// written at the last boot always is — so WriteConfig would no-op here and the
-// setting would never reach rolodex.
+// RewriteConfig names the intent; it is the same reconcile WriteConfig does.
+// The two used to differ — WriteConfig refused to overwrite a rolodex.yml newer
+// than the systemcontroller binary, and the file written at the last boot always
+// is, so it no-opped here and the setting never reached rolodex. That guard is
+// gone (see "The config that froze" in DESIGN.md).
 func (s *serverBase) RefreshDNSResolutionMode(ctx context.Context, mode string) error {
 	if s.Rolodex == nil {
 		return nil
@@ -310,10 +311,9 @@ func (s *serverBase) RefreshDNSResolutionMode(ctx context.Context, mode string) 
 // that reaches rolodex. RewriteConfig reports whether the bytes actually
 // changed, so an identical render still costs no restart.
 //
-// RewriteConfig (not WriteConfig) for the same reason as the resolution mode:
-// the rolodex.yml written at the last boot is always newer than the
-// systemcontroller binary, which WriteConfig treats as user-modified and
-// refuses to touch.
+// RewriteConfig for the same reason as the resolution mode: it names the
+// intent, and it is the same reconcile WriteConfig does now that the mtime
+// guard that used to separate them is gone.
 func (s *serverBase) RefreshDNSLocalForwarders(ctx context.Context, enabled bool) error {
 	if s.Rolodex == nil {
 		return nil

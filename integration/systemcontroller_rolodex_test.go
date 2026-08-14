@@ -713,7 +713,7 @@ func TestRolodexWriteConfigIdempotent(t *testing.T) {
 		t.Fatalf("stat after first write: %v", err)
 	}
 
-	// Second call should skip (content unchanged, file older than binary).
+	// Second call should skip: the rendered bytes are identical.
 	written, err = mgr.WriteConfig()
 	if err != nil {
 		t.Fatalf("second WriteConfig: %v", err)
@@ -732,13 +732,17 @@ func TestRolodexWriteConfigIdempotent(t *testing.T) {
 	}
 }
 
-func TestRolodexWriteConfigSkipsNewerFile(t *testing.T) {
+// TestRolodexWriteConfigReconcilesNewerFile: a rolodex.yml newer than the
+// binary is the normal state, not a hand edit — every boot leaves one behind —
+// and skipping it froze the file for the life of the box. See "The config that
+// froze" in DESIGN.md.
+func TestRolodexWriteConfigReconcilesNewerFile(t *testing.T) {
 	t.Parallel()
 	dataDir := rolodexTempDir(t, "rolodex-newer-*")
 	configPath := filepath.Join(dataDir, "rolodex.yml")
 
 	// Write custom content with a future mtime.
-	customContent := "# user-modified config\n"
+	customContent := "# left behind by an older controller\n"
 	if err := os.WriteFile(configPath, []byte(customContent), 0644); err != nil {
 		t.Fatalf("pre-write: %v", err)
 	}
@@ -758,16 +762,19 @@ func TestRolodexWriteConfigSkipsNewerFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WriteConfig: %v", err)
 	}
-	if written {
-		t.Fatal("expected WriteConfig to skip file newer than binary")
+	if !written {
+		t.Fatal("expected WriteConfig to replace a file newer than the binary")
 	}
 
-	// Verify content was preserved.
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
-	if string(data) != customContent {
-		t.Fatalf("expected preserved content, got:\n%s", data)
+	if string(data) == customContent {
+		t.Fatalf("config was left frozen at:\n%s", data)
+	}
+	// The metrics section is the one that went missing on a real box.
+	if want := "metrics:\n  bind: \"" + mgr.MetricsAddr() + "\"\n"; !strings.Contains(string(data), want) {
+		t.Errorf("reconciled config missing %q:\n%s", want, data)
 	}
 }

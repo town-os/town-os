@@ -182,8 +182,6 @@ func prometheusScrapeDir(t *testing.T) string {
 func startRolodexForScrape(t *testing.T) string {
 	t.Helper()
 
-	ctx := testContext(t, 3*time.Minute)
-
 	dataDir := rolodexTempDir(t, "rolodex-scrape-*")
 	sd := systemd.NewManager()
 	key := rolodexTestKey()
@@ -201,32 +199,7 @@ func startRolodexForScrape(t *testing.T) string {
 		t.Fatalf("rolodex WriteConfig: %v", err)
 	}
 
-	uf := systemd.GenerateSystemServiceUnit(systemd.SystemServiceUnitConfig{
-		Key:         key,
-		Description: "Rolodex DNS (scrape test)",
-		Image:       rolodexTestImage(),
-		Args: []string{
-			"--net", "host",
-			"-v", dataDir + ":/data",
-		},
-		Command:    []string{"/usr/local/bin/rolodex-dns", "--config", "/data/rolodex.yml"},
-		VolumeDirs: []string{dataDir},
-	})
-
-	if err := sd.InstallUnit(ctx, uf.Name, uf.Content); err != nil {
-		t.Fatalf("rolodex InstallUnit: %v", err)
-	}
-	if err := sd.SetStatus(ctx, uf.Name, systemd.Enable); err != nil {
-		t.Fatalf("rolodex Enable: %v", err)
-	}
-	if err := sd.SetStatus(ctx, uf.Name, systemd.Restart); err != nil {
-		t.Fatalf("rolodex Restart: %v", err)
-	}
-	t.Cleanup(func() {
-		cleanupCtx := context.Background()
-		logCleanupf(t, sd.SetStatus(cleanupCtx, uf.Name, systemd.Stop), "rolodex stop")
-		logCleanupf(t, sd.UninstallUnit(cleanupCtx, uf.Name), "rolodex uninstall")
-	})
+	startRolodexUnit(t, sd, key, dataDir, "Rolodex DNS (scrape test)")
 
 	return mgr.MetricsAddr()
 }

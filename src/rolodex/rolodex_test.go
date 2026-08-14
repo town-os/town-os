@@ -89,13 +89,7 @@ func TestWriteConfigCreatesDir(t *testing.T) {
 }
 
 func TestWriteConfigSkipsWhenUnchanged(t *testing.T) {
-	// Stub executableMtime to return a time far in the future so the
-	// config file is always "older" than the binary.
-	orig := executableMtime
-	executableMtime = func() (time.Time, error) {
-		return time.Now().Add(24 * time.Hour), nil
-	}
-	t.Cleanup(func() { executableMtime = orig })
+	t.Parallel()
 
 	dir := rolodexTestDir(t, "rolodex-skip-*")
 	mgr := NewManager(Config{
@@ -125,13 +119,7 @@ func TestWriteConfigSkipsWhenUnchanged(t *testing.T) {
 }
 
 func TestWriteConfigOverwritesStaleContent(t *testing.T) {
-	// Stub executableMtime to return a time far in the future so the
-	// config file is always "older" than the binary.
-	orig := executableMtime
-	executableMtime = func() (time.Time, error) {
-		return time.Now().Add(24 * time.Hour), nil
-	}
-	t.Cleanup(func() { executableMtime = orig })
+	t.Parallel()
 
 	dir := rolodexTestDir(t, "rolodex-stale-*")
 	configPath := filepath.Join(dir, "rolodex.yml")
@@ -228,21 +216,25 @@ func TestRolodexConfigCustomForwarders(t *testing.T) {
 	}
 }
 
-func TestWriteConfigSkipsWhenFileNewerThanBinary(t *testing.T) {
-	// Stub executableMtime to return a time in the past so the config
-	// file appears newer than the binary.
-	orig := executableMtime
-	executableMtime = func() (time.Time, error) {
-		return time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC), nil
-	}
-	t.Cleanup(func() { executableMtime = orig })
+// TestWriteConfigReplacesConfigNewerThanTheBinary is the regression for the
+// freeze that cost the box its DNS metrics. WriteConfig used to skip any
+// rolodex.yml with an mtime newer than the systemcontroller binary, and the
+// file every boot writes is newer than the binary in the image that wrote it —
+// so from the second boot onward it skipped its OWN output, permanently.
+func TestWriteConfigReplacesConfigNewerThanTheBinary(t *testing.T) {
+	t.Parallel()
 
 	dir := rolodexTestDir(t, "rolodex-newer-*")
 	configPath := filepath.Join(dir, "rolodex.yml")
 
-	// Write a custom config that differs from canonical.
-	if err := os.WriteFile(configPath, []byte("custom config"), 0644); err != nil {
+	// Stale content with an mtime in the future: newer than any binary, which
+	// is exactly the state a previous boot leaves behind.
+	if err := os.WriteFile(configPath, []byte("stale config"), 0644); err != nil {
 		t.Fatalf("pre-write: %v", err)
+	}
+	future := time.Now().Add(24 * time.Hour)
+	if err := os.Chtimes(configPath, future, future); err != nil {
+		t.Fatalf("chtimes: %v", err)
 	}
 
 	mgr := NewManager(Config{
@@ -256,27 +248,87 @@ func TestWriteConfigSkipsWhenFileNewerThanBinary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WriteConfig: %v", err)
 	}
-	if written {
-		t.Fatal("expected skip when config is newer than binary")
+	if !written {
+		t.Fatal("expected the rendered config to replace a file newer than the binary")
 	}
 
-	// Verify file was NOT overwritten.
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
-	if string(data) != "custom config" {
-		t.Fatalf("config should be preserved, got:\n%s", data)
+	if string(data) == "stale config" {
+		t.Fatal("config was left frozen at its previous contents")
 	}
 }
 
-func TestWriteConfigWritesWhenFileOlderThanBinaryWithDifferentContent(t *testing.T) {
-	// Stub executableMtime to return a time far in the future.
-	orig := executableMtime
-	executableMtime = func() (time.Time, error) {
-		return time.Now().Add(24 * time.Hour), nil
+// TestWriteConfigAddsSectionsMissingFromAnOlderRendering is the shape the
+// freeze actually took on a real box: a rolodex.yml written by an older
+// controller, ending at `rbl:`, with no metrics listener and no dnsbl seed.
+// Prometheus scraped 127.0.0.2:9153 for weeks with nothing bound there.
+func TestWriteConfigAddsSectionsMissingFromAnOlderRendering(t *testing.T) {
+	t.Parallel()
+
+	dir := rolodexTestDir(t, "rolodex-upgrade-*")
+	configPath := filepath.Join(dir, "rolodex.yml")
+
+	// Verbatim shape of the pre-9689461 rendering: everything through rbl:,
+	// then nothing.
+	legacy := `database_path: /data/rolodex.db
+dns:
+  bind:
+    - udp: "127.0.0.2:53"
+    - tcp: "127.0.0.2:53"
+grpc:
+  tcp_bind: ""
+  unix_socket: /data/rolodex.sock
+  shared_secret: ""
+forwarders:
+  - "8.8.8.8:53"
+  - "8.8.4.4:53"
+resolution:
+  mode: auto
+rbl:
+  enabled: false
+`
+	if err := os.WriteFile(configPath, []byte(legacy), 0644); err != nil {
+		t.Fatalf("pre-write: %v", err)
 	}
-	t.Cleanup(func() { executableMtime = orig })
+	future := time.Now().Add(24 * time.Hour)
+	if err := os.Chtimes(configPath, future, future); err != nil {
+		t.Fatalf("chtimes: %v", err)
+	}
+
+	mgr := NewManager(Config{
+		Systemd:        systemd.InitMockManager(),
+		DataDir:        dir,
+		Image:          "quay.io/town/rolodex:latest",
+		UnixSocketPath: filepath.Join(dir, DefaultGRPCSocket),
+	})
+
+	written, err := mgr.WriteConfig()
+	if err != nil {
+		t.Fatalf("WriteConfig: %v", err)
+	}
+	if !written {
+		t.Fatal("expected an upgraded controller to rewrite a legacy rolodex.yml")
+	}
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	// The listener rolodex opens must be the address Prometheus is told to
+	// scrape — MetricsAddr is the single string both sides are built from.
+	if want := "metrics:\n  bind: \"" + mgr.MetricsAddr() + "\"\n"; !strings.Contains(string(data), want) {
+		t.Errorf("upgraded config missing %q:\n%s", want, data)
+	}
+	if !strings.Contains(string(data), "dnsbl:") {
+		t.Errorf("upgraded config missing the dnsbl section:\n%s", data)
+	}
+}
+
+func TestWriteConfigWritesWhenContentDiffers(t *testing.T) {
+	t.Parallel()
 
 	dir := rolodexTestDir(t, "rolodex-older-diff-*")
 	configPath := filepath.Join(dir, "rolodex.yml")
@@ -302,7 +354,7 @@ func TestWriteConfigWritesWhenFileOlderThanBinaryWithDifferentContent(t *testing
 		t.Fatalf("WriteConfig: %v", err)
 	}
 	if !written {
-		t.Fatal("expected write when content differs and file is older than binary")
+		t.Fatal("expected write when content differs")
 	}
 }
 

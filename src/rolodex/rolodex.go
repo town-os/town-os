@@ -270,29 +270,14 @@ func (m *Manager) SetBlocklists(rbl, dnsbl Blocklist) {
 	m.cfg.DNSBL = dnsbl.clone()
 }
 
-// RewriteConfig writes rolodex.yml unconditionally, returning true when the
-// bytes actually changed. It is the runtime counterpart to WriteConfig, which
-// deliberately refuses to overwrite a config file newer than the
-// systemcontroller binary (it treats that as user-modified). That guard is
-// correct at boot but wrong for an operator-initiated change: the file written
-// at the previous boot is ALWAYS newer than the binary, so WriteConfig would
-// silently no-op and the new setting would never reach rolodex.
+// RewriteConfig is the runtime name for WriteConfig, kept because the runtime
+// call sites (a resolution-mode change, a blocklist edit, a local-forwarder
+// toggle) read better naming the intent. The two used to differ: WriteConfig
+// carried an mtime guard that RewriteConfig deliberately bypassed. That guard
+// is gone — see WriteConfig for why — so they are now one behavior with two
+// names, and neither can silently drop a change.
 func (m *Manager) RewriteConfig() (bool, error) {
-	if err := os.MkdirAll(m.cfg.DataDir, 0755); err != nil { //nolint:gosec // data dir must be accessible by container process
-		return false, fmt.Errorf("create data dir: %w", err)
-	}
-
-	config := rolodexConfig(m.configParams())
-	configPath := filepath.Join(m.cfg.DataDir, "rolodex.yml")
-
-	if existing, err := os.ReadFile(configPath); err == nil && string(existing) == config { //nolint:gosec // G304 -- configPath is built from the controlled DataDir
-		return false, nil
-	}
-
-	if err := os.WriteFile(configPath, []byte(config), 0644); err != nil { //nolint:gosec // config must be readable by container process
-		return false, fmt.Errorf("write config: %w", err)
-	}
-	return true, nil
+	return m.WriteConfig()
 }
 
 // UnitName returns the systemd unit that supervises rolodex.
@@ -447,27 +432,32 @@ func (m *Manager) configParams() rolodexConfigParams {
 	}
 }
 
-// executableMtime is the function used to get the systemcontroller binary's
-// modification time. Replaceable in tests.
-var executableMtime = defaultExecutableMtime
-
-func defaultExecutableMtime() (time.Time, error) {
-	exe, err := os.Executable()
-	if err != nil {
-		return time.Time{}, fmt.Errorf("resolve executable: %w", err)
-	}
-	fi, err := os.Stat(exe)
-	if err != nil {
-		return time.Time{}, fmt.Errorf("stat executable: %w", err)
-	}
-	return fi.ModTime(), nil
-}
-
-// WriteConfig ensures the rolodex YAML configuration file exists and is
-// up to date. Returns true if the file was written (created or updated),
-// false if it was left unchanged. The file is skipped when it already
-// exists, is newer than the systemcontroller binary (user-modified), and
-// has the expected content.
+// WriteConfig renders rolodex.yml into DataDir and writes it when the bytes
+// differ from what is already there. It returns true only when the file
+// actually changed, so the caller restarts the unit only when there is
+// something to restart it for.
+//
+// It reconciles unconditionally, and that is a fix rather than a simplification.
+// It used to skip any rolodex.yml whose mtime was newer than the
+// systemcontroller binary's, on the theory that a newer file had been
+// hand-edited. The file a boot writes is always newer than the binary in the
+// image that wrote it, so from the SECOND boot onward that guard matched the
+// controller's own output and WriteConfig became a permanent no-op: rolodex.yml
+// froze at whatever the first controller to run on that box rendered, for the
+// life of the box, and no image update could move it.
+//
+// Every section added after a box's first boot therefore never arrived. That
+// shipped twice — `dnsbl:` (31f7e80) and then `metrics:` (9689461) — and the
+// second one is why a deployed box had no rolodex metrics listener at all:
+// Prometheus scraped 127.0.0.2:9153 on schedule, nothing was ever bound there,
+// and every DNS panel rendered an empty chart rather than an error.
+//
+// Nothing real is lost. Every value in this file is rendered from Town OS state
+// — DNS port, forwarders, resolution mode, both blocklists, the metrics port —
+// and every runtime path that changes one of them already wrote the file with
+// no regard for the guard (that is what RewriteConfig was). A hand edit
+// survived until the next settings change before; now it survives until the
+// next boot.
 func (m *Manager) WriteConfig() (bool, error) {
 	if err := os.MkdirAll(m.cfg.DataDir, 0755); err != nil { //nolint:gosec // data dir must be accessible by container process
 		return false, fmt.Errorf("create data dir: %w", err)
@@ -476,20 +466,8 @@ func (m *Manager) WriteConfig() (bool, error) {
 	config := rolodexConfig(m.configParams())
 	configPath := filepath.Join(m.cfg.DataDir, "rolodex.yml")
 
-	fi, statErr := os.Stat(configPath)
-	if statErr == nil {
-		// File exists — check if it's newer than our binary.
-		exeMtime, exeErr := executableMtime()
-		if exeErr == nil && fi.ModTime().After(exeMtime) {
-			// Config was modified after the SC image was built; don't overwrite.
-			return false, nil
-		}
-
-		// File is older than (or same age as) our binary — check content.
-		existing, readErr := os.ReadFile(configPath) //nolint:gosec // G304 -- configPath is constructed from the controlled DataDir config field
-		if readErr == nil && string(existing) == config {
-			return false, nil
-		}
+	if existing, err := os.ReadFile(configPath); err == nil && string(existing) == config { //nolint:gosec // G304 -- configPath is built from the controlled DataDir
+		return false, nil
 	}
 
 	if err := os.WriteFile(configPath, []byte(config), 0644); err != nil { //nolint:gosec // config must be readable by container process
