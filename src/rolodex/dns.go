@@ -42,6 +42,16 @@ func tlsaName(name string, port uint16, proto string) string {
 	return fmt.Sprintf("_%d._%s.%s.", port, proto, strings.TrimSuffix(name, "."))
 }
 
+// TLSAOwner is the owner name RegisterPackageTLSA publishes an entry at.
+//
+// Exported because a reconciler cannot diff what it would publish against what
+// the zone already holds without it: ListRecords returns owner names, and the
+// _<port>._<proto> prefix is the only thing that ties one back to the endpoint
+// it pins. Deriving it a second time at the call site is how the two halves
+// drift apart — a pin published at one name and looked for at another reads as
+// "no pin", which is the state this whole mechanism exists to avoid.
+func TLSAOwner(e TLSAEntry) string { return tlsaName(e.Name, e.Port, e.Proto) }
+
 // RegisterPackageTLSA publishes a TLSA record for each entry pinning the
 // proxy's leaf certificate so DANE-aware clients can validate the local-CA
 // cert without trusting the CA out of band. Entries with an empty Value are
@@ -96,6 +106,32 @@ func UnregisterPackageTLSA(ctx context.Context, c Client, entries []TLSAEntry) e
 		if _, err := c.RemoveRecord(ctx, owner, &upstream.RemoveRecordOptions{RecordType: &tlsaType}); err != nil {
 			return fmt.Errorf("remove TLSA record %s: %w", owner, err)
 		}
+	}
+	return nil
+}
+
+// UnregisterPackageTLSAValue removes ONE association from an owner, leaving any
+// other record at that name standing.
+//
+// UnregisterPackageTLSA is the wrong tool for a certificate rollover: it is
+// keyed by name and type, so it takes every pin at the endpoint — including the
+// one just published for the new certificate. A rollover has to add the new
+// association, wait for the endpoint to start serving it, and only then withdraw
+// the old one, which is a removal that names a value. An entry with an empty
+// Value is refused rather than widened into "remove everything here", because
+// that mistake is invisible: the call succeeds, and the endpoint is left with no
+// pin at all.
+func UnregisterPackageTLSAValue(ctx context.Context, c Client, e TLSAEntry) error {
+	if e.Value == "" {
+		return fmt.Errorf("unregister TLSA %s: no value to remove", tlsaName(e.Name, e.Port, e.Proto))
+	}
+	tlsaType := upstream.RecordTypeTLSA
+	owner := tlsaName(e.Name, e.Port, e.Proto)
+	if _, err := c.RemoveRecord(ctx, owner, &upstream.RemoveRecordOptions{
+		RecordType: &tlsaType,
+		Value:      e.Value,
+	}); err != nil {
+		return fmt.Errorf("remove TLSA record %s: %w", owner, err)
 	}
 	return nil
 }

@@ -1572,6 +1572,8 @@ Town OS 預設寫出的 `forwarders:` 列表是 `DefaultForwarders`——公共�
 
 葉憑證落盤之前不會發佈任何東西，理由與 `collectGfehTLSA` 跳過尚未簽發葉憑證的分區相同：為一張尚不存在的憑證發佈釘扎，會讓每個用戶端在它最終出現時拒絕連線。測試：`TestRolodexTransportTLSAPinsBothEncryptedDNSEndpoints`、`…PublishesNothingWithoutALeaf`，以及負責建構擁有者名稱的 `TestTLSANameProtocol`。端到端方面，`TestDotAdoptsTheCAIssuedLeafWithoutARestart` 證明 rolodex 會在一個輪詢週期內、且不必重啟就換用簽發出來的葉憑證——這個交接是任何單元測試都觀察不到的，因為它講的是另一個行程注意到一個檔案；而 `TestRolodexPublishesTheDoQPinUnderUDP` 證明真實的 rolodex 會在 `_853._udp` 之下儲存並回傳該釘扎，這是模擬用戶端做不到的。
 
+**而且它會在機器僅僅是運行中的時候被更新。** `IssueLeaf` 會重新簽發距到期不到 30 天的憑證，但只有在有東西呼叫它的時候才會——而呼叫者只有開機與一次確認過的內部 IP 變更，所以更新一直是重新開機的副作用。`reconcileRolodexTransportTLSA` 把它放進每小時的漂移修復流程（`ReconcileDNS`，它現在正是為此攜帶 CA 與 btrfs 基底路徑），釘扎也在同一次呼叫裡被調和：重新簽發的葉憑證帶著新的金鑰，因此為舊憑證發佈的關聯資料，在檔案寫下的那一刻就不再相符，而一個找到 TLSA 記錄卻無一相符的 DANE 用戶端會拒絕該連線。新的釘扎會在舊的撤下**之前**放上去——rolodex 會在一次 30 秒的輪詢內採用更新後的憑證，而兩筆記錄同時存在，是唯一能讓兩張憑證中任一張通過驗證的狀態。同一次流程也會補回區域已經遺失的釘扎（被重新初始化的 rolodex、一次連同區域一起拆掉的清除），不必等到更新；而在憑證仍然有效時，它什麼都不會改寫。
+
 **用戶端會被以兩種方式告知這一切在哪裡。** `publishDDRDesignation` 在 `_dns.resolver.arpa.` 上存放 SVCB 記錄（RFC 9462），在 `dns.<tld>` 之下點名 DoH 的 URL、DoT 的埠與 DoQ 的埠，並按那個優先次序排列——DoH 在先，因為 `:443` 能穿過那些過濾 `:853` 的 DPI。一個懂 DDR 的用戶端只要對這台機器解析那一個名稱，別的什麼都不必被告知。這份指定記錄活在 `arpa.` 裡，而 rolodex 從不把它拿到上游去解析，這恰恰是關鍵：那道拒絕坐落在每一次本地查找的下方，所以只有被問的那台解析器才能為它自己的指定記錄作答。
 
 與這裡其他所有發布者不同，它是先移除再重寫的。`RebuildDNS` 一開始就把該 TLD 的區域拆掉，正是那一步讓其餘的具備冪等性——但 `_dns.resolver.arpa.` 不在這台機器擁有的任何區域裡，拆除永遠搆不著它，而沒有那次移除，每一次重建都會再疊一份，或者打出一次重複失敗。先移除，也正是讓 TLD 變更真正生效、而不是把兩者一起廣告出去的原因。測試：`TestDDRDesignationIsIdempotentAcrossRebuilds`、`TestDDRDesignationFollowsATLDChange`。

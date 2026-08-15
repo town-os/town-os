@@ -620,6 +620,12 @@ func (s *serverBase) tickDNSPoll(ctx context.Context) {
 		// and stop resolving an hour later, which is a far worse failure
 		// than never working at all.
 		Gfeh: s.GetGfehRegistry(),
+		// The CA and the btrfs base are what let this pass renew the DoT/DoQ
+		// leaf and roll its DANE pins over (reconcileRolodexTransportTLSA).
+		// Without them the reconcile still repairs records; the certificate
+		// encrypted DNS is served with is simply never reissued between boots.
+		TLSCA:         s.GetTLSCA(),
+		BtrfsBasePath: s.GetBtrfsBasePath(),
 	}); err != nil {
 		slog.Debug("hourly DNS reconcile", "error", err)
 	}

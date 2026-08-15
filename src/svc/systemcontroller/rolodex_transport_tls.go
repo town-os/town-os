@@ -1,9 +1,11 @@
 package systemcontroller
 
 import (
+	"context"
 	"log/slog"
 	"path/filepath"
 
+	upstream "gitea.com/town-os/rolodex-dns/go"
 	"gitea.com/town-os/town-os/src/rolodex"
 	townostls "gitea.com/town-os/town-os/src/tls"
 )
@@ -112,5 +114,116 @@ func collectRolodexTransportTLSA(rolodexDataDir, tld string) []rolodex.TLSAEntry
 	return []rolodex.TLSAEntry{
 		{Name: name, Port: DoTPort, Proto: "tcp", Value: value},
 		{Name: name, Port: DoQPort, Proto: "udp", Value: value},
+	}
+}
+
+// reconcileRolodexTransportTLSA renews the DoT/DoQ leaf and rolls its DANE pins
+// over, on the same hourly drift pass that repairs every other record.
+//
+// # Why the issuing path was not enough
+//
+// `IssueLeaf` already reissues a certificate that is inside 30 days of expiry —
+// but only when something calls it, and until this the only callers were boot
+// and a confirmed internal-IP change. Renewal was therefore a side effect of
+// rebooting. The leaf is valid for ten years, so nothing would have failed for
+// most of a decade and then encrypted DNS would have stopped working on a box
+// that had changed nothing, which is the worst shape a certificate failure
+// takes: no event to correlate it with.
+//
+// # Why renewing without the zone would be worse than not renewing
+//
+// A TLSA record pins the SHA-256 of the certificate's public key, and a reissue
+// generates a fresh key — so the moment the leaf is renewed, the published pin
+// stops matching what the endpoint serves. A DANE-checking client that finds a
+// record and no match REFUSES the connection. Renewal and re-pinning are one
+// operation for the same reason publishEncryptedDNS is one function.
+//
+// # Why the new pin goes up before the old one comes down
+//
+// rolodex re-reads `cert_path`/`key_path` every 30 seconds, so for up to one
+// poll after the file changes the endpoint is still serving the OLD certificate.
+// DANE takes a match on ANY record at the owner, so both records present is the
+// state where either certificate validates — and withdrawing first would turn
+// that half minute into a hard failure for exactly the clients this is for.
+//
+// current is the record set the caller already listed. Only the two owners this
+// publishes at are considered; anything else in the zone belongs to another
+// publisher and is left alone.
+//
+// Best-effort throughout, like the rest of this path.
+func reconcileRolodexTransportTLSA(
+	ctx context.Context,
+	cfg ReconcileDNSConfig,
+	tld string,
+	current []*upstream.DnsRecord,
+) {
+	if cfg.Client == nil || cfg.TLSCA == nil {
+		return
+	}
+	dataDir := rolodexDataDir(cfg.BtrfsBasePath)
+	if dataDir == "" {
+		return
+	}
+
+	// Idempotent: this rewrites nothing while the SANs still match and the
+	// certificate has more than 30 days left, so the steady-state cost of the
+	// hourly pass is a parse of one file.
+	issueRolodexTransportLeaf(cfg.TLSCA, dataDir, tld, cfg.InternalIP, cfg.InternalIPv6)
+
+	desired := collectRolodexTransportTLSA(dataDir, tld)
+	if len(desired) == 0 {
+		return
+	}
+
+	want := make(map[string]string, len(desired))
+	for _, e := range desired {
+		want[rolodex.TLSAOwner(e)] = e.Value
+	}
+	have := map[string]map[string]bool{}
+	for _, r := range current {
+		if r == nil || r.RecordType != upstream.RecordTypeTLSA {
+			continue
+		}
+		if _, ours := want[r.Name]; !ours {
+			continue
+		}
+		if have[r.Name] == nil {
+			have[r.Name] = map[string]bool{}
+		}
+		have[r.Name][r.Value] = true
+	}
+
+	var add, stale []rolodex.TLSAEntry
+	for _, e := range desired {
+		owner := rolodex.TLSAOwner(e)
+		if !have[owner][e.Value] {
+			add = append(add, e)
+		}
+		for value := range have[owner] {
+			if value == e.Value {
+				continue
+			}
+			stale = append(stale, rolodex.TLSAEntry{Name: e.Name, Port: e.Port, Proto: e.Proto, Value: value})
+		}
+	}
+	if len(add) == 0 && len(stale) == 0 {
+		return
+	}
+
+	if len(add) > 0 {
+		if err := rolodex.RegisterPackageTLSA(ctx, cfg.Client, add); err != nil {
+			// Leave the stale pins standing. They are the ones a client can
+			// still validate against the certificate being served right now,
+			// and removing them with nothing published in their place is the
+			// one state that fails closed for every DANE-checking client.
+			slog.Debug("rolodex TLS: publishing the renewed DoT/DoQ pin", "error", err)
+			return
+		}
+		slog.Info("rolodex DoT/DoQ pin published", "records", len(add))
+	}
+	for _, e := range stale {
+		if err := rolodex.UnregisterPackageTLSAValue(ctx, cfg.Client, e); err != nil {
+			slog.Debug("rolodex TLS: withdrawing a superseded DoT/DoQ pin", "error", err)
+		}
 	}
 }

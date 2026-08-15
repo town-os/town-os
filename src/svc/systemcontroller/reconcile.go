@@ -1281,6 +1281,14 @@ func ReconcileDNS(ctx context.Context, cfg ReconcileDNSConfig) error {
 		}
 	}
 
+	// The certificate DoT and DoQ serve, and the DANE pins for it. This is the
+	// only pass that runs while the box is merely UP — RebuildDNS issues that
+	// leaf at boot and on an internal-IP change and nothing else did, so its
+	// renewal was a side effect of rebooting. It is last because it reads the
+	// record list gathered above, and it is here rather than in RebuildDNS
+	// because expiry is a function of elapsed time rather than of any event.
+	reconcileRolodexTransportTLSA(ctx, cfg, tld, current)
+
 	return nil
 }
 

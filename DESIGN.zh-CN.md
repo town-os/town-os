@@ -1572,6 +1572,8 @@ Town OS 默认写出的 `forwarders:` 列表是 `DefaultForwarders`——公共�
 
 叶证书落盘之前不会发布任何东西，理由与 `collectGfehTLSA` 跳过尚未签发叶证书的分区相同：为一张尚不存在的证书发布钉扎，会让每个客户端在它最终出现时拒绝连接。测试：`TestRolodexTransportTLSAPinsBothEncryptedDNSEndpoints`、`…PublishesNothingWithoutALeaf`，以及负责构造属主名的 `TestTLSANameProtocol`。端到端方面，`TestDotAdoptsTheCAIssuedLeafWithoutARestart` 证明 rolodex 会在一个轮询周期内、且不必重启就换用签发出来的叶证书——这个交接是任何单元测试都观察不到的，因为它讲的是另一个进程注意到一个文件；而 `TestRolodexPublishesTheDoQPinUnderUDP` 证明真实的 rolodex 会在 `_853._udp` 之下存储并返回该钉扎，这是模拟客户端做不到的。
 
+**而且它会在机器仅仅是运行中的时候被更新。** `IssueLeaf` 会重新签发距到期不到 30 天的证书，但只有在有东西调用它的时候才会——而调用者只有开机与一次确认过的内部 IP 变更，所以更新一直是重新启动的副作用。`reconcileRolodexTransportTLSA` 把它放进每小时的漂移修复流程（`ReconcileDNS`，它现在正是为此携带 CA 与 btrfs 基底路径），钉扎也在同一次调用里被调和：重新签发的叶证书带着新的密钥，因此为旧证书发布的关联数据，在文件写下的那一刻就不再相符，而一个找到 TLSA 记录却无一相符的 DANE 客户端会拒绝该连接。新的钉扎会在旧的撤下**之前**放上去——rolodex 会在一次 30 秒的轮询内采用更新后的证书，而两条记录同时存在，是唯一能让两张证书中任一张通过验证的状态。同一次流程也会补回区域已经丢失的钉扎（被重新初始化的 rolodex、一次连同区域一起拆掉的清除），不必等到更新；而在证书仍然有效时，它什么都不会改写。
+
 **客户端会被以两种方式告知这一切在哪里。** `publishDDRDesignation` 在 `_dns.resolver.arpa.` 上存放 SVCB 记录（RFC 9462），在 `dns.<tld>` 之下点名 DoH 的 URL、DoT 的端口与 DoQ 的端口，并按那个优先次序排列——DoH 在先，因为 `:443` 能穿过那些过滤 `:853` 的 DPI。一个懂 DDR 的客户端只要对这台机器解析那一个名称，别的什么都不必被告知。这份指定记录活在 `arpa.` 里，而 rolodex 从不把它拿到上游去解析，这恰恰是关键：那道拒绝坐落在每一次本地查找的下方，所以只有被问的那台解析器才能为它自己的指定记录作答。
 
 与这里其他所有发布者不同，它是先移除再重写的。`RebuildDNS` 一开始就把该 TLD 的区域拆掉，正是那一步让其余的具备幂等性——但 `_dns.resolver.arpa.` 不在这台机器拥有的任何区域里，拆除永远够不着它，而没有那次移除，每一次重建都会再叠一份，或者打出一次重复失败。先移除，也正是让 TLD 变更真正生效、而不是把两者一起广告出去的原因。测试：`TestDDRDesignationIsIdempotentAcrossRebuilds`、`TestDDRDesignationFollowsATLDChange`。
