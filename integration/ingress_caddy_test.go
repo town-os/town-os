@@ -21,6 +21,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -179,7 +180,7 @@ func TestIngressHTTPPortRouting(t *testing.T) {
 		t.Fatalf("SetRoutes: %v", err)
 	}
 
-	https := caClientSNI(t, filepath.Join(tlsDir, "ca.crt"), httpsPort)
+	https := caClient(t, filepath.Join(tlsDir, "ca.crt"), httpsPort)
 	plain := plainClientNoRedirect(t, httpPort)
 
 	// (1) Page served directly over plain HTTP on :80. Poll here gates readiness:
@@ -277,33 +278,19 @@ func httpGet(t *testing.T, client *http.Client, url string) (*http.Response, err
 }
 
 // caClient returns an HTTP client that trusts the given CA cert and always
-// dials 127.0.0.1:port while presenting SNI for the requested host.
+// dials 127.0.0.1:port, presenting SNI for whatever host the request URL names.
+//
+// Leaving ServerName UNSET is the whole point, and there used to be a second
+// helper here that set it to a hardcoded "test.local" — which is correct for
+// exactly one test and a trap for every other. The ingress selects a
+// certificate by SNI, so a client that announces test.local while asking for
+// dns.local is offered no certificate at all: the handshake fails before caddy
+// ever routes the request, and the test reports the vhost as not serving. That
+// is what TestIngressProxiesToAnHTTPSBackend spent its first harness run
+// failing on, and the reason it could not be seen from the failure was that the
+// error never escaped the poll. One helper now, and it cannot be misread,
+// because SNI follows the URL the caller already wrote.
 func caClient(t *testing.T, caPath string, port int) *http.Client {
-	t.Helper()
-	caPEM, err := os.ReadFile(caPath)
-	if err != nil {
-		t.Fatalf("read CA: %v", err)
-	}
-	pool := x509.NewCertPool()
-	if !pool.AppendCertsFromPEM(caPEM) {
-		t.Fatal("append CA cert failed")
-	}
-	return &http.Client{
-		Timeout: 5 * time.Second,
-		Transport: &http.Transport{
-			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-				var d net.Dialer
-				return d.DialContext(ctx, "tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
-			},
-			TLSClientConfig: &tls.Config{RootCAs: pool, ServerName: "test.local", MinVersion: tls.VersionTLS12},
-		},
-	}
-}
-
-// caClientSNI is like caClient but derives SNI from each request's URL host
-// (ServerName unset), so one client can reach multiple ingress vhosts. It trusts
-// the given CA and always dials 127.0.0.1:port.
-func caClientSNI(t *testing.T, caPath string, port int) *http.Client {
 	t.Helper()
 	caPEM, err := os.ReadFile(caPath)
 	if err != nil {
@@ -427,16 +414,32 @@ func TestIngressProxiesToAnHTTPSBackend(t *testing.T) {
 	client := caClient(t, filepath.Join(tlsDir, "ca.crt"), port)
 
 	// The path backend: an HTTPS hop reached through a handle block.
+	//
+	// The last failure is kept and reported. Without it this test says only
+	// "did not proxy", which reads as a broken handle block and is equally
+	// consistent with a request that never got past the TLS handshake — the two
+	// are a caddy config change apart and a client bug apart, and telling them
+	// apart from the message alone was not possible the one time it mattered.
+	var lastErr error
+	var lastStatus string
 	if !poll(t, func() bool {
 		resp, err := httpGet(t, client, "https://dns.local/dns-query")
 		if err != nil {
+			lastErr = err
 			return false
 		}
 		defer func() { _ = resp.Body.Close() }()
 		b, _ := io.ReadAll(resp.Body)
+		lastErr = nil
+		lastStatus = fmt.Sprintf("%d %q", resp.StatusCode, b)
 		return resp.StatusCode == http.StatusOK && string(b) == queryBody
 	}) {
-		t.Fatal("ingress did not proxy the path backend over https")
+		if lastErr != nil {
+			t.Fatalf("ingress did not proxy the path backend over https; last request failed before "+
+				"a response: %v", lastErr)
+		}
+		t.Fatalf("ingress did not proxy the path backend over https; last response was %s, want 200 %q",
+			lastStatus, queryBody)
 	}
 
 	// The route's own backend: the catch-all handle, also HTTPS.
