@@ -347,3 +347,91 @@ func TestEveryPushNamesAnArchitecture(t *testing.T) {
 		}
 	}
 }
+
+// TestReleaseBuildRunsItsTestsNatively asserts the test phase of a release does
+// not inherit a cross TARGET.
+//
+// test-full builds the harness — production, test, ui-integration — and RUNS it
+// on this host, so every one of those arms calls require_native_target and
+// refuses a foreign TARGET outright. With test-full named directly as a
+// prerequisite, `make TARGET=aarch64 release-build` therefore died on
+// `make/build.sh ui-integration` before it built a single release image, and
+// push-release died with it because release-build is its prerequisite. The
+// release-test indirection clears TARGET for that one recursion; the tests
+// validate the source on the machine running them, and the cross part of a
+// release is the artifacts built afterwards.
+func TestReleaseBuildRunsItsTestsNatively(t *testing.T) {
+	t.Parallel()
+
+	makefile := readRepoFile(t, "Makefile")
+	line := prerequisiteLine(makefile, "release-build")
+	if line == "" {
+		t.Fatal("Makefile has no release-build prerequisite line")
+	}
+	if strings.Contains(line, "test-full") {
+		t.Errorf("release-build depends on test-full directly (%q); a cross TARGET propagates into "+
+			"the harness builds, which refuse it", line)
+	}
+	if !strings.Contains(line, "release-test") {
+		t.Errorf("release-build no longer depends on release-test (%q); the release would ship untested", line)
+	}
+
+	// The indirection is only worth anything if it actually clears TARGET.
+	recipe := readRepoFile(t, "make/include.mk") + makefile
+	if !regexp.MustCompile(`(?m)^release-test:\n\t@\$\(MAKE\) TARGET= test-full`).MatchString(recipe) {
+		t.Error("release-test does not recurse with `$(MAKE) TARGET= test-full`; without the " +
+			"command-line assignment the exported TARGET carries into the sub-make and the " +
+			"harness builds refuse it again")
+	}
+}
+
+// TestProtonStaysOnItsOwnArchitecture asserts the x86_64-only image is skipped
+// rather than attempted on a cross release.
+//
+// GE-Proton is x86_64 Wine, so release-proton refuses any other TARGET — right
+// for the single target, wrong for an aggregate that names it unconditionally:
+// `make PROTON_ENABLED=1 TARGET=aarch64 release-build` would fail on an image
+// behaving exactly as designed. The Makefile drops it from the aggregates via
+// PROTON_RELEASE_TARGET, and the push and manifest arms have to agree — a push
+// arm that still tagged it would reach for a staged image nothing built, and a
+// manifest assembled over ARCHES would look for a -aarch64 tag that was
+// deliberately never pushed.
+func TestProtonStaysOnItsOwnArchitecture(t *testing.T) {
+	t.Parallel()
+
+	makefile := readRepoFile(t, "Makefile")
+	for _, target := range []string{"release-build", "push-rc", "push-tag"} {
+		line := prerequisiteLine(makefile, target)
+		if line == "" {
+			t.Errorf("Makefile has no %s prerequisite line", target)
+			continue
+		}
+		if strings.Contains(line, "release-proton-image") {
+			t.Errorf("%s names release-proton-image directly (%q); on a cross TARGET that arm "+
+				"exits 1 and takes the whole release with it", target, line)
+		}
+	}
+	if !regexp.MustCompile(`(?m)^ifeq \(\$\(BUILD_ARCH\),x86_64\)\nPROTON_RELEASE_TARGET := release-proton-image`).MatchString(makefile) {
+		t.Error("PROTON_RELEASE_TARGET is not gated on BUILD_ARCH=x86_64; it would be empty always " +
+			"(proton never built) or set always (cross releases failing on it)")
+	}
+
+	script := readRepoFile(t, buildScript)
+	for _, arm := range []string{"push-rc", "push-release", "push-tag"} {
+		body := caseArm(t, script, arm)
+		if !strings.Contains(body, `[[ "${PROTON_ENABLED}" = "1" && "${ARCH}" = "x86_64" ]]`) {
+			t.Errorf("%s: the %q arm gates proton on PROTON_ENABLED alone; on a cross push it "+
+				"tag_from_staged's an image the Makefile deliberately did not build", buildScript, arm)
+		}
+	}
+	for _, arm := range []string{"manifest-rc", "manifest-release", "manifest-tag"} {
+		body := caseArm(t, script, arm)
+		for line := range strings.SplitSeq(body, "\n") {
+			if strings.Contains(line, "build_manifest") && strings.Contains(line, "RELEASE_PROTON_IMAGE") &&
+				!strings.HasSuffix(strings.TrimSpace(line), " x86_64") {
+				t.Errorf("%s: %q assembles a proton manifest over ARCHES (%q); the -aarch64 tag it "+
+					"would look for is never pushed", buildScript, arm, strings.TrimSpace(line))
+			}
+		}
+	}
+}

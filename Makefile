@@ -311,7 +311,7 @@ PHONY_TARGETS += test-ui-integration test-integration-build test-integration tes
 PHONY_TARGETS += dev dev-logs dev-stop dev-stop-all dev-restore-dns dev-btrfs btrfs-dev clean-btrfs-dev
 PHONY_TARGETS += preflight-dev clean-dev auto-test auto-test-full build-networkcontroller lint
 PHONY_TARGETS += ssh
-PHONY_TARGETS += release-build release-image release-ui-image release-nc-image release-ingress-image release-gfeh-image push push-rc manifest-rc push-release manifest-release push-ui-rc push-ui-release push-nc-rc push-nc-release push-ingress-rc push-ingress-release push-gfeh-rc push-gfeh-release push-tag manifest-tag quay-login
+PHONY_TARGETS += release-build release-test release-image release-ui-image release-nc-image release-ingress-image release-gfeh-image push push-rc manifest-rc push-release manifest-release push-ui-rc push-ui-release push-nc-rc push-nc-release push-ingress-rc push-ingress-release push-gfeh-rc push-gfeh-release push-tag manifest-tag quay-login
 ifeq ($(PROTON_ENABLED),1)
 PHONY_TARGETS += release-proton-image push-proton-rc push-proton-release
 endif
@@ -387,13 +387,42 @@ release-ui-image: check-podman check-runc $(STATE_DIR)/.images-pulled
 release-nc-image: check-podman check-runc $(STATE_DIR)/.images-pulled
 release-ingress-image: check-podman check-runc $(STATE_DIR)/.images-pulled
 release-gfeh-image: check-podman check-runc
+# The Proton runner is x86_64 by construction: GE-Proton ships x86_64 Wine and
+# the image adds i386 multiarch to run 32-bit Windows executables, so there is
+# nothing to cross-compile TO. release-proton refuses any other TARGET outright,
+# which is right for the single target and wrong for the aggregates — an
+# aarch64 release should SKIP it, not die on it. This is the skip.
+PROTON_RELEASE_TARGET :=
+ifeq ($(PROTON_ENABLED),1)
+ifeq ($(BUILD_ARCH),x86_64)
+PROTON_RELEASE_TARGET := release-proton-image
+endif
+endif
+
+# The test phase of a release is NATIVE, whatever TARGET the release artifacts
+# are for.
+#
+# test-full builds the harness (production, test, ui-integration) and RUNS it
+# here, so every one of those arms calls require_native_target and a cross
+# TARGET makes them refuse — `make TARGET=aarch64 release-build` died on
+# `make/build.sh ui-integration` before it built a single release image, and
+# push-release died with it because release-build is its prerequisite. Clearing
+# TARGET for this one recursion is what the tests actually want: they validate
+# the SOURCE, on the machine that is running them, and the cross part of a
+# release is the artifacts built afterwards.
+#
+# A command-line assignment beats the exported TARGET the parent hands down, and
+# BUILD_ARCH/CROSS are derived from TARGET inside the sub-make, so they follow.
+release-test:
+	@$(MAKE) TARGET= test-full
+
 ifeq ($(PROTON_ENABLED),1)
 release-proton-image: check-podman check-runc $(STATE_DIR)/.images-pulled
-release-build: pull-images test-full release-image release-ui-image release-proton-image release-nc-image release-ingress-image release-gfeh-image
-push-rc: release-image release-ui-image release-proton-image release-nc-image release-ingress-image release-gfeh-image quay-login
-push-tag: release-image release-ui-image release-proton-image release-nc-image release-ingress-image release-gfeh-image quay-login
+release-build: pull-images release-test release-image release-ui-image $(PROTON_RELEASE_TARGET) release-nc-image release-ingress-image release-gfeh-image
+push-rc: release-image release-ui-image $(PROTON_RELEASE_TARGET) release-nc-image release-ingress-image release-gfeh-image quay-login
+push-tag: release-image release-ui-image $(PROTON_RELEASE_TARGET) release-nc-image release-ingress-image release-gfeh-image quay-login
 else
-release-build: pull-images test-full release-image release-ui-image release-nc-image release-ingress-image release-gfeh-image
+release-build: pull-images release-test release-image release-ui-image release-nc-image release-ingress-image release-gfeh-image
 push-rc: release-image release-ui-image release-nc-image release-ingress-image release-gfeh-image quay-login
 # push-tag pushes all six images and now TAGS the systemcontroller from the
 # staging image instead of building it inline, so it has to build them like

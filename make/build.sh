@@ -380,8 +380,12 @@ case "$1" in
     ${SUDO} podman push "${RELEASE_UI_IMAGE}:rc.${DATE_TAG}-${ARCH}"
     substep "Pushing ${RELEASE_UI_IMAGE}:rc.latest-${ARCH}"
     ${SUDO} podman push "${RELEASE_UI_IMAGE}:rc.latest-${ARCH}"
-    # Proton runner image — only when PROTON_ENABLED=1.
-    if [[ "${PROTON_ENABLED}" = "1" ]]; then
+    # Proton runner image — only when PROTON_ENABLED=1, and only on x86_64.
+    # GE-Proton is x86_64 Wine, so release-proton refuses any other TARGET and
+    # the Makefile drops it from the aggregates there ($(PROTON_RELEASE_TARGET)).
+    # Without the same condition here, a cross push would tag_from_staged an
+    # image that was deliberately never built and fail on a skip.
+    if [[ "${PROTON_ENABLED}" = "1" && "${ARCH}" = "x86_64" ]]; then
       substep "Tagging ${RELEASE_PROTON_IMAGE}:rc.${DATE_TAG}-${ARCH}"
       tag_from_staged "${RELEASE_PROTON_IMAGE}" "rc.${DATE_TAG}-${ARCH}"
       substep "Tagging ${RELEASE_PROTON_IMAGE}:rc.latest-${ARCH}"
@@ -432,8 +436,8 @@ case "$1" in
       build_manifest "${image}" "rc.latest"
     done
     if [[ "${PROTON_ENABLED}" = "1" ]]; then
-      build_manifest "${RELEASE_PROTON_IMAGE}" "rc.${DATE_TAG}"
-      build_manifest "${RELEASE_PROTON_IMAGE}" "rc.latest"
+      build_manifest "${RELEASE_PROTON_IMAGE}" "rc.${DATE_TAG}" x86_64
+      build_manifest "${RELEASE_PROTON_IMAGE}" "rc.latest" x86_64
     fi
     ;;
   push-release)
@@ -469,8 +473,12 @@ case "$1" in
     substep "Pushing ${RELEASE_UI_IMAGE}:latest-${ARCH}"
     ${SUDO} podman push "${RELEASE_UI_IMAGE}:latest-${ARCH}"
 
-    # Proton runner image — only when PROTON_ENABLED=1.
-    if [[ "${PROTON_ENABLED}" = "1" ]]; then
+    # Proton runner image — only when PROTON_ENABLED=1, and only on x86_64.
+    # GE-Proton is x86_64 Wine, so release-proton refuses any other TARGET and
+    # the Makefile drops it from the aggregates there ($(PROTON_RELEASE_TARGET)).
+    # Without the same condition here, a cross push would tag_from_staged an
+    # image that was deliberately never built and fail on a skip.
+    if [[ "${PROTON_ENABLED}" = "1" && "${ARCH}" = "x86_64" ]]; then
       substep "Tagging ${RELEASE_PROTON_IMAGE}:release.${DATE_TAG}-${ARCH}"
       tag_from_staged "${RELEASE_PROTON_IMAGE}" "release.${DATE_TAG}-${ARCH}"
       substep "Tagging ${RELEASE_PROTON_IMAGE}:latest-${ARCH}"
@@ -526,8 +534,8 @@ case "$1" in
       build_manifest "${image}" "latest"
     done
     if [[ "${PROTON_ENABLED}" = "1" ]]; then
-      build_manifest "${RELEASE_PROTON_IMAGE}" "release.${DATE_TAG}"
-      build_manifest "${RELEASE_PROTON_IMAGE}" "latest"
+      build_manifest "${RELEASE_PROTON_IMAGE}" "release.${DATE_TAG}" x86_64
+      build_manifest "${RELEASE_PROTON_IMAGE}" "latest" x86_64
     fi
     ;;
   push-ui-rc)
@@ -709,8 +717,12 @@ case "$1" in
     substep "Pushing ${RELEASE_UI_IMAGE}:${TAG}-${ARCH}"
     ${SUDO} podman push "${RELEASE_UI_IMAGE}:${TAG}-${ARCH}"
 
-    # Proton runner image — only when PROTON_ENABLED=1.
-    if [[ "${PROTON_ENABLED}" = "1" ]]; then
+    # Proton runner image — only when PROTON_ENABLED=1, and only on x86_64.
+    # GE-Proton is x86_64 Wine, so release-proton refuses any other TARGET and
+    # the Makefile drops it from the aggregates there ($(PROTON_RELEASE_TARGET)).
+    # Without the same condition here, a cross push would tag_from_staged an
+    # image that was deliberately never built and fail on a skip.
+    if [[ "${PROTON_ENABLED}" = "1" && "${ARCH}" = "x86_64" ]]; then
       substep "Tagging ${RELEASE_PROTON_IMAGE}:${TAG}-${ARCH}"
       tag_from_staged "${RELEASE_PROTON_IMAGE}" "${TAG}-${ARCH}"
       substep "Pushing ${RELEASE_PROTON_IMAGE}:${TAG}-${ARCH}"
@@ -751,7 +763,7 @@ case "$1" in
       build_manifest "${image}" "${TAG}"
     done
     if [[ "${PROTON_ENABLED}" = "1" ]]; then
-      build_manifest "${RELEASE_PROTON_IMAGE}" "${TAG}"
+      build_manifest "${RELEASE_PROTON_IMAGE}" "${TAG}" x86_64
     fi
     ;;
   networkcontroller)

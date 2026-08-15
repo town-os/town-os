@@ -429,17 +429,27 @@ require_cross_binfmt() {
   return 1
 }
 
-# build_manifest IMAGE TAG — assemble and push the multi-arch manifest list
-#   IMAGE:TAG from the per-arch tags IMAGE:TAG-<arch> (one per entry in
-#   ARCHES). Every per-arch tag must already be pushed from its native host.
+# build_manifest IMAGE TAG [ARCH...] — assemble and push the multi-arch manifest
+#   list IMAGE:TAG from the per-arch tags IMAGE:TAG-<arch>. Every per-arch tag
+#   must already be pushed from its native host.
+#
+#   The arch list defaults to ARCHES, which is what every image with more than
+#   one architecture wants. It is a parameter because one image does not have
+#   more than one: the Proton runner is x86_64 by construction (GE-Proton ships
+#   x86_64 Wine), so it is never built or pushed for aarch64 — and a manifest
+#   assembled over ARCHES would go looking for a `-aarch64` tag that was
+#   deliberately never created, and fail the whole manifest step on an image
+#   that is behaving exactly as designed.
 build_manifest() {
   local image="$1" list="$2"
+  shift 2
+  local arches="${*:-${ARCHES}}"
   local ref="${image}:${list}"
   substep "Creating manifest ${ref}"
   ${SUDO} podman manifest rm "${ref}" 2>/dev/null || true
   ${SUDO} podman manifest create "${ref}"
   local arch
-  for arch in ${ARCHES}; do
+  for arch in ${arches}; do
     substep "Adding ${ref}-${arch}"
     ${SUDO} podman manifest add "${ref}" "docker://${ref}-${arch}"
   done
