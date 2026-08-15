@@ -306,13 +306,18 @@ TOWN_OS_REPO_PASSWORD=<password>
 | `make ui-image`               | テスト用に UI のイメージを `localhost/town-os-ui:<INSTANCE_ID>` としてローカルにビルドする（quay の UI イメージは決して pull しない）。          |
 | `make nc-image`               | テスト用にネットワークコントローラのイメージをローカルにビルドする。`make nc-image-dev` は dev のベースに対して同じことをする。          |
 | `make ingress-image`          | テスト用に ingress のイメージをローカルにビルドする。                                                                             |
+| `make gfeh-image`             | テスト用にオブジェクトストレージ（gfeh）のイメージを `localhost/town-os-gfeh:<INSTANCE_ID>` としてローカルにビルドする。Rust のツールチェインイメージを pull する。このイメージは約 1.5G あり、必要とするのはこのターゲットだけなので、意図的に `BASE_IMAGES` から外してある。 |
 | `make pull-images`            | すべてのコンテナイメージを Docker Hub から pull し、チェックアウトのイメージキャッシュに保存する。キャッシュ済みのイメージが欠けている場合は自動的に実行される。 |
 
 dev と統合テストは本番用のベースイメージとビルドキャッシュを別々に持つので、同時にビルドしても互いに干渉しない。
 
+**クロスビルドはベースイメージをターゲットのアーキテクチャで用意する。** podman のストレージは `name:tag` ごとにイメージを一つしか持たず、二つのアーキテクチャを置く場所が無い。そのためクロスビルドはベースをターゲットのアーキテクチャへ指し直し、ホストのアーキテクチャのものを押しのける。イメージキャッシュは tar をアーキテクチャごとに鍵付けしているので、押しのけられたほうはネットワークからの pull ではなくローカルの load で戻ってくる。`BASE_IMAGES_RUNTIME` —— クロスビルド可能な Containerfile が素の `FROM` で指名するベース、つまり出荷される側のステージ —— はターゲットのアーキテクチャで用意される。それ以外はツールチェインのイメージで、クロスビルドするどの Containerfile も `--platform=$BUILDPLATFORM` で固定している。ホスト上で動いてクロスコンパイルするものなので、どの `TARGET` の下でもホストのアーキテクチャのままにする。各ビルドのアームは、グローバルな一巡に頼らず、自分が必要とするベースを自分で用意する。
+
 ### リリースと push
 
-リリースのイメージはすべて `quay.io/town/` へ push される。push するタグはすべてアーキテクチャごとに分割されている。各ホストは自分のネイティブなアーキテクチャを `rc.<date>-<arch>` / `rc.latest-<arch>`（リリース候補）または `release.<date>-<arch>` / `latest-<arch>`（リリース）として push する。ここで `<arch>` は生の `uname -m` の形式 —— `x86_64` または `aarch64` であり、OCI のプラットフォーム名 `amd64`/`arm64` では*ない*。素の名前（`rc.latest`、`latest`、および日付タグ）は、すべてのアーキテクチャが push を終えたのちに `make manifest-rc` / `make manifest-release` が組み立てるマルチアーキテクチャのマニフェストリストとしてのみ存在する。素の名前を単一アーキテクチャのタグとして push してはならない。もう一方のアーキテクチャで `exec format error` により失敗するからである。
+リリースのイメージはすべて `quay.io/town/` へ push される。push するタグはすべてアーキテクチャごとに分割されている。各ホストは自分のネイティブなアーキテクチャを `rc.<date>-<arch>` / `rc.latest-<arch>`（リリース候補）、`release.<date>-<arch>` / `latest-<arch>`（リリース）、または `<tag>-<arch>`（`make push-tag PUSH_TAG=<tag>` によるカスタムタグ）として push する。ここで `<arch>` は生の `uname -m` の形式 —— `x86_64` または `aarch64` であり、OCI のプラットフォーム名 `amd64`/`arm64` では*ない*。素の名前（`rc.latest`、`latest`、日付タグ、およびカスタムタグ）は、すべてのアーキテクチャが push を終えたのちに `make manifest-rc` / `make manifest-release` / `make manifest-tag` が組み立てるマルチアーキテクチャのマニフェストリストとしてのみ存在する。素の名前を単一アーキテクチャのタグとして push してはならない。もう一方のアーキテクチャで `exec format error` により失敗するからである。対応するマニフェストのターゲットが実行されるまで素の名前は存在しないが、それが正直な状態であり、最後に push したアーキテクチャへ解決してしまうものよりは良い。
+
+**クロスのリリースはテストをネイティブに実行し、クロスビルドできないものは飛ばす。** `release-build` はテストの段階を `make release-test` を通して実行する。これはその一度の再帰に限って `TARGET` を空にする。`test-full` は統合テストの土台をビルドしたうえで、それをこのホスト上で*実行する*ので、それらのアームはいずれも異なる `TARGET` をきっぱり拒む。テストはそれを走らせている機械の上でソースを検証するものであり、リリースのうちクロスである部分は、そのあとにビルドされる成果物である。Proton ランナーは構造上 x86_64 である —— GE-Proton が配布するのは x86_64 の Wine であり、イメージは 32 ビットの Windows 実行ファイルを動かすために i386 の multiarch を追加している。つまりクロスコンパイルする*先*が存在しない。したがって x86_64 以外のリリースはそれを集約ターゲットから外し、push のアームはそれへのタグ付けを飛ばし、そのマニフェストリストは `ARCHES` の全要素ではなく x86_64 のみで組み立てられる —— 設計どおりに振る舞っているイメージで失敗するのではなく、飛ばすということである。
 
 実行時、システムコントローラは兄弟のイメージのタグ（UI、Rolodex、ネットワークコントローラ、ingress）をすべて単一の値から導く。`TOWN_OS_TAG` の環境変数が設定されていればそれ、そうでなければ `rc.latest-<arch>` である。コンパイル時のバージョンの固定は無い —— install のビルドシステムがリリースを固定するためにシステムコントローラの systemd ユニットに `TOWN_OS_TAG` を設定し、上書きが無ければ機械は常に `rc.latest-<arch>` を追う。
 
@@ -320,12 +325,14 @@ dev と統合テストは本番用のベースイメージとビルドキャッ�
 | --------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | `make release-image`        | リリース用のシステムコントローラのイメージをビルドする（`quay.io/town/town`）。                                                   |
 | `make release-ui-image`     | リリース用の UI イメージをビルドする（`quay.io/town/ui`）。                                                                    |
-| `make release-proton-image` | リリース用の Proton ランナーのイメージをビルドする（`quay.io/town/proton`）。**`PROTON_ENABLED=1` が必要**。そうでなければこのターゲットは存在しない。 |
+| `make release-proton-image` | リリース用の Proton ランナーのイメージをビルドする（`quay.io/town/proton`）。**`PROTON_ENABLED=1` が必要**。そうでなければこのターゲットは存在しない。x86_64 専用であり、他の `TARGET` は拒否する。 |
 | `make release-nc-image`     | リリース用のネットワークコントローラのイメージをビルドする（`quay.io/town/networkcontroller`）。                                     |
 | `make release-ingress-image`| リリース用の ingress のイメージをビルドする（`quay.io/town/ingress`）。                                                          |
-| `make release-build`        | イメージを pull し、`test-full` を実行し、そのうえでリリースのイメージをビルドする。`PROTON_ENABLED=1` のときは Proton ランナーも含む。    |
+| `make release-gfeh-image`   | リリース用のオブジェクトストレージのイメージをビルドする（`quay.io/town/gfeh`）。                                                |
+| `make release-test`         | `test-full` をネイティブに実行する。その再帰に限り `TARGET` は空にされる。`release-build` は `test-full` に直接ではなくこれに依存するので、クロスのリリースでもテストできる。 |
+| `make release-build`        | イメージを pull し、`release-test` を実行し、そのうえでリリースのイメージをビルドする。`PROTON_ENABLED=1` であり、*かつ*リリースが x86_64 のときは Proton ランナーも含む。    |
 | `make push`                 | `push-rc` の別名。                                                                                               |
-| `make push-rc`              | すべてのイメージ（システムコントローラ、UI、ネットワークコントローラ。`PROTON_ENABLED=1` のときは Proton も）をアーキテクチャ別のリリース候補（`rc.<date>-<arch>` + `rc.latest-<arch>`）として push する。 |
+| `make push-rc`              | すべてのイメージ（システムコントローラ、UI、ネットワークコントローラ、ingress、オブジェクトストレージ。`PROTON_ENABLED=1` のときは Proton も）をアーキテクチャ別のリリース候補（`rc.<date>-<arch>` + `rc.latest-<arch>`）として push する。 |
 | `make manifest-rc`          | アーキテクチャ別のタグから素の `rc.<date>` / `rc.latest` のマルチアーキテクチャのマニフェストリストを組み立てて push する。すべてのアーキテクチャが push を終えたあと一度だけ実行する。 |
 | `make push-release`         | `release-build` を実行し、そのうえですべてのイメージをアーキテクチャ別のリリース（`release.<date>-<arch>` + `latest-<arch>`）として push する。        |
 | `make manifest-release`     | アーキテクチャ別のタグから素の `release.<date>` / `latest` のマルチアーキテクチャのマニフェストリストを組み立てて push する。すべてのアーキテクチャが push を終えたあと一度だけ実行する。 |
@@ -337,7 +344,10 @@ dev と統合テストは本番用のベースイメージとビルドキャッ�
 | `make push-nc-release`      | ネットワークコントローラのイメージだけをアーキテクチャ別のリリース（`release.<date>-<arch>` + `latest-<arch>`）として push する。          |
 | `make push-ingress-rc`      | ingress のイメージだけをアーキテクチャ別のリリース候補（`rc.<date>-<arch>` + `rc.latest-<arch>`）として push する。             |
 | `make push-ingress-release` | ingress のイメージだけをアーキテクチャ別のリリース（`release.<date>-<arch>` + `latest-<arch>`）として push する。                     |
-| `make push-tag PUSH_TAG=x`  | すべてのイメージをカスタムタグ `x` でビルドして push する。`PROTON_ENABLED=1` のときは Proton ランナーも含む。               |
+| `make push-gfeh-rc`         | オブジェクトストレージのイメージだけをアーキテクチャ別のリリース候補（`rc.<date>-<arch>` + `rc.latest-<arch>`）として push する。 |
+| `make push-gfeh-release`    | オブジェクトストレージのイメージだけをアーキテクチャ別のリリース（`release.<date>-<arch>` + `latest-<arch>`）として push する。 |
+| `make push-tag PUSH_TAG=x`  | すべてのイメージをカスタムタグでビルドし、`push-rc` とまったく同じようにアーキテクチャ別（`x-<arch>`）で push する。`PROTON_ENABLED=1` のときは Proton ランナーも含む。 |
+| `make manifest-tag PUSH_TAG=x` | アーキテクチャ別のタグから素の名前 `x` のマルチアーキテクチャのマニフェストリストを組み立てて push する。すべてのアーキテクチャが push を終えたあとに一度だけ実行する。 |
 
 ### Registry の認証
 

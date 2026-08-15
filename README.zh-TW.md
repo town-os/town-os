@@ -228,6 +228,7 @@ TOWN_OS_REPO_PASSWORD=<password>
 | 目標                          | 說明                                                                                                                                          |
 | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
 | `make test`                     | 執行程式碼檢查、Go 單元測試與 JS 單元測試。                                                                                          |
+| `make test-race`                | 執行程式碼檢查，並在競態檢測器下跑 Go 單元測試。比 `test` 慢，且僅限 Go（bun 沒有對應物）；它報告的是待分診的發現，而非充當門禁。 |
 | `make test-integration`         | 構建測試鏡像，並在帶 systemd 與 btrfs 的特權 podman 容器內執行 Go 整合測試。退出時清理 btrfs 環回。     |
 | `make test-integration-build`   | 構建測試鏡像並啟動整合測試容器（已載入全部鏡像），但不執行任何測試。適合為 `test-integration-rerun` 做準備。 |
 | `make test-integration-rerun`   | 在已經執行的容器中重跑整合測試（來自先前的 `test-integration-build`）。跳過鏡像構建。                              |
@@ -304,13 +305,18 @@ TOWN_OS_REPO_PASSWORD=<password>
 | `make ui-image`               | 在本地把 UI 鏡像構建為 `localhost/town-os-ui:<INSTANCE_ID>` 供測試使用（從不拉取 quay 上的 UI 鏡像）。          |
 | `make nc-image`               | 在本地構建網路控制器鏡像供測試使用；`make nc-image-dev` 針對開發基礎鏡像做同樣的事。          |
 | `make ingress-image`          | 在本地構建 ingress 鏡像供測試使用。                                                                             |
+| `make gfeh-image`             | 在本地把物件儲存（gfeh）鏡像構建為 `localhost/town-os-gfeh:<INSTANCE_ID>` 供測試使用。會拉取 Rust 工具鏈鏡像；該鏡像約 1.5G，且只有此目標需要它，因此刻意不放進 `BASE_IMAGES`。 |
 | `make pull-images`            | 從 Docker Hub 拉取所有容器鏡像並儲存到檢出目錄的鏡像快取。若有快取鏡像缺失會自動執行。 |
 
 開發與整合使用各自獨立的生產基礎鏡像與構建快取，因此併發構建不會互相干擾。
 
+**交叉構建會按目標架構暫存其基礎鏡像。** podman 的儲存中每個 `name:tag` 只有一份鏡像，容不下兩種架構，因此交叉構建會把某個基礎鏡像重新指向目標架構，把宿主機架構的那一份擠掉。鏡像快取的 tar 按架構區分，所以被擠掉的那一份可以透過本地載入回來，而不必走網路拉取。`BASE_IMAGES_RUNTIME`——即可交叉構建的 Containerfile 用裸 `FROM` 命名的那些基礎鏡像，也就是會隨產物一起釋出的階段——按目標架構暫存；其餘都是工具鏈鏡像，每個交叉 Containerfile 都用 `--platform=$BUILDPLATFORM` 把它們釘在宿主機上，因為它們執行在宿主機並執行交叉編譯，所以在任何 `TARGET` 下都保持宿主機架構。每個構建分支自己暫存所需的基礎鏡像，而不依賴全域的統一處理。
+
 ### 釋出與推送
 
-所有釋出鏡像都推送到 `quay.io/town/`。所有推送標籤都按架構分割槽：每台主機推送其本機架構，形式為 `rc.<date>-<arch>` / `rc.latest-<arch>`（候選釋出）或 `release.<date>-<arch>` / `latest-<arch>`（正式釋出），其中 `<arch>` 是 `uname -m` 的原始形式——`x86_64` 或 `aarch64`，而*不是* OCI 平台名 `amd64`/`arm64`。不帶字尾的普通名稱（`rc.latest`、`latest` 與日期標籤）僅作為多架構 manifest 列表存在，由 `make manifest-rc` / `make manifest-release` 在每種架構都推送完成之後組裝；普通名稱絕不能作為單架構標籤推送，因為它在另一種架構上會以 `exec format error` 失敗。
+所有釋出鏡像都推送到 `quay.io/town/`。所有推送標籤都按架構分割槽：每台主機推送其本機架構，形式為 `rc.<date>-<arch>` / `rc.latest-<arch>`（候選釋出）、`release.<date>-<arch>` / `latest-<arch>`（正式釋出），或 `<tag>-<arch>`（透過 `make push-tag PUSH_TAG=<tag>` 使用自訂標籤），其中 `<arch>` 是 `uname -m` 的原始形式——`x86_64` 或 `aarch64`，而*不是* OCI 平台名 `amd64`/`arm64`。不帶字尾的普通名稱（`rc.latest`、`latest`、日期標籤，以及自訂標籤）僅作為多架構 manifest 列表存在，由 `make manifest-rc` / `make manifest-release` / `make manifest-tag` 在每種架構都推送完成之後組裝；普通名稱絕不能作為單架構標籤推送，因為它在另一種架構上會以 `exec format error` 失敗。在對應的 manifest 目標執行之前，普通名稱並不存在——這才是誠實的狀態，好過讓它解析到最後推送的那種架構。
+
+**交叉釋出在本機執行測試，並跳過它無法交叉構建的東西。** `release-build` 透過 `make release-test` 來執行測試階段，後者只為這一次遞迴清空 `TARGET`：`test-full` 會構建整合測試的框架並在本機*執行*它，因此這些分支會直接拒絕異架的 `TARGET`。測試驗證的是執行它的這台機器上的原始碼；釋出中屬於交叉的部分是隨後構建的產物。Proton 執行器按其構造就是 x86_64 的——GE-Proton 提供的是 x86_64 的 Wine，鏡像還加入 i386 multiarch 以執行 32 位元 Windows 可執行檔，因此根本不存在可供交叉編譯的*目標*。所以非 x86_64 的釋出會把它從聚合目標中剔除，推送分支跳過為它打標籤，其 manifest 列表也僅基於 x86_64 組裝，而不是遍歷 `ARCHES` 的每一項——對一個完全按設計行事的鏡像，應當跳過而不是失敗。
 
 在執行時，system controller 從同一個值推匯出每一個同族鏡像標籤（UI、Rolodex、網路控制器、ingress）：若設定了 `TOWN_OS_TAG` 環境變數則取之，否則取 `rc.latest-<arch>`。不存在編譯期的版本固定——install 構建系統通過在 system controller 的 systemd 單元上設定 `TOWN_OS_TAG` 來固定某個釋出版本，而在沒有覆蓋時，機器始終跟蹤 `rc.latest-<arch>`。
 
@@ -318,12 +324,14 @@ TOWN_OS_REPO_PASSWORD=<password>
 | --------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | `make release-image`        | 構建釋出用的 system controller 鏡像（`quay.io/town/town`）。                                                   |
 | `make release-ui-image`     | 構建釋出用的 UI 鏡像（`quay.io/town/ui`）。                                                                    |
-| `make release-proton-image` | 構建釋出用的 Proton 執行器鏡像（`quay.io/town/proton`）。**需要 `PROTON_ENABLED=1`**；否則該目標不存在。 |
+| `make release-proton-image` | 構建釋出用的 Proton 執行器鏡像（`quay.io/town/proton`）。**需要 `PROTON_ENABLED=1`**；否則該目標不存在。僅限 x86_64——它會拒絕任何其他 `TARGET`。 |
 | `make release-nc-image`     | 構建釋出用的網路控制器鏡像（`quay.io/town/networkcontroller`）。                                     |
 | `make release-ingress-image`| 構建釋出用的 ingress 鏡像（`quay.io/town/ingress`）。                                                          |
-| `make release-build`        | 拉取鏡像、執行 `test-full`，然後構建釋出鏡像。當 `PROTON_ENABLED=1` 時包含 Proton 執行器。    |
+| `make release-gfeh-image`   | 構建釋出用的物件儲存鏡像（`quay.io/town/gfeh`）。                                                                |
+| `make release-test`         | 在本機執行 `test-full`，並為這一次遞迴清空 `TARGET`。`release-build` 依賴它而不是直接依賴 `test-full`，這樣交叉釋出也仍然能夠測試。 |
+| `make release-build`        | 拉取鏡像、執行 `release-test`，然後構建釋出鏡像。當 `PROTON_ENABLED=1` *且*釋出目標為 x86_64 時包含 Proton 執行器。    |
 | `make push`                 | `push-rc` 的別名。                                                                                               |
-| `make push-rc`              | 把所有鏡像（system controller、UI、網路控制器；`PROTON_ENABLED=1` 時含 Proton）作為按架構的候選釋出推送（`rc.<date>-<arch>` + `rc.latest-<arch>`）。 |
+| `make push-rc`              | 把所有鏡像（system controller、UI、網路控制器、ingress、物件儲存；`PROTON_ENABLED=1` 時含 Proton）作為按架構的候選釋出推送（`rc.<date>-<arch>` + `rc.latest-<arch>`）。 |
 | `make manifest-rc`          | 從按架構的標籤組裝並推送普通的 `rc.<date>` / `rc.latest` 多架構 manifest 列表。在每種架構都推送完成之後執行一次。 |
 | `make push-release`         | 執行 `release-build`，然後把所有鏡像作為按架構的正式釋出推送（`release.<date>-<arch>` + `latest-<arch>`）。        |
 | `make manifest-release`     | 從按架構的標籤組裝並推送普通的 `release.<date>` / `latest` 多架構 manifest 列表。在每種架構都推送完成之後執行一次。 |
@@ -335,7 +343,10 @@ TOWN_OS_REPO_PASSWORD=<password>
 | `make push-nc-release`      | 只把網路控制器鏡像作為按架構的正式釋出推送（`release.<date>-<arch>` + `latest-<arch>`）。          |
 | `make push-ingress-rc`      | 只把 ingress 鏡像作為按架構的候選釋出推送（`rc.<date>-<arch>` + `rc.latest-<arch>`）。             |
 | `make push-ingress-release` | 只把 ingress 鏡像作為按架構的正式釋出推送（`release.<date>-<arch>` + `latest-<arch>`）。                     |
-| `make push-tag PUSH_TAG=x`  | 用自定義標籤 `x` 構建並推送所有鏡像。當 `PROTON_ENABLED=1` 時包含 Proton 執行器。               |
+| `make push-gfeh-rc`         | 只把物件儲存鏡像作為按架構的候選釋出推送（`rc.<date>-<arch>` + `rc.latest-<arch>`）。                          |
+| `make push-gfeh-release`    | 只把物件儲存鏡像作為按架構的正式釋出推送（`release.<date>-<arch>` + `latest-<arch>`）。                        |
+| `make push-tag PUSH_TAG=x`  | 用自訂標籤構建並推送所有鏡像，按架構推送（`x-<arch>`），與 `push-rc` 的做法完全一致。當 `PROTON_ENABLED=1` 時包含 Proton 執行器。 |
+| `make manifest-tag PUSH_TAG=x` | 從按架構的標籤組裝並推送普通名稱 `x` 的多架構 manifest 列表。在每種架構都推送完成之後執行一次。          |
 
 ### Registry 認證
 

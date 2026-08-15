@@ -52,7 +52,7 @@ the translations follow.
 
 - **All test-suite `podman run` containers use `--net host`** — test, UI backend, UI test runner, dev, registry, and gitea containers all run with host networking. Registry and gitea bind their per-instance random port directly via `REGISTRY_HTTP_ADDR` / `GITEA__server__HTTP_PORT` instead of `-p` mappings, and gitea SSH is disabled (`DISABLE_SSH=true`) so nothing tries to bind host port 22. Rationale: bridge-network containers get broken DNS on captive networks, and both registry (Docker Hub pull-through fallback) and gitea (repository migration) make their own outbound calls. The single deliberate exception is the `preflight-dev` nginx container, whose `-p` mapping exists precisely to verify bridge networking works.
 
-- **Image tags are partitioned per architecture** — every pushed tag carries an arch suffix in the raw `uname -m` form (`<arch>` is `x86_64` or `aarch64`). This tag suffix is deliberately distinct from the OCI platform name `amd64`/`arm64`: Go maps `runtime.GOARCH` to the suffix via `archTag()`, make uses `HOST_ARCH` (normalized to `x86_64`/`aarch64`), and shell uses `host_arch_tag` in `make/lib.sh`. The plain `host_arch` / `runtime.GOARCH` values stay `amd64`/`arm64` because podman needs them for `podman pull --platform linux/<arch>` and `.Architecture` comparisons — never feed `x86_64`/`aarch64` to `--platform`. `push-rc` pushes `rc.<date>-<arch>` / `rc.latest-<arch>`; `push-release` pushes `release.<date>-<arch>` / `latest-<arch>` — always the native arch of the host running the push. The plain names (`rc.latest`, `latest`, and the date tags) exist ONLY as multi-arch manifest lists assembled by `manifest-rc` / `manifest-release` after every arch in `ARCHES` (`x86_64 aarch64`) has pushed; never push a plain name as a single-arch tag. The runtime fallback when no tag was baked in is `defaultVersionTag()` in `main.go` (`rc.latest-<arch>`, the `archTag()`-mapped GOARCH). Rationale: a plain single-arch tag pushed from one host fails on the other architecture with `exec format error` (or worse, spuriously passes status-poll tests while crash-looping under `Restart=always`).
+- **Image tags are partitioned per architecture** — every pushed tag carries an arch suffix in the raw `uname -m` form (`<arch>` is `x86_64` or `aarch64`). This tag suffix is deliberately distinct from the OCI platform name `amd64`/`arm64`: Go maps `runtime.GOARCH` to the suffix via `archTag()`, make uses `HOST_ARCH` (normalized to `x86_64`/`aarch64`), and shell uses `host_arch_tag` in `make/lib.sh`. The plain `host_arch` / `runtime.GOARCH` values stay `amd64`/`arm64` because podman needs them for `podman pull --platform linux/<arch>` and `.Architecture` comparisons — never feed `x86_64`/`aarch64` to `--platform`. `push-rc` pushes `rc.<date>-<arch>` / `rc.latest-<arch>`; `push-release` pushes `release.<date>-<arch>` / `latest-<arch>`; `push-tag PUSH_TAG=<tag>` pushes `<tag>-<arch>` — always the native arch of the host running the push. **This includes the operator's own tag**: `push-tag` used to push `PUSH_TAG` verbatim, so `make TARGET=x86_64 push-tag` followed by the aarch64 run left quay holding whichever ran second under a name that named no architecture. The plain names (`rc.latest`, `latest`, the date tags, and a custom `PUSH_TAG`) exist ONLY as multi-arch manifest lists assembled by `manifest-rc` / `manifest-release` / `manifest-tag` after every arch in `ARCHES` (`x86_64 aarch64`) has pushed; never push a plain name as a single-arch tag. `TestEveryPushNamesAnArchitecture` asserts every `podman push` in `build.sh` carries `${ARCH}`, so this class cannot return through a new arm — the plain names still ship, but only through `build_manifest`'s `podman manifest push`, which is a different command. The runtime fallback when no tag was baked in is `defaultVersionTag()` in `main.go` (`rc.latest-<arch>`, the `archTag()`-mapped GOARCH). Rationale: a plain single-arch tag pushed from one host fails on the other architecture with `exec format error` (or worse, spuriously passes status-poll tests while crash-looping under `Restart=always`).
 
 - **Plain convenience tags must NEVER be used for testing** — no test, test harness, dev container, or fixture may reference a *plain* (no-arch-suffix) `quay.io/town/*:rc.latest` or `:latest` image (they may not exist or may be stale multi-arch manifests). The per-arch suffixed forms ARE allowed and are the default. Tests use: the host's per-arch rc tag for rolodex (`rc.latest-<arch>`, i.e. `rc.latest-x86_64` / `rc.latest-aarch64`), a locally built UI image (`make ui-image` → `localhost/town-os-ui:<INSTANCE_ID>`), a locally built NC image (`make nc-image`), and neutral fake tags (e.g. `:testtag`) in mocked unit tests where the image is never pulled or run.
 
@@ -142,6 +142,72 @@ Shared *caches* are fine to keep shared (`.cache/go-mod`, `.cache/go-build`,
 `.cache/cargo-registry`, the bun cache): Go and cargo lock their own caches, and
 the image cache tars are already keyed by architecture. It is the image *names*
 that collide.
+
+The same rule reaches the *base* images a build consumes, not just the ones it
+produces:
+
+- **A base image is staged at the architecture the current build wants it at,
+  never blanket at the host's.** `BASE_IMAGES_RUNTIME` (the Makefile) is the
+  subset of `BASE_IMAGES` that a cross-buildable Containerfile names with a bare
+  `FROM` — the stages that ship — and those follow `TARGET`. Everything else is a
+  toolchain base that every cross Containerfile pins with
+  `FROM --platform=$BUILDPLATFORM` because it runs HERE and cross-compiles, so
+  the host arch is correct for it under any `TARGET`. Staging a toolchain base at
+  the target arch is this same bug pointed the other way.
+
+WHY: `load-base` is a prerequisite of nearly every build target, `release-image`
+under `TARGET=aarch64` included, and it looped `BASE_IMAGES` calling
+`ensure_image` with no architecture. So a cross build's own prerequisites forced
+`debian:bookworm-slim` back to amd64 moments before the release arm needed arm64,
+which staged it back, which the next invocation's prerequisites undid. Every
+cross invocation paid an `rmi` plus a load in each direction — and a network pull
+whenever the tar it wanted was missing — while `podman image inspect` reported
+the host arch throughout, which reads exactly like the target-arch staging never
+happening at all.
+
+Two consequences worth keeping:
+
+- **Each build arm stages its own bases, local arms included**, rather than
+  leaning on `load-base`'s global pass. `gfeh-image` and `release-gfeh-image`
+  have no `.images-pulled` prerequisite, so before this nothing had ever staged
+  `debian:bookworm-slim` for them and they resolved against whatever the last
+  build happened to leave behind.
+- **The implicit `FROM` fetch is not free.** Cross builds drop `--pull=never` so
+  podman can fetch the target-arch runtime base itself, and that fetch goes
+  nowhere near `ensure_image` — it neither reads the cache nor writes one.
+  Staging the base through `ensure_image` *before* the build asks for it is what
+  makes the first cross build of a base the last one that costs anything.
+
+The guards are derived rather than listed, so a new stage cannot quietly opt out:
+`TestBaseImagesRuntimeMatchesTheContainerfiles` computes the expected membership
+from the cross-buildable Containerfiles and fails in both directions, and
+`TestBuildArmsStageEveryRuntimeBase` does the same per arm.
+
+Two more rules follow from the same place — a cross release is not cross all the
+way through:
+
+- **The test phase of a release is NATIVE, whatever `TARGET` the artifacts are
+  for.** `release-build` depends on `release-test`, which recurses with `TARGET=`
+  cleared, never on `test-full` directly. `test-full` builds the integration
+  harness and *runs* it here, so each of those arms calls `require_native_target`
+  and refuses a foreign `TARGET` — naming `test-full` directly meant
+  `make TARGET=aarch64 release-build` died on `make/build.sh ui-integration`
+  before it built a single release image, and `push-release` died with it. The
+  tests validate the SOURCE, on the machine running them; the cross part of a
+  release is the artifacts built afterwards.
+  (`TestReleaseBuildRunsItsTestsNatively`.)
+
+- **An image that exists for one architecture is SKIPPED on the others, not
+  attempted.** The Proton runner is x86_64 by construction (GE-Proton ships
+  x86_64 Wine), so `release-proton-image` refuses any other `TARGET` — correct
+  for the single target and wrong for an aggregate that names it
+  unconditionally. The Makefile drops it via `$(PROTON_RELEASE_TARGET)`, and
+  **every arm has to agree**: a push arm that still tagged it would reach for a
+  staged image nothing built, and `build_manifest` over `ARCHES` would look for a
+  `-aarch64` tag that was deliberately never pushed. Hence `build_manifest`'s
+  optional arch list, which defaults to `ARCHES` and is passed `x86_64` for
+  Proton. Adding another single-arch image means repeating all three.
+  (`TestProtonStaysOnItsOwnArchitecture`.)
 
 
 ## Performance Conventions

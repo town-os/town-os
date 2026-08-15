@@ -314,13 +314,18 @@ Each working directory gets its own Gitea instance (via `INSTANCE_ID`), so concu
 | `make ui-image`               | Build the UI image locally as `localhost/town-os-ui:<INSTANCE_ID>` for tests (never pulls the quay UI image).          |
 | `make nc-image`               | Build the network controller image locally for tests; `make nc-image-dev` does the same against the dev base.          |
 | `make ingress-image`          | Build the ingress image locally for tests.                                                                             |
+| `make gfeh-image`             | Build the object storage (gfeh) image locally as `localhost/town-os-gfeh:<INSTANCE_ID>` for tests. Pulls the Rust toolchain image, which is deliberately kept out of `BASE_IMAGES` because it is ~1.5G and only this target needs it. |
 | `make pull-images`            | Pull all container images from Docker Hub and save to the checkout's image cache. Runs automatically if any cached image is missing. |
 
 Dev and integration use separate production base images and build caches so concurrent builds cannot interfere with each other.
 
+**Cross builds stage their base images at the target architecture.** Podman's storage holds one image per `name:tag` with no room for two architectures, so a cross build repoints a base at the target arch and displaces the host-arch copy. The image cache keys its tars by architecture, so the displaced copy comes back through a local load rather than a network pull. `BASE_IMAGES_RUNTIME` -- the bases a cross-buildable Containerfile names with a bare `FROM`, i.e. the stages that ship -- is staged at the target architecture; the rest are toolchain images that every cross Containerfile pins to `--platform=$BUILDPLATFORM` because they run on the host and cross-compile, so they stay at the host's arch under any `TARGET`. Each build arm stages the bases it needs itself rather than relying on a global pass.
+
 ### Release and Push
 
-All release images are pushed to `quay.io/town/`. All push tags are partitioned per architecture: each host pushes its native arch as `rc.<date>-<arch>` / `rc.latest-<arch>` (release candidates) or `release.<date>-<arch>` / `latest-<arch>` (releases), where `<arch>` is the raw `uname -m` form — `x86_64` or `aarch64`, *not* the OCI platform names `amd64`/`arm64`. The plain names (`rc.latest`, `latest`, and the date tags) exist only as multi-arch manifest lists assembled by `make manifest-rc` / `make manifest-release` after every architecture has pushed; a plain name must never be pushed as a single-arch tag, since it fails on the other architecture with `exec format error`.
+All release images are pushed to `quay.io/town/`. All push tags are partitioned per architecture: each host pushes its native arch as `rc.<date>-<arch>` / `rc.latest-<arch>` (release candidates), `release.<date>-<arch>` / `latest-<arch>` (releases), or `<tag>-<arch>` (a custom tag via `make push-tag PUSH_TAG=<tag>`), where `<arch>` is the raw `uname -m` form — `x86_64` or `aarch64`, *not* the OCI platform names `amd64`/`arm64`. The plain names (`rc.latest`, `latest`, the date tags, and a custom tag) exist only as multi-arch manifest lists assembled by `make manifest-rc` / `make manifest-release` / `make manifest-tag` after every architecture has pushed; a plain name must never be pushed as a single-arch tag, since it fails on the other architecture with `exec format error`. Until the matching manifest target runs the plain name does not exist, which is the honest state and better than one resolving to whichever architecture pushed last.
+
+**A cross release tests natively, and skips what it cannot cross-build.** `release-build` runs its test phase through `make release-test`, which clears `TARGET` for that one recursion: `test-full` builds the integration harness and *runs* it on this host, so each of those arms refuses a foreign `TARGET` outright. The tests validate the source on the machine running them; the cross part of a release is the artifacts built afterwards. The Proton runner is x86_64 by construction -- GE-Proton ships x86_64 Wine and the image adds i386 multiarch to run 32-bit Windows executables, so there is nothing to cross-compile *to*. A non-x86_64 release therefore drops it from the aggregate targets, the push arms skip tagging it, and its manifest lists are assembled over x86_64 alone rather than over every entry in `ARCHES` -- skipping an image that is behaving exactly as designed, rather than failing on it.
 
 At runtime the system controller derives every sibling image tag (UI, Rolodex, network controller, ingress) from a single value: the `TOWN_OS_TAG` environment variable if set, otherwise `rc.latest-<arch>`. There is no compile-time version pin — the install build system sets `TOWN_OS_TAG` on the system controller's systemd unit to pin a release, and with no override a box always tracks `rc.latest-<arch>`.
 
@@ -328,12 +333,14 @@ At runtime the system controller derives every sibling image tag (UI, Rolodex, n
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------ |
 | `make release-image`        | Build the release system controller image (`quay.io/town/town`).                                                   |
 | `make release-ui-image`     | Build the release UI image (`quay.io/town/ui`).                                                                    |
-| `make release-proton-image` | Build the release Proton runner image (`quay.io/town/proton`). **Requires `PROTON_ENABLED=1`**; the target does not exist otherwise. |
+| `make release-proton-image` | Build the release Proton runner image (`quay.io/town/proton`). **Requires `PROTON_ENABLED=1`**; the target does not exist otherwise. x86_64 only -- it refuses any other `TARGET`. |
 | `make release-nc-image`     | Build the release network controller image (`quay.io/town/networkcontroller`).                                     |
 | `make release-ingress-image`| Build the release ingress image (`quay.io/town/ingress`).                                                          |
-| `make release-build`        | Pull images, run `test-full`, then build the release images. Includes the Proton runner when `PROTON_ENABLED=1`.    |
+| `make release-gfeh-image`   | Build the release object storage image (`quay.io/town/gfeh`).                                                      |
+| `make release-test`         | Run `test-full` natively, with `TARGET` cleared for that recursion. `release-build` depends on this rather than on `test-full` directly, so a cross release can still test. |
+| `make release-build`        | Pull images, run `release-test`, then build the release images. Includes the Proton runner when `PROTON_ENABLED=1` *and* the release is x86_64. |
 | `make push`                 | Alias for `push-rc`.                                                                                               |
-| `make push-rc`              | Push all images (system controller, UI, network controller; Proton when `PROTON_ENABLED=1`) as per-arch release candidates (`rc.<date>-<arch>` + `rc.latest-<arch>`). |
+| `make push-rc`              | Push all images (system controller, UI, network controller, ingress, object storage; Proton when `PROTON_ENABLED=1`) as per-arch release candidates (`rc.<date>-<arch>` + `rc.latest-<arch>`). |
 | `make manifest-rc`          | Assemble and push the plain `rc.<date>` / `rc.latest` multi-arch manifest lists from the per-arch tags. Run once after every arch has pushed. |
 | `make push-release`         | Run `release-build`, then push all images as a per-arch release (`release.<date>-<arch>` + `latest-<arch>`).        |
 | `make manifest-release`     | Assemble and push the plain `release.<date>` / `latest` multi-arch manifest lists from the per-arch tags. Run once after every arch has pushed. |
@@ -345,7 +352,10 @@ At runtime the system controller derives every sibling image tag (UI, Rolodex, n
 | `make push-nc-release`      | Push only the network controller image as a per-arch release (`release.<date>-<arch>` + `latest-<arch>`).          |
 | `make push-ingress-rc`      | Push only the ingress image as a per-arch release candidate (`rc.<date>-<arch>` + `rc.latest-<arch>`).             |
 | `make push-ingress-release` | Push only the ingress image as a per-arch release (`release.<date>-<arch>` + `latest-<arch>`).                     |
-| `make push-tag PUSH_TAG=x`  | Build and push all images with a custom tag `x`. Includes the Proton runner when `PROTON_ENABLED=1`.               |
+| `make push-gfeh-rc`         | Push only the object storage image as a per-arch release candidate (`rc.<date>-<arch>` + `rc.latest-<arch>`).      |
+| `make push-gfeh-release`    | Push only the object storage image as a per-arch release (`release.<date>-<arch>` + `latest-<arch>`).              |
+| `make push-tag PUSH_TAG=x`  | Build and push all images with a custom tag, per-arch (`x-<arch>`) exactly as `push-rc` does. Includes the Proton runner when `PROTON_ENABLED=1`. |
+| `make manifest-tag PUSH_TAG=x` | Assemble and push the plain `x` multi-arch manifest list from the per-arch tags. Run once after every arch has pushed. |
 
 ### Registry Authentication
 

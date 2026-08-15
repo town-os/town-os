@@ -305,13 +305,18 @@ TOWN_OS_REPO_PASSWORD=<password>
 | `make ui-image`               | 在本地把 UI 镜像构建为 `localhost/town-os-ui:<INSTANCE_ID>` 供测试使用（从不拉取 quay 上的 UI 镜像）。          |
 | `make nc-image`               | 在本地构建网络控制器镜像供测试使用；`make nc-image-dev` 针对开发基础镜像做同样的事。          |
 | `make ingress-image`          | 在本地构建 ingress 镜像供测试使用。                                                                             |
+| `make gfeh-image`             | 在本地把对象存储（gfeh）镜像构建为 `localhost/town-os-gfeh:<INSTANCE_ID>` 供测试使用。会拉取 Rust 工具链镜像；该镜像约 1.5G，且只有此目标需要它，因此刻意不放进 `BASE_IMAGES`。 |
 | `make pull-images`            | 从 Docker Hub 拉取所有容器镜像并保存到检出目录的镜像缓存。若有缓存镜像缺失会自动运行。 |
 
 开发与集成使用各自独立的生产基础镜像与构建缓存，因此并发构建不会互相干扰。
 
+**交叉构建会按目标架构暂存其基础镜像。** podman 的存储中每个 `name:tag` 只有一份镜像，容不下两种架构，因此交叉构建会把某个基础镜像重新指向目标架构，把宿主机架构的那一份挤掉。镜像缓存的 tar 按架构区分，所以被挤掉的那一份可以通过本地加载回来，而不必走网络拉取。`BASE_IMAGES_RUNTIME`——即可交叉构建的 Containerfile 用裸 `FROM` 命名的那些基础镜像，也就是会随产物一起发布的阶段——按目标架构暂存；其余都是工具链镜像，每个交叉 Containerfile 都用 `--platform=$BUILDPLATFORM` 把它们钉在宿主机上，因为它们运行在宿主机并执行交叉编译，所以在任何 `TARGET` 下都保持宿主机架构。每个构建分支自己暂存所需的基础镜像，而不依赖全局的统一处理。
+
 ### 发布与推送
 
-所有发布镜像都推送到 `quay.io/town/`。所有推送标签都按架构分区：每台主机推送其本机架构，形式为 `rc.<date>-<arch>` / `rc.latest-<arch>`（候选发布）或 `release.<date>-<arch>` / `latest-<arch>`（正式发布），其中 `<arch>` 是 `uname -m` 的原始形式——`x86_64` 或 `aarch64`，而*不是* OCI 平台名 `amd64`/`arm64`。不带后缀的普通名称（`rc.latest`、`latest` 与日期标签）仅作为多架构 manifest 列表存在，由 `make manifest-rc` / `make manifest-release` 在每种架构都推送完成之后组装；普通名称绝不能作为单架构标签推送，因为它在另一种架构上会以 `exec format error` 失败。
+所有发布镜像都推送到 `quay.io/town/`。所有推送标签都按架构分区：每台主机推送其本机架构，形式为 `rc.<date>-<arch>` / `rc.latest-<arch>`（候选发布）、`release.<date>-<arch>` / `latest-<arch>`（正式发布），或 `<tag>-<arch>`（通过 `make push-tag PUSH_TAG=<tag>` 使用自定义标签），其中 `<arch>` 是 `uname -m` 的原始形式——`x86_64` 或 `aarch64`，而*不是* OCI 平台名 `amd64`/`arm64`。不带后缀的普通名称（`rc.latest`、`latest`、日期标签，以及自定义标签）仅作为多架构 manifest 列表存在，由 `make manifest-rc` / `make manifest-release` / `make manifest-tag` 在每种架构都推送完成之后组装；普通名称绝不能作为单架构标签推送，因为它在另一种架构上会以 `exec format error` 失败。在对应的 manifest 目标运行之前，普通名称并不存在——这才是诚实的状态，好过让它解析到最后推送的那种架构。
+
+**交叉发布在本机执行测试，并跳过它无法交叉构建的东西。** `release-build` 通过 `make release-test` 来执行测试阶段，后者只为这一次递归清空 `TARGET`：`test-full` 会构建集成测试的框架并在本机*运行*它，因此这些分支会直接拒绝异架的 `TARGET`。测试验证的是运行它的这台机器上的源代码；发布中属于交叉的部分是随后构建的产物。Proton 运行器按其构造就是 x86_64 的——GE-Proton 提供的是 x86_64 的 Wine，镜像还加入 i386 multiarch 以运行 32 位 Windows 可执行文件，因此根本不存在可供交叉编译的*目标*。所以非 x86_64 的发布会把它从聚合目标中剔除，推送分支跳过为它打标签，其 manifest 列表也仅基于 x86_64 组装，而不是遍历 `ARCHES` 的每一项——对一个完全按设计行事的镜像，应当跳过而不是失败。
 
 在运行时，system controller 从同一个值推导出每一个同族镜像标签（UI、Rolodex、网络控制器、ingress）：若设置了 `TOWN_OS_TAG` 环境变量则取之，否则取 `rc.latest-<arch>`。不存在编译期的版本固定——install 构建系统通过在 system controller 的 systemd 单元上设置 `TOWN_OS_TAG` 来固定某个发布版本，而在没有覆盖时，机器始终跟踪 `rc.latest-<arch>`。
 
@@ -319,12 +324,14 @@ TOWN_OS_REPO_PASSWORD=<password>
 | --------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | `make release-image`        | 构建发布用的 system controller 镜像（`quay.io/town/town`）。                                                   |
 | `make release-ui-image`     | 构建发布用的 UI 镜像（`quay.io/town/ui`）。                                                                    |
-| `make release-proton-image` | 构建发布用的 Proton 运行器镜像（`quay.io/town/proton`）。**需要 `PROTON_ENABLED=1`**；否则该目标不存在。 |
+| `make release-proton-image` | 构建发布用的 Proton 运行器镜像（`quay.io/town/proton`）。**需要 `PROTON_ENABLED=1`**；否则该目标不存在。仅限 x86_64——它会拒绝任何其他 `TARGET`。 |
 | `make release-nc-image`     | 构建发布用的网络控制器镜像（`quay.io/town/networkcontroller`）。                                     |
 | `make release-ingress-image`| 构建发布用的 ingress 镜像（`quay.io/town/ingress`）。                                                          |
-| `make release-build`        | 拉取镜像、运行 `test-full`，然后构建发布镜像。当 `PROTON_ENABLED=1` 时包含 Proton 运行器。    |
+| `make release-gfeh-image`   | 构建发布用的对象存储镜像（`quay.io/town/gfeh`）。                                                                |
+| `make release-test`         | 在本机运行 `test-full`，并为这一次递归清空 `TARGET`。`release-build` 依赖它而不是直接依赖 `test-full`，这样交叉发布也仍然能够测试。 |
+| `make release-build`        | 拉取镜像、运行 `release-test`，然后构建发布镜像。当 `PROTON_ENABLED=1` *且*发布目标为 x86_64 时包含 Proton 运行器。    |
 | `make push`                 | `push-rc` 的别名。                                                                                               |
-| `make push-rc`              | 把所有镜像（system controller、UI、网络控制器；`PROTON_ENABLED=1` 时含 Proton）作为按架构的候选发布推送（`rc.<date>-<arch>` + `rc.latest-<arch>`）。 |
+| `make push-rc`              | 把所有镜像（system controller、UI、网络控制器、ingress、对象存储；`PROTON_ENABLED=1` 时含 Proton）作为按架构的候选发布推送（`rc.<date>-<arch>` + `rc.latest-<arch>`）。 |
 | `make manifest-rc`          | 从按架构的标签组装并推送普通的 `rc.<date>` / `rc.latest` 多架构 manifest 列表。在每种架构都推送完成之后运行一次。 |
 | `make push-release`         | 运行 `release-build`，然后把所有镜像作为按架构的正式发布推送（`release.<date>-<arch>` + `latest-<arch>`）。        |
 | `make manifest-release`     | 从按架构的标签组装并推送普通的 `release.<date>` / `latest` 多架构 manifest 列表。在每种架构都推送完成之后运行一次。 |
@@ -336,7 +343,10 @@ TOWN_OS_REPO_PASSWORD=<password>
 | `make push-nc-release`      | 只把网络控制器镜像作为按架构的正式发布推送（`release.<date>-<arch>` + `latest-<arch>`）。          |
 | `make push-ingress-rc`      | 只把 ingress 镜像作为按架构的候选发布推送（`rc.<date>-<arch>` + `rc.latest-<arch>`）。             |
 | `make push-ingress-release` | 只把 ingress 镜像作为按架构的正式发布推送（`release.<date>-<arch>` + `latest-<arch>`）。                     |
-| `make push-tag PUSH_TAG=x`  | 用自定义标签 `x` 构建并推送所有镜像。当 `PROTON_ENABLED=1` 时包含 Proton 运行器。               |
+| `make push-gfeh-rc`         | 只把对象存储镜像作为按架构的候选发布推送（`rc.<date>-<arch>` + `rc.latest-<arch>`）。                          |
+| `make push-gfeh-release`    | 只把对象存储镜像作为按架构的正式发布推送（`release.<date>-<arch>` + `latest-<arch>`）。                        |
+| `make push-tag PUSH_TAG=x`  | 用自定义标签构建并推送所有镜像，按架构推送（`x-<arch>`），与 `push-rc` 的做法完全一致。当 `PROTON_ENABLED=1` 时包含 Proton 运行器。 |
+| `make manifest-tag PUSH_TAG=x` | 从按架构的标签组装并推送普通名称 `x` 的多架构 manifest 列表。在每种架构都推送完成之后运行一次。          |
 
 ### Registry 认证
 

@@ -47,7 +47,7 @@ API 界面、启动顺序、设置项，以及维系这些内容的不变量—�
 
 - **所有测试套件的 `podman run` 容器都使用 `--net host`** —— 测试容器、UI 后端、UI 测试运行器、开发容器、registry 与 gitea 容器全部使用宿主机网络。registry 与 gitea 通过 `REGISTRY_HTTP_ADDR` / `GITEA__server__HTTP_PORT` 直接绑定各自实例的随机端口，而不是使用 `-p` 映射；gitea 的 SSH 被禁用（`DISABLE_SSH=true`），因此不会有任何东西尝试绑定宿主机的 22 端口。理由：桥接网络容器在强制门户网络下 DNS 会失效，而 registry（Docker Hub 回源拉取）与 gitea（仓库迁移）都会自行发起对外调用。唯一刻意保留的例外是 `preflight-dev` 的 nginx 容器，它的 `-p` 映射正是为了验证桥接网络可用。
 
-- **镜像标签按架构分区** —— 每个推送的标签都带有 `uname -m` 原始形式的架构后缀（`<arch>` 为 `x86_64` 或 `aarch64`）。该标签后缀刻意区别于 OCI 平台名 `amd64`/`arm64`：Go 通过 `archTag()` 把 `runtime.GOARCH` 映射到该后缀，make 使用 `HOST_ARCH`（规范化为 `x86_64`/`aarch64`），shell 使用 `make/lib.sh` 中的 `host_arch_tag`。而普通的 `host_arch` / `runtime.GOARCH` 值仍保持 `amd64`/`arm64`，因为 podman 在 `podman pull --platform linux/<arch>` 和 `.Architecture` 比较时需要它们——绝不要把 `x86_64`/`aarch64` 喂给 `--platform`。`push-rc` 推送 `rc.<date>-<arch>` / `rc.latest-<arch>`；`push-release` 推送 `release.<date>-<arch>` / `latest-<arch>`——始终是执行推送的宿主机的本机架构。不带后缀的普通名称（`rc.latest`、`latest` 以及日期标签）**仅**作为多架构 manifest 列表存在，由 `manifest-rc` / `manifest-release` 在 `ARCHES`（`x86_64 aarch64`）中每个架构都推送完成之后组装；绝不要把普通名称作为单架构标签推送。当没有烘焙进标签时，运行时的回退值是 `main.go` 中的 `defaultVersionTag()`（`rc.latest-<arch>`，架构来自 `archTag()` 映射后的 GOARCH）。理由：从一台主机推送的单架构普通标签，在另一种架构上会以 `exec format error` 失败（或者更糟：在 `Restart=always` 下不断崩溃重启的同时，却让状态轮询测试虚假通过）。
+- **镜像标签按架构分区** —— 每个推送的标签都带有 `uname -m` 原始形式的架构后缀（`<arch>` 为 `x86_64` 或 `aarch64`）。该标签后缀刻意区别于 OCI 平台名 `amd64`/`arm64`：Go 通过 `archTag()` 把 `runtime.GOARCH` 映射到该后缀，make 使用 `HOST_ARCH`（规范化为 `x86_64`/`aarch64`），shell 使用 `make/lib.sh` 中的 `host_arch_tag`。而普通的 `host_arch` / `runtime.GOARCH` 值仍保持 `amd64`/`arm64`，因为 podman 在 `podman pull --platform linux/<arch>` 和 `.Architecture` 比较时需要它们——绝不要把 `x86_64`/`aarch64` 喂给 `--platform`。`push-rc` 推送 `rc.<date>-<arch>` / `rc.latest-<arch>`；`push-release` 推送 `release.<date>-<arch>` / `latest-<arch>`；`push-tag PUSH_TAG=<tag>` 推送 `<tag>-<arch>`——始终是执行推送的宿主机的本机架构。**这也包括操作者自己指定的标签**：`push-tag` 过去原样推送 `PUSH_TAG`，于是先跑 `make TARGET=x86_64 push-tag` 再跑 aarch64 那次，quay 上留下的就是后跑的那一个，而它的名称里没有任何架构信息。不带后缀的普通名称（`rc.latest`、`latest`、日期标签，以及自定义的 `PUSH_TAG`）**仅**作为多架构 manifest 列表存在，由 `manifest-rc` / `manifest-release` / `manifest-tag` 在 `ARCHES`（`x86_64 aarch64`）中每个架构都推送完成之后组装；绝不要把普通名称作为单架构标签推送。`TestEveryPushNamesAnArchitecture` 断言 `build.sh` 中每一处 `podman push` 都带有 `${ARCH}`，因此这一类问题无法借由新增分支再溜回来——普通名称依然会发布，但只经由 `build_manifest` 的 `podman manifest push`，那是另一条命令。当没有烘焙进标签时，运行时的回退值是 `main.go` 中的 `defaultVersionTag()`（`rc.latest-<arch>`，架构来自 `archTag()` 映射后的 GOARCH）。理由：从一台主机推送的单架构普通标签，在另一种架构上会以 `exec format error` 失败（或者更糟：在 `Restart=always` 下不断崩溃重启的同时，却让状态轮询测试虚假通过）。
 
 - **普通便捷标签绝不可用于测试** —— 任何测试、测试框架、开发容器或夹具都不得引用*普通的*（无架构后缀的）`quay.io/town/*:rc.latest` 或 `:latest` 镜像（它们可能不存在，或是过期的多架构 manifest）。带架构后缀的形式**是**允许的，并且是默认选择。测试使用：宿主机对应架构的 rolodex rc 标签（`rc.latest-<arch>`，即 `rc.latest-x86_64` / `rc.latest-aarch64`）、本地构建的 UI 镜像（`make ui-image` → `localhost/town-os-ui:<INSTANCE_ID>`）、本地构建的 NC 镜像（`make nc-image`），以及在镜像从不会被拉取或运行的 mock 单元测试中使用的中性假标签（例如 `:testtag`）。
 
@@ -115,6 +115,25 @@ API 界面、启动顺序、设置项，以及维系这些内容的不变量—�
 `tag_from_staged` 在每次打标签前都会调用 `assert_image_arch`，因此这一类回归会在 push 时失败，并报出它找到的架构与它期望的架构，而不是等到在别人的机器上才发作。新增一个发布镜像意味着把它纳入 staged-ref 模式；从裸的 `${RELEASE_*_IMAGE}` 执行 `podman tag` 就是 bug。
 
 共享*缓存*保持共享是没问题的（`.cache/go-mod`、`.cache/go-build`、`.cache/cargo-registry`，以及 bun 缓存）：Go 和 cargo 会自行对各自的缓存加锁，镜像缓存的 tar 也已经按架构区分。会冲突的是镜像*名称*。
+
+同一条规则不仅适用于构建*产出*的镜像，也适用于构建*消费*的基础镜像：
+
+- **基础镜像应按当前构建所需要的架构来暂存，绝不一律按宿主机的架构。** `BASE_IMAGES_RUNTIME`（见 Makefile）是 `BASE_IMAGES` 的一个子集，即可交叉构建的 Containerfile 用裸 `FROM` 命名的那些基础镜像——也就是会随产物一起发布的阶段——它们跟随 `TARGET`。其余都是工具链基础镜像，每个交叉构建的 Containerfile 都用 `FROM --platform=$BUILDPLATFORM` 把它们钉住，因为它们运行在**本机**并执行交叉编译，所以在任何 `TARGET` 下宿主机架构对它们都是正确的。把工具链基础镜像暂存到目标架构，就是同一个 bug 反过来犯一遍。
+
+之所以强调：`load-base` 几乎是每个构建目标的前置依赖，`TARGET=aarch64` 下的 `release-image` 也不例外，而它遍历 `BASE_IMAGES` 时调用 `ensure_image` 却不带架构参数。于是一次交叉构建的顺序是：它自己的前置依赖把 `debian:bookworm-slim` 强行拉回 amd64，紧接着发布分支又把它暂存回 arm64，然后下一次调用的前置依赖再把它撤销掉。每一次交叉调用都要付出两个方向各一次 `rmi` 加一次 load 的代价——一旦想要的 tar 不存在，还要付一次网络拉取——而在这期间 `podman image inspect` 始终报告宿主机架构，这看起来完全就像目标架构的暂存根本没有发生过。
+
+有两点值得记住：
+
+- **每个构建分支自己暂存所需的基础镜像，本地分支也不例外**，而不是依赖 `load-base` 的全局处理。`gfeh-image` 和 `release-gfeh-image` 没有 `.images-pulled` 前置依赖，所以在此之前从来没有任何环节为它们暂存过 `debian:bookworm-slim`，它们只能就着上一次构建碰巧留下的东西去解析。
+- **隐式的 `FROM` 拉取并不免费。** 交叉构建会去掉 `--pull=never`，好让 podman 自己去取目标架构的运行时基础镜像，而这次取用完全绕开了 `ensure_image`——既不读缓存，也不写缓存。在构建索要之前就先通过 `ensure_image` 把基础镜像暂存好，才是让某个基础镜像的第一次交叉构建成为最后一次付出代价的关键。
+
+这些防护是推导出来的，而不是手写清单，因此新增的阶段无法悄悄逃脱：`TestBaseImagesRuntimeMatchesTheContainerfiles` 从可交叉构建的 Containerfile 推算出期望的成员集合，并在两个方向上都会失败；`TestBuildArmsStageEveryRuntimeBase` 则对每个分支做同样的检查。
+
+由此还引出另外两条规则——交叉发布并非自始至终都是交叉的：
+
+- **无论产物针对哪个 `TARGET`，发布的测试阶段都在本机进行。** `release-build` 依赖 `release-test`，后者以清空的 `TARGET=` 递归调用，而绝不直接依赖 `test-full`。`test-full` 会构建集成测试的框架并在本机*运行*它，因此这些分支都会调用 `require_native_target` 并拒绝异架的 `TARGET`——直接写 `test-full` 意味着 `make TARGET=aarch64 release-build` 会在 `make/build.sh ui-integration` 上失败，此时连一个发布镜像都还没构建，而 `push-release` 也会随之失败，因为 `release-build` 是它的前置依赖。测试验证的是**源代码**，在运行它的这台机器上；发布中属于交叉的部分是随后构建的产物。（`TestReleaseBuildRunsItsTestsNatively`。）
+
+- **只为一种架构而存在的镜像，在其他架构上应当被跳过，而不是被尝试。** Proton 运行器按其构造就是 x86_64 的（GE-Proton 提供的是 x86_64 的 Wine），因此 `release-proton-image` 会拒绝任何其他 `TARGET`——这对单个目标是正确的，但对无条件写上它的聚合目标就是错的。Makefile 通过 `$(PROTON_RELEASE_TARGET)` 把它剔除，而**每个分支都必须保持一致**：仍然为它打标签的推送分支会去取一个根本没有构建过的暂存镜像，而基于 `ARCHES` 组装的 `build_manifest` 会去找一个刻意从未推送过的 `-aarch64` 标签。因此 `build_manifest` 增加了可选的架构列表参数，默认取 `ARCHES`，对 Proton 则传入 `x86_64`。再增加一个单架构镜像，意味着这三处都要照做一遍。（`TestProtonStaysOnItsOwnArchitecture`。）
 
 
 ## 性能约定
