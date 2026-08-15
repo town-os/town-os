@@ -33,22 +33,47 @@ import (
 // Containerfile resolves at the target platform, and that ensure_image really
 // does prefer the tar and really does write one.
 //
+// The other direction cost a second round to find. A LOCAL build is native, so
+// its base cannot be the wrong architecture by construction — except that a
+// cross build before it left the target arch under the name, and the only thing
+// that put the host's back was `load-base`, reached through the
+// $(STATE_DIR)/.images-pulled prerequisite. That is a stamp file: make writes it
+// once and thereafter considers it up to date, so the restore ran before the
+// first cross build and never again. `podman build --pull=never` then built the
+// test harness FROM an aarch64 debian on an x86_64 box. Every arm stages its own
+// bases now, local ones included, which is why armContainerfiles covers both.
+//
 // Host-side, like every other test over these scripts: the integration binary
 // runs inside the test container, where the repo is not mounted and
 // make/lib.sh does not exist. The shell runs against a stub podman with SUDO
 // cleared, so nothing here reaches a registry, the image store, or root.
 
-// releaseArmContainerfiles maps each release build arm to the Containerfile it
-// builds. Every one of them has toolchain stages pinned to $BUILDPLATFORM and
-// runtime stages that are not, which is the distinction the whole mechanism
-// turns on.
-var releaseArmContainerfiles = map[string]string{
-	"release":          "Containerfile",
-	"release-ui":       "Containerfile.ui",
-	"release-nc":       "Containerfile.networkcontroller",
-	"release-ingress":  "Containerfile.ingress",
-	"release-gfeh":     "Containerfile.gfeh",
-	"release-proton":   "Containerfile.proton",
+// armContainerfiles maps each build arm to the Containerfile it builds.
+//
+// Local arms are in here with the release ones deliberately. A local build is
+// native, so its base "cannot" be the wrong architecture — except that a cross
+// build before it repointed the name, and the restore that used to fix that ran
+// behind a stamp file which is only ever written once (see stage_runtime_bases
+// in make/build.sh). Both kinds of arm need the same call for the same reason,
+// so both are checked the same way.
+var armContainerfiles = map[string]string{
+	"release":         "Containerfile",
+	"release-ui":      "Containerfile.ui",
+	"release-nc":      "Containerfile.networkcontroller",
+	"release-ingress": "Containerfile.ingress",
+	"release-gfeh":    "Containerfile.gfeh",
+	"release-proton":  "Containerfile.proton",
+
+	"production":     "Containerfile",
+	"dev-base":       "Containerfile",
+	"test":           "integration/testdata/Containerfile.systemd",
+	"dev":            "integration/testdata/Containerfile.dev",
+	"ui-integration": "integration/testdata/Containerfile.ui-integration",
+	"ui-local":       "Containerfile.ui",
+	"ingress-local":  "Containerfile.ingress",
+	"gfeh-local":     "Containerfile.gfeh",
+	// nc-local builds an inline Containerfile rather than a file on disk, so it
+	// has nothing to parse; TestNCLocalStagesItsInlineBase covers it.
 }
 
 // fromLine captures a FROM's optional --platform and its image reference.
@@ -74,7 +99,10 @@ func runtimeBases(t *testing.T, containerfile string) []string {
 	seen := map[string]bool{}
 	for _, m := range fromLine.FindAllStringSubmatch(body, -1) {
 		platform, ref := m[1], m[2]
-		if platform != "" || stages[ref] || seen[ref] {
+		// `FROM ${TOWN_OS_IMAGE}` names an image this repo just built, passed in
+		// as a build-arg. It is not an upstream base and there is nothing to
+		// stage: it is already in storage or the build has bigger problems.
+		if platform != "" || stages[ref] || seen[ref] || strings.Contains(ref, "$") {
 			continue
 		}
 		seen[ref] = true
@@ -86,15 +114,15 @@ func runtimeBases(t *testing.T, containerfile string) []string {
 	return out
 }
 
-// TestReleaseArmsStageEveryRuntimeBase is the guard that survives a new
+// TestBuildArmsStageEveryRuntimeBase is the guard that survives a new
 // Containerfile stage. The expected set is derived FROM THE CONTAINERFILE, so
 // adding a runtime base without staging it fails here rather than on the next
 // person's bandwidth.
-func TestReleaseArmsStageEveryRuntimeBase(t *testing.T) {
+func TestBuildArmsStageEveryRuntimeBase(t *testing.T) {
 	t.Parallel()
 
 	script := readRepoFile(t, buildScript)
-	for arm, containerfile := range releaseArmContainerfiles {
+	for arm, containerfile := range armContainerfiles {
 		t.Run(arm, func(t *testing.T) {
 			t.Parallel()
 
@@ -279,5 +307,131 @@ func writeFakeTar(t *testing.T, path string) {
 
 	if err := os.WriteFile(path, []byte("not a real tar"), 0o600); err != nil {
 		t.Fatalf("write fake tar %s: %v", path, err)
+	}
+}
+
+// TestNCLocalStagesItsInlineBase covers the one arm with no Containerfile to
+// parse: nc-local writes its Containerfile inline, FROM alpine, and builds it
+// with --pull=never. It has always staged that base — it was the one arm that
+// did, through a bare ensure_image call — and it must keep doing so through the
+// same function as everything else, or it becomes the exception that quietly
+// stops matching the rule the other arms are held to.
+func TestNCLocalStagesItsInlineBase(t *testing.T) {
+	t.Parallel()
+
+	arm := caseArm(t, readRepoFile(t, buildScript), "nc-local")
+	const base = "docker.io/library/alpine:latest"
+
+	if !strings.Contains(arm, "FROM "+base) {
+		t.Fatalf("nc-local no longer builds FROM %s; this test is pinned to the wrong base", base)
+	}
+	if !strings.Contains(arm, "stage_runtime_bases "+base) {
+		t.Errorf("make/build.sh: the nc-local arm does not stage %s through stage_runtime_bases, "+
+			"so a cross build that repointed that name leaves it building the wrong architecture "+
+			"under --pull=never", base)
+	}
+}
+
+// crossBuildableContainerfiles are the Containerfiles a cross TARGET can build.
+//
+// Containerfile.proton is deliberately absent: it refuses any TARGET but
+// x86_64 (GE-Proton is x86_64 Wine), so its bare-FROM base is never wanted at
+// another architecture. The native-only test and dev images are absent for the
+// same reason from the other direction — require_native_target refuses a cross
+// TARGET for them outright.
+var crossBuildableContainerfiles = []string{
+	"Containerfile",
+	"Containerfile.ui",
+	"Containerfile.ingress",
+	"Containerfile.networkcontroller",
+	"Containerfile.gfeh",
+}
+
+// TestBaseImagesRuntimeMatchesTheContainerfiles keeps the Makefile's
+// BASE_IMAGES_RUNTIME list honest against the files it claims to describe.
+//
+// load-base stages that subset at the BUILD arch and everything else at the
+// host's. Getting the membership wrong is quiet in both directions: a runtime
+// base left out is staged at the host arch on a cross build and has to be
+// replaced by the build arm moments later (the round trip that made
+// `podman image inspect` report the host arch mid-cross-build), and a toolchain
+// base wrongly included is staged at the target arch when the $BUILDPLATFORM
+// stage that uses it needs the host's.
+func TestBaseImagesRuntimeMatchesTheContainerfiles(t *testing.T) {
+	t.Parallel()
+
+	makefile := readRepoFile(t, "Makefile")
+	all := makeListVar(t, makefile, "BASE_IMAGES")
+	runtime := makeListVar(t, makefile, "BASE_IMAGES_RUNTIME")
+
+	inAll := map[string]bool{}
+	for _, img := range all {
+		inAll[img] = true
+	}
+	inRuntime := map[string]bool{}
+	for _, img := range runtime {
+		if !inAll[img] {
+			t.Errorf("BASE_IMAGES_RUNTIME lists %s, which is not in BASE_IMAGES; load-base only "+
+				"iterates BASE_IMAGES, so the entry does nothing", img)
+		}
+		inRuntime[img] = true
+	}
+
+	// Every bare-FROM base of a cross-buildable Containerfile that load-base
+	// stages at all has to follow TARGET.
+	want := map[string]bool{}
+	for _, cf := range crossBuildableContainerfiles {
+		for _, base := range runtimeBases(t, cf) {
+			if !inAll[base] {
+				continue // staged by the build arm alone (alpine); load-base never sees it
+			}
+			want[base] = true
+			if !inRuntime[base] {
+				t.Errorf("%s resolves %s at the target platform, but BASE_IMAGES_RUNTIME omits it: "+
+					"load-base stages it at the HOST arch and a cross build has to undo that", cf, base)
+			}
+		}
+	}
+	for _, img := range runtime {
+		if inAll[img] && !want[img] {
+			t.Errorf("BASE_IMAGES_RUNTIME lists %s, but no cross-buildable Containerfile names it "+
+				"with a bare FROM; staging it at the target arch denies the host arch to whatever "+
+				"$BUILDPLATFORM stage uses it", img)
+		}
+	}
+}
+
+// makeListVar reads a `NAME := a b c` assignment out of a Makefile.
+func makeListVar(t *testing.T, makefile, name string) []string {
+	t.Helper()
+
+	re := regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(name) + `\s*:?=\s*(.*)$`)
+	m := re.FindStringSubmatch(makefile)
+	if m == nil {
+		t.Fatalf("Makefile has no %s assignment", name)
+	}
+	fields := strings.Fields(m[1])
+	if len(fields) == 0 {
+		t.Fatalf("Makefile: %s is empty", name)
+	}
+	return fields
+}
+
+// TestLoadBaseStagesRuntimeBasesAtTheBuildArch pins the mechanism itself: the
+// loop has to ask ensure_image for build_oci_arch on the runtime subset. A
+// load-base that passes no architecture defaults to the host's for everything,
+// which is where this started.
+func TestLoadBaseStagesRuntimeBasesAtTheBuildArch(t *testing.T) {
+	t.Parallel()
+
+	script := readRepoFile(t, "make/images.sh")
+	arm := caseArm(t, script, "load-base")
+	if !strings.Contains(arm, "BASE_IMAGES_RUNTIME") {
+		t.Error("make/images.sh: load-base does not consult BASE_IMAGES_RUNTIME, so every base is " +
+			"staged at the host arch and a cross build's prerequisites undo its own staging")
+	}
+	if !strings.Contains(arm, "build_oci_arch") {
+		t.Error("make/images.sh: load-base never passes build_oci_arch to ensure_image; without an " +
+			"architecture argument ensure_image defaults to the host's")
 	}
 }

@@ -64,6 +64,18 @@ fi
 # what it pulls — makes the first cross build of a base the last one that costs
 # anything. It is a no-op when storage already holds the right architecture, so
 # the native path pays a `podman image inspect` and nothing else.
+#
+# EVERY build arm calls it, local ones included, and that is the half that was
+# missing. A local build asks for the host arch, so it looks like it could not
+# possibly be wrong — but a cross build before it left the target arch under the
+# base's name, and the only thing that used to put the host's back was
+# `make/images.sh load-base`, reached through the `$(STATE_DIR)/.images-pulled`
+# prerequisite. That is a STAMP FILE: once it exists, make considers it up to
+# date and never runs load-base again for the life of the instance. So the
+# restore ran once, before any cross build had happened, and then never again —
+# and `podman build --pull=never` went on to build the test harness FROM an
+# aarch64 debian on an x86_64 box. Staging here is unconditional and owes
+# nothing to a stamp.
 stage_runtime_bases() {
   local arch img
   arch="$(build_oci_arch)" || return 1
@@ -104,6 +116,7 @@ esac
 case "$1" in
   production)
     step "Building production image"
+    stage_runtime_bases docker.io/library/debian:bookworm-slim
     mkdir -p .cache/go-mod .cache/go-build "${BUN_CACHE}"
     ${SUDO} podman build --network=host --pull=never \
       --build-arg "TOWN_OS_GO_TAGS=${GO_BUILD_TAGS}" \
@@ -114,6 +127,8 @@ case "$1" in
     ;;
   test)
     step "Building test image"
+    stage_runtime_bases docker.io/library/golang:1.25-bookworm \
+      docker.io/library/debian:bookworm docker.io/library/caddy:2-alpine
     mkdir -p .cache/go-mod .cache/go-build
     ${SUDO} podman build --network=host --pull=never \
       --build-arg "TOWN_OS_IMAGE=${PODMAN_IMAGE}" \
@@ -124,6 +139,7 @@ case "$1" in
     ;;
   dev-base)
     step "Building dev base image"
+    stage_runtime_bases docker.io/library/debian:bookworm-slim
     mkdir -p .cache/dev-go-mod .cache/dev-go-build "${BUN_CACHE}"
     ${SUDO} podman build --network=host --pull=never \
       --volume "$(pwd)/.cache/dev-go-mod:/go/pkg/mod:z" \
@@ -133,6 +149,7 @@ case "$1" in
     ;;
   dev)
     step "Building dev image"
+    stage_runtime_bases docker.io/library/debian:bookworm
     ${SUDO} podman build --network=host --pull=never \
       --build-arg "TOWN_OS_IMAGE=${PODMAN_DEV_BASE}" \
       --build-arg "ROLODEX_IMAGE=${ROLODEX_IMAGE}" \
@@ -140,6 +157,7 @@ case "$1" in
     ;;
   ui-integration)
     step "Building UI integration image"
+    stage_runtime_bases docker.io/oven/bun:latest
     # --no-cache reruns bun install on every build; the mounted bun cache
     # keeps it off the network once warm.
     mkdir -p "${BUN_CACHE}"
@@ -153,6 +171,7 @@ case "$1" in
   # load_images_into_container can copy it into test containers.
   ui-local)
     step "Building local UI test image"
+    stage_runtime_bases docker.io/library/caddy:latest
     mkdir -p "${BUN_CACHE}"
     ${SUDO} podman build --network=host --pull=never \
       "${BUN_BUILD_ARGS[@]}" \
@@ -167,7 +186,10 @@ case "$1" in
   nc-local)
     SRC_IMAGE="${2:-${PODMAN_IMAGE}}"
     step "Building local NC test image from ${SRC_IMAGE}"
-    ensure_image docker.io/library/alpine:latest
+    # The inline Containerfile below is FROM alpine, so this arm stages its own
+    # base like every other — through the same function, rather than the bare
+    # ensure_image call that used to sit here.
+    stage_runtime_bases docker.io/library/alpine:latest
     builddir="$(mktemp -d "${TMPDIR:-/tmp}/town-os-nc-build.XXXXXX")"
     cid="$(${SUDO} podman create "${SRC_IMAGE}")"
     ${SUDO} podman cp "${cid}:/town-os-networkcontroller" "${builddir}/town-os-networkcontroller"
@@ -184,6 +206,7 @@ case "$1" in
   # test/dev containers from the image cache — same rationale as nc-local.
   ingress-local)
     step "Building local ingress test image"
+    stage_runtime_bases docker.io/library/caddy:2-alpine docker.io/library/alpine:latest
     mkdir -p .cache/go-mod .cache/go-build
     ${SUDO} podman build --network=host \
       --volume "$(pwd)/.cache/go-mod:/go/pkg/mod:z" \
@@ -193,6 +216,7 @@ case "$1" in
     ;;
   gfeh-local)
     step "Building local gfeh test image"
+    stage_runtime_bases docker.io/library/debian:bookworm-slim
     # A cargo registry cache, for the same reason the Go builds keep a module
     # cache: gfehd pulls a large dependency tree and rebuilding it from scratch
     # on every invocation is minutes per run.
@@ -652,51 +676,83 @@ case "$1" in
     fi
     require_cross_binfmt
     require_registry_login quay.io
-    step "Pushing all images with tag ${TAG}"
+    step "Pushing all images with tag ${TAG}-${ARCH}"
 
-    # Systemcontroller image. The tag is no longer baked into the binary; the
-    # controller resolves it at runtime from TOWN_OS_TAG (set on its systemd
-    # unit by the install build system), defaulting to rc.latest-<arch>.
-    # Tagged from the staging image like the other five, rather than rebuilt
-    # into ${TAG} directly: TAG is operator-supplied and carries no arch, so a
-    # direct build here would recreate the shared slot this file just removed —
-    # two arches pushing the same TAG would each overwrite the other's.
-    substep "Tagging ${RELEASE_IMAGE}:${TAG}"
-    tag_from_staged "${RELEASE_IMAGE}" "${TAG}"
-    substep "Pushing ${RELEASE_IMAGE}:${TAG}"
-    ${SUDO} podman push "${RELEASE_IMAGE}:${TAG}"
+    # The operator names the tag; this target still decides how it is
+    # PARTITIONED, and it partitions it exactly like rc and release do:
+    # ${TAG}-<arch> here, and the plain ${TAG} only ever as the multi-arch
+    # manifest list `make manifest-tag PUSH_TAG=${TAG}` assembles once every
+    # arch has pushed.
+    #
+    # It did not, and that was the last hole of this class left in the file.
+    # Tagging from the staged ref meant the BYTES pushed were the right
+    # architecture for this invocation, which is what the staged-ref work
+    # fixed — but the remote name was still one shared slot, so
+    # `make TARGET=x86_64 push-tag` followed by `make TARGET=aarch64 push-tag`
+    # left quay holding whichever ran second under a tag that names no
+    # architecture at all. That is the same failure the arch-suffixed rc tags
+    # exist to prevent, arriving through the one target that takes its tag from
+    # a human.
+    #
+    # The systemcontroller image is tagged from the staging image like the other
+    # five rather than rebuilt into the tag. The tag is not baked into the
+    # binary; the controller resolves it at runtime from TOWN_OS_TAG (set on its
+    # systemd unit by the install build system), defaulting to rc.latest-<arch>.
+    substep "Tagging ${RELEASE_IMAGE}:${TAG}-${ARCH}"
+    tag_from_staged "${RELEASE_IMAGE}" "${TAG}-${ARCH}"
+    substep "Pushing ${RELEASE_IMAGE}:${TAG}-${ARCH}"
+    ${SUDO} podman push "${RELEASE_IMAGE}:${TAG}-${ARCH}"
 
     # UI image.
-    substep "Tagging ${RELEASE_UI_IMAGE}:${TAG}"
-    tag_from_staged "${RELEASE_UI_IMAGE}" "${TAG}"
-    substep "Pushing ${RELEASE_UI_IMAGE}:${TAG}"
-    ${SUDO} podman push "${RELEASE_UI_IMAGE}:${TAG}"
+    substep "Tagging ${RELEASE_UI_IMAGE}:${TAG}-${ARCH}"
+    tag_from_staged "${RELEASE_UI_IMAGE}" "${TAG}-${ARCH}"
+    substep "Pushing ${RELEASE_UI_IMAGE}:${TAG}-${ARCH}"
+    ${SUDO} podman push "${RELEASE_UI_IMAGE}:${TAG}-${ARCH}"
 
     # Proton runner image — only when PROTON_ENABLED=1.
     if [[ "${PROTON_ENABLED}" = "1" ]]; then
-      substep "Tagging ${RELEASE_PROTON_IMAGE}:${TAG}"
-      tag_from_staged "${RELEASE_PROTON_IMAGE}" "${TAG}"
-      substep "Pushing ${RELEASE_PROTON_IMAGE}:${TAG}"
-      ${SUDO} podman push "${RELEASE_PROTON_IMAGE}:${TAG}"
+      substep "Tagging ${RELEASE_PROTON_IMAGE}:${TAG}-${ARCH}"
+      tag_from_staged "${RELEASE_PROTON_IMAGE}" "${TAG}-${ARCH}"
+      substep "Pushing ${RELEASE_PROTON_IMAGE}:${TAG}-${ARCH}"
+      ${SUDO} podman push "${RELEASE_PROTON_IMAGE}:${TAG}-${ARCH}"
     fi
 
     # Network controller image.
-    substep "Tagging ${RELEASE_NC_IMAGE}:${TAG}"
-    tag_from_staged "${RELEASE_NC_IMAGE}" "${TAG}"
-    substep "Pushing ${RELEASE_NC_IMAGE}:${TAG}"
-    ${SUDO} podman push "${RELEASE_NC_IMAGE}:${TAG}"
+    substep "Tagging ${RELEASE_NC_IMAGE}:${TAG}-${ARCH}"
+    tag_from_staged "${RELEASE_NC_IMAGE}" "${TAG}-${ARCH}"
+    substep "Pushing ${RELEASE_NC_IMAGE}:${TAG}-${ARCH}"
+    ${SUDO} podman push "${RELEASE_NC_IMAGE}:${TAG}-${ARCH}"
 
     # Ingress image.
-    substep "Tagging ${RELEASE_INGRESS_IMAGE}:${TAG}"
-    tag_from_staged "${RELEASE_INGRESS_IMAGE}" "${TAG}"
-    substep "Pushing ${RELEASE_INGRESS_IMAGE}:${TAG}"
-    ${SUDO} podman push "${RELEASE_INGRESS_IMAGE}:${TAG}"
+    substep "Tagging ${RELEASE_INGRESS_IMAGE}:${TAG}-${ARCH}"
+    tag_from_staged "${RELEASE_INGRESS_IMAGE}" "${TAG}-${ARCH}"
+    substep "Pushing ${RELEASE_INGRESS_IMAGE}:${TAG}-${ARCH}"
+    ${SUDO} podman push "${RELEASE_INGRESS_IMAGE}:${TAG}-${ARCH}"
 
     # Object storage (gfeh) image.
-    substep "Tagging ${RELEASE_GFEH_IMAGE}:${TAG}"
-    tag_from_staged "${RELEASE_GFEH_IMAGE}" "${TAG}"
-    substep "Pushing ${RELEASE_GFEH_IMAGE}:${TAG}"
-    ${SUDO} podman push "${RELEASE_GFEH_IMAGE}:${TAG}"
+    substep "Tagging ${RELEASE_GFEH_IMAGE}:${TAG}-${ARCH}"
+    tag_from_staged "${RELEASE_GFEH_IMAGE}" "${TAG}-${ARCH}"
+    substep "Pushing ${RELEASE_GFEH_IMAGE}:${TAG}-${ARCH}"
+    ${SUDO} podman push "${RELEASE_GFEH_IMAGE}:${TAG}-${ARCH}"
+    ;;
+  manifest-tag)
+    TAG="$2"
+    if [ -z "${TAG}" ]; then
+      echo "Usage: $0 manifest-tag <tag>"
+      exit 1
+    fi
+    require_registry_login quay.io
+    step "Assembling manifests for tag ${TAG}"
+    # Run once, after EVERY arch in ARCHES has pushed ${TAG}-<arch>. This is
+    # what makes the plain ${TAG} resolvable on both architectures; until it
+    # runs, the plain name simply does not exist, which is the honest state and
+    # far better than one that resolves to whichever arch pushed last.
+    for image in "${RELEASE_IMAGE}" "${RELEASE_UI_IMAGE}" "${RELEASE_NC_IMAGE}" "${RELEASE_INGRESS_IMAGE}" "${RELEASE_GFEH_IMAGE}"; do
+      build_manifest "${image}" "${TAG}"
+    done
+    if [[ "${PROTON_ENABLED}" = "1" ]]; then
+      build_manifest "${RELEASE_PROTON_IMAGE}" "${TAG}"
+    fi
     ;;
   networkcontroller)
     step "Building network controller binary"

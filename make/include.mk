@@ -308,6 +308,13 @@ push-tag: release-image release-ui-image release-nc-image release-ingress-image 
 	@make/build.sh push-tag $(PUSH_TAG)
 endif
 
+# Assembles the plain $(PUSH_TAG) from the $(PUSH_TAG)-<arch> tags push-tag
+# leaves behind. No build prerequisites, like manifest-rc and manifest-release:
+# it only reads tags that are already in the registry, and it must be run once
+# after every architecture has pushed rather than once per architecture.
+manifest-tag:
+	@make/build.sh manifest-tag $(PUSH_TAG)
+
 ssh:
 	@ssh-keygen -R town-os.local 2>/dev/null; true
 	sshpass -p enjoytownos ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@town-os.local

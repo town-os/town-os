@@ -102,7 +102,10 @@ Release
                           (latest-<arch>, release.<date>-<arch>).
   manifest-release        Assemble + push the plain latest / release.<date>
                           multi-arch manifest lists from the per-arch tags.
-  push-tag PUSH_TAG=...   Push all release images with a specific tag.
+  push-tag PUSH_TAG=...   Push all release images with a specific tag,
+                          per-arch (<tag>-<arch>) like push-rc.
+  manifest-tag PUSH_TAG=... Assemble + push the plain <tag> multi-arch
+                          manifest list from the per-arch tags.
 
   Single-image pushes (same per-arch tag scheme as push-rc/push-release):
   push-ui-rc              push-ui-release
@@ -152,7 +155,7 @@ Variables
                           settings card in the UI.
   TEST_RUN=<regex>        Restrict the integration run to matching tests.
   TEST_TIMEOUT=<dur>      Integration test timeout (default 60m).
-  PUSH_TAG=<tag>          Tag used by push-tag.
+  PUSH_TAG=<tag>          Tag used by push-tag and manifest-tag.
   LOG_DIR=<dir>           Where <target>-log writes its transcripts
                           (default /tmp/town-os/log).
   TARGET=<arch>           Architecture the release/push targets build for,

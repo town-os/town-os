@@ -128,6 +128,11 @@ func TestManifestTargetsMatchTheirPushTargets(t *testing.T) {
 	for _, pair := range []struct{ push, manifest string }{
 		{"push-rc", "manifest-rc"},
 		{"push-release", "manifest-release"},
+		// push-tag was the one bulk push with no manifest partner, and that is
+		// what made it the last place two architectures could land on one
+		// remote name: it pushed the operator's tag verbatim, so the second
+		// TARGET to run overwrote the first.
+		{"push-tag", "manifest-tag"},
 	} {
 		pushed := pushedImages(caseArm(t, script, pair.push))
 		assembled := manifestImages(caseArm(t, script, pair.manifest))
@@ -302,4 +307,43 @@ func prerequisiteLine(makefile, target string) string {
 		}
 	}
 	return ""
+}
+
+// TestEveryPushNamesAnArchitecture is the guard for the whole class rather than
+// for the arms that happen to exist today.
+//
+// The per-arch tag scheme only holds if EVERY `podman push` in the file carries
+// the architecture. One that does not is a shared remote slot: run the target
+// once per TARGET and the second run overwrites the first, so the tag ends up
+// holding whichever architecture pushed last and the boxes on the other one get
+// `exec format error` at boot. Nothing fails at push time to say so, which is
+// why this is a static check and not something a release run would catch.
+//
+// push-tag is why this exists. Its tag comes from the operator and it pushed it
+// verbatim; `tag_from_staged` guaranteed the BYTES were right for the current
+// TARGET, and the remote name was still one slot for both. Every other bulk arm
+// was already arch-suffixed, so the file read as consistent right up until the
+// one arm that took its tag from a human.
+//
+// The plain names are pushed too, but only as manifest lists, and only through
+// build_manifest's `podman manifest push` — a different command, which is why
+// matching `podman push` alone separates the two cleanly.
+func TestEveryPushNamesAnArchitecture(t *testing.T) {
+	t.Parallel()
+
+	script := readRepoFile(t, buildScript)
+	re := regexp.MustCompile(`podman push "([^"]+)"`)
+
+	matches := re.FindAllStringSubmatch(script, -1)
+	if len(matches) == 0 {
+		t.Fatal("no `podman push` found in " + buildScript + "; the pattern is wrong, not the script")
+	}
+	for _, m := range matches {
+		if !strings.Contains(m[1], "${ARCH}") {
+			t.Errorf("%s pushes %q, which names no architecture: two TARGETs pushing it "+
+				"overwrite each other, and the loser's boxes fail to exec what they pull. "+
+				"Push ${TAG}-${ARCH} and assemble the plain name with build_manifest.",
+				buildScript, m[1])
+		}
+	}
 }

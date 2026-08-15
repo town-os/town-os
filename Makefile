@@ -233,6 +233,29 @@ export BUN_CACHE BUN_INSTALL_CACHE_DIR
 # deliberately left out is rust:1-bookworm (~1.5G, gfeh builder only) — see
 # the release-gfeh comment in make/build.sh.
 BASE_IMAGES := docker.io/library/golang:1.25-bookworm docker.io/oven/bun:latest docker.io/library/debian:bookworm docker.io/library/debian:bookworm-slim docker.io/library/caddy:latest docker.io/library/caddy:2-alpine
+
+# The subset of BASE_IMAGES that a CROSS build wants at the target architecture
+# rather than the host's: the bases a cross-buildable Containerfile names with a
+# bare FROM, which is to say the stages that ship rather than the ones that
+# compile. load-base stages these at $(BUILD_ARCH) and everything else at
+# $(HOST_ARCH).
+#
+# Without the split, load-base staged all six at the host arch on every run —
+# and it is a prerequisite of nearly every build target, so a cross build's own
+# prerequisites forced debian:bookworm-slim back to amd64 immediately before the
+# release arm needed arm64. Each cross invocation paid an rmi plus a load in
+# each direction (a network pull, whenever the tar it wanted was missing), and
+# `podman image inspect` on the box reported the host arch throughout, which
+# reads exactly like the staging not working at all.
+#
+# golang and bun are absent deliberately: every cross Containerfile pins them
+# with FROM --platform=$$BUILDPLATFORM because they run HERE and cross-compile,
+# so the host arch is the correct one for them under any TARGET. debian:bookworm
+# is absent for a different reason — it is a bare FROM only in the proton image
+# (x86_64-only by construction) and in the native-only test and dev images, so
+# no cross build ever wants it. TestBaseImagesRuntimeMatchesTheContainerfiles
+# checks this list against the Containerfiles rather than trusting it.
+BASE_IMAGES_RUNTIME := docker.io/library/debian:bookworm-slim docker.io/library/caddy:latest docker.io/library/caddy:2-alpine
 MONITORING_IMAGES := quay.io/prometheus/prometheus:latest quay.io/prometheus/node-exporter:latest docker.io/grafana/grafana:latest
 # Rolodex publishes per-arch tags (rc.latest-x86_64 / rc.latest-aarch64) pushed
 # natively from each host. Internal Town OS image pulls default to the host's
@@ -263,7 +286,7 @@ GFEH_IMAGE ?= localhost/town-os-gfeh:$(INSTANCE_ID)
 # test and dev harnesses build them locally and inject NC_IMAGE/UI_IMAGE at
 # container start, so their quay tags are intentionally NOT in ALL_IMAGES.
 ALL_IMAGES := $(BASE_IMAGES) docker.io/library/registry:2 docker.io/gitea/gitea:latest docker.io/library/nginx:1.27-alpine docker.io/library/alpine:latest $(MONITORING_IMAGES) $(ROLODEX_IMAGE)
-export BASE_IMAGES MONITORING_IMAGES ALL_IMAGES ROLODEX_IMAGE_TAG ROLODEX_IMAGE UI_IMAGE NC_IMAGE INGRESS_IMAGE GFEH_IMAGE
+export BASE_IMAGES BASE_IMAGES_RUNTIME MONITORING_IMAGES ALL_IMAGES ROLODEX_IMAGE_TAG ROLODEX_IMAGE UI_IMAGE NC_IMAGE INGRESS_IMAGE GFEH_IMAGE
 export TEST_RUN TEST_TIMEOUT PUSH_TAG
 
 .DEFAULT_GOAL := help
@@ -288,7 +311,7 @@ PHONY_TARGETS += test-ui-integration test-integration-build test-integration tes
 PHONY_TARGETS += dev dev-logs dev-stop dev-stop-all dev-restore-dns dev-btrfs btrfs-dev clean-btrfs-dev
 PHONY_TARGETS += preflight-dev clean-dev auto-test auto-test-full build-networkcontroller lint
 PHONY_TARGETS += ssh
-PHONY_TARGETS += release-build release-image release-ui-image release-nc-image release-ingress-image release-gfeh-image push push-rc manifest-rc push-release manifest-release push-ui-rc push-ui-release push-nc-rc push-nc-release push-ingress-rc push-ingress-release push-gfeh-rc push-gfeh-release push-tag quay-login
+PHONY_TARGETS += release-build release-image release-ui-image release-nc-image release-ingress-image release-gfeh-image push push-rc manifest-rc push-release manifest-release push-ui-rc push-ui-release push-nc-rc push-nc-release push-ingress-rc push-ingress-release push-gfeh-rc push-gfeh-release push-tag manifest-tag quay-login
 ifeq ($(PROTON_ENABLED),1)
 PHONY_TARGETS += release-proton-image push-proton-rc push-proton-release
 endif
@@ -383,6 +406,7 @@ push: release-build
 # Manifest targets assemble remote per-arch tags; they build nothing locally.
 manifest-rc: check-podman quay-login
 manifest-release: check-podman quay-login
+manifest-tag: check-podman quay-login
 push-release: release-build quay-login
 push-ui-rc: release-ui-image quay-login
 push-ui-release: release-ui-image quay-login

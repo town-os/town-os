@@ -26,8 +26,24 @@ case "$1" in
   load-base)
     step "Loading base images"
     ensure_image_cache_dir
+    # Each base is staged at the architecture the CURRENT build wants it at, not
+    # blanket at the host's. BASE_IMAGES_RUNTIME (see the Makefile) is the subset
+    # a cross-buildable Containerfile names with a bare FROM — the stages that
+    # ship — and those follow TARGET. The rest are toolchain images pinned to
+    # $BUILDPLATFORM by every Containerfile that cross-builds, so the host arch
+    # is right for them under any TARGET.
+    #
+    # This target is a prerequisite of nearly every build, which is what made
+    # ignoring TARGET here so expensive: a cross build's own prerequisites
+    # forced the runtime bases back to the host arch moments before the build
+    # arm staged them at the target's, so every cross invocation paid the round
+    # trip and the store read as the host arch whenever anyone looked.
     for img in ${BASE_IMAGES}; do
-      ensure_image "${img}"
+      if printf '%s\n' ${BASE_IMAGES_RUNTIME} | grep -qxF "${img}"; then
+        ensure_image "${img}" "$(build_oci_arch)"
+      else
+        ensure_image "${img}"
+      fi
     done
     touch "${STATE_DIR}/.images-pulled"
     ;;
