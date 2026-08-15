@@ -15,7 +15,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -53,7 +52,7 @@ import (
 func TestDohResolvesThroughTheIngress(t *testing.T) {
 	t.Parallel()
 
-	caddyBin := dohFindCaddy(t)
+	caddyBin := findCaddy(t)
 
 	// Every listener gets an ephemeral port. The production DoH backend is a
 	// fixed 127.0.0.2:4443 (systemcontroller.RolodexDohBackend) and is
@@ -315,18 +314,6 @@ func dohClient(t *testing.T, caPath string, port int) *http.Client {
 
 // dohFindCaddy locates the caddy binary the ingress image ships, which the
 // integration container carries at DefaultCaddyBinary.
-func dohFindCaddy(t *testing.T) string {
-	t.Helper()
-	if p, err := exec.LookPath("caddy"); err == nil {
-		return p
-	}
-	if _, err := os.Stat(caddysup.DefaultCaddyBinary); err == nil {
-		return caddysup.DefaultCaddyBinary
-	}
-	t.Skip("caddy binary not found; skipping DoH ingress test")
-	return ""
-}
-
 // dohFreePortInt is findFreePort as the int the ingress server takes.
 func dohFreePortInt(t *testing.T) int {
 	t.Helper()

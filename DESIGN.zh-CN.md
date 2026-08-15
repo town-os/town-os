@@ -1484,9 +1484,8 @@ Town OS 内置一个由 `rolodex-dns` 容器驱动的本地 DNS 解析器。rolo
 
 rolodex 本身是由 systemd 安装与监管的启动服务——systemcontroller 不在容器层面安装、启动、停止或重启它。取而代之，`rolodex.Manager` 负责：
 
-- **`WriteConfig`** —— 把 `rolodex.yml` 写入 `DataDir`。幂等：当该文件存在、比 systemcontroller 二进制更新、且内容已与预期一致时跳过写入。返回一个布尔值表示文件是否被写入（以便调用方决定是否重启 systemd 单元）。
-
-> **本节是历史。** `WriteConfig` 与 `RewriteConfig` 都已删除，Town OS 完全不再写 rolodex 的配置文件：它们过去渲染的那些设置，现在是编程进正在运行的服务里的，而留下的那个文件属于安装镜像。参见上文「rolodex.yml 只是引导配置」一节。
+- **`Forwarders` / `ResolutionMode` / `Blocklists`** —— Town OS 拥有的那些设置，由存储的配置与主机发现解析得出。管理器不写任何文件：这些正是 `ProgramRolodex` 推进正在运行的服务里的东西。参见下文「rolodex.yml 只是引导配置」一节。
+- **`Generation`** —— rolodex 在启动时绑定的 gRPC 套接字的身份（设备号、inode、mtime），它恰好在 rolodex 重启时改变，因此也就是「一次重启丢掉了每一项已编程的设置」被察觉的方式。套接字不存在时为空，意味着 rolodex 没在运行。
 - **`WaitForDNSReady`** —— 通过 TCP 轮询 `DNSLoopback:{port}`，直到它接受连接或超过 30 秒截止时间。在启动时、任何依赖 DNS 的操作（例如镜像拉取）之前调用。
 - **`SystemServices`** —— 返回 rolodex 系统服务的元数据（key、显示名、镜像、端口、单元名），使它与其他系统服务一同出现在状态响应与 UI 中。
 - **`Status`** —— 查询 systemd 单元状态以报告 rolodex 是否在运行。
@@ -1507,7 +1506,9 @@ rolodex 容器以 `--net host` 运行，并把 DNS 绑定到 `DNSLoopback`（`12
 
 没有任何真实的东西被保护到。文件里的每一个值都是从 Town OS 的状态渲染出来的——DNS 端口、转发器、解析模式、两份阻断名单、指标端口——而每一条会改动其中之一的运行时路径，本来就已经不管不顾地覆盖了该文件（那正是 `RewriteConfig` 的全部）。手工编辑以前能活到下一次设置变更；现在它活到下一次启动。
 
-回归测试是 `TestWriteConfigReplacesConfigNewerThanTheBinary` 与 `TestWriteConfigAddsSectionsMissingFromAnOlderRendering`（单元），以及 `TestUpgradedControllerOpensRolodexMetricsListener`（集成）——后者放置一份 `9689461` 之前的配置并给它一个未来的 mtime，通过启动入口把它调和一遍，然后抓取一个真实 rolodex 容器随之打开的那个监听器。
+**本节是历史。** `WriteConfig` 与 `RewriteConfig` 都已删除，Town OS 完全不再写 rolodex 的配置文件：它们过去渲染的那些设置，现在是编程进正在运行的服务里的，而留下的那个文件属于安装镜像。参见下文「rolodex.yml 只是引导配置」一节。之所以保留这一节，是因为它描述的那种失败——一次悄无声息什么都没做的配置写入，只在「某个功能从来没生效过」的时候才浮出水面——正是这个子系统反复制造的那种 bug。
+
+那些回归测试已随它们守护的代码一起删除；接替它们的东西列在下一节。
 
 ### rolodex.yml 只是引导配置；设置通过 gRPC 编程
 
@@ -1522,6 +1523,10 @@ rolodex 容器以 `--net host` 运行，并把 DNS 绑定到 `DNSLoopback`（`12
 **上游已修复。** rolodex 从前只有在**配置文件里**启用了阻断名单时才会启动它的「:53 是否可达」探测，因此当名单不再写进那个文件之后，探测就再也不会启动，而一份已配置的阻断名单恰恰会在那个探测赖以存在的网络上劣化。现在它是 `DnsblChecker::resolver_availability_loop`，无条件派生，并且把关的是检查器*运行期*的启用标志——正是自动解析恢复循环早就有的那种形状。一份通过 gRPC 打开的名单，几秒之内就能拿到探测。
 
 回归测试是 `TestProgramRolodex*` 与 `TestReconcileProgramming*`（单元测试），以及 `TestProgrammedSettingsSurviveARolodexRestart` 与 `TestGenerationChangesOnlyWhenRolodexRestarts`（集成测试）—— 后者会对一个真实的 rolodex 编程、重启它、确认服务自己已经忘记，然后重新编程。
+
+**镜像与文件是配套的一对，两者之间没有任何协商。** `rolodex.yml` 由 `../install` 写出，由这台机器碰巧在跑的那个 rolodex 镜像解析，两个方向都没有版本握手——serde 对未知或缺失的字段一律直接拒绝。某个字段在镜像那一版是必填而文件里没有，或者文件里有而镜像不认识，启动时就是一次硬性的 `failed to parse config file`，而在 `Restart=always` 之下那就是一场崩溃循环，机器上的一切都没有了 DNS。这已经在测试台上发生过一次：发布的镜像早于 `rbl` → `dnsbl` 的改名，于是每一个启动真实 rolodex 的测试都死在 `missing field \`rbl\`` 上，而每一个走 mock 的测试都通过。由此得出的规矩是：安装仓库的 `rolodex-config.sh` 与发布的 rolodex 镜像要**一起**动；而在这里升一次 `rolodex-dns/go` 只是半次升级——参见「本机所服务的加密传输」一节里那个两边都需要的 SVCB 版本钉。
+
+**只有一道护栏，而且只管一个方向。** `TestRolodexDohBackendMatchesTheInstallScript` 从 `../install/scripts/rolodex-config.sh` 里解析出 `doh.bind`，与 `RolodexDohBackend` 比对，因此**这一侧**任何偏离安装脚本的改动都会在这里失败。反方向——改的是安装脚本——只有当有人随后跑了这个仓库的测试才会被抓到，而且在安装仓库没有签出的地方这个测试会**跳过**，测试容器正是这样的地方。安装那一侧没有任何检查，两个仓库之间也没有生成式的共享常量。请把这道护栏当作只覆盖它所覆盖的那个方向。
 
 ### 本地转发器
 

@@ -1,7 +1,21 @@
 // IRON RULE: make test-full must always be able to run simultaneously in the
 // same repository without conflicting. Nothing else matters more than this.
 
-package ingress
+// These four tests drive a REAL caddy child over real sockets, which is why they
+// live here rather than in src/ingress beside the code they exercise.
+//
+// findCaddy needs a caddy binary. `make test` runs ./src/... on the HOST, and a
+// developer box has no reason to have caddy installed — so for as long as these
+// lived in src/ingress they reported SKIP in every harness run, which in a
+// summary line is indistinguishable from four tests that do not exist. The test
+// image carries caddy at /usr/bin/caddy (copied in from caddy:2-alpine, the same
+// donor stage the ingress image uses), and only ./integration/... is compiled
+// into the binary that runs inside it. Moving them is what makes them run.
+//
+// The skip is kept for the developer box, where it is honest: there, caddy
+// really may be absent.
+
+package integration_test
 
 import (
 	"context"
@@ -20,6 +34,7 @@ import (
 	"time"
 
 	"gitea.com/town-os/town-os/src/caddysup"
+	"gitea.com/town-os/town-os/src/ingress"
 	ingresspb "gitea.com/town-os/town-os/src/ingress/proto"
 	townostls "gitea.com/town-os/town-os/src/tls"
 )
@@ -57,7 +72,7 @@ func TestIngressRoutesTLSToBackend(t *testing.T) {
 
 	port := freePort(t)
 	sup := caddysup.NewSupervisor(caddyBin, filepath.Join(t.TempDir(), "Caddyfile"))
-	srv := NewServer(sup, port, freePort(t), "", WithCaddyAdminPort(freePort(t)))
+	srv := ingress.NewServer(sup, port, freePort(t), "", ingress.WithCaddyAdminPort(freePort(t)))
 	if err := srv.Bootstrap(); err != nil {
 		t.Fatalf("bootstrap caddy: %v", err)
 	}
@@ -150,7 +165,7 @@ func TestIngressHTTPPortRouting(t *testing.T) {
 	httpsPort := freePort(t)
 	httpPort := freePort(t)
 	sup := caddysup.NewSupervisor(caddyBin, filepath.Join(t.TempDir(), "Caddyfile"))
-	srv := NewServer(sup, httpsPort, httpPort, uiBackend, WithCaddyAdminPort(freePort(t)))
+	srv := ingress.NewServer(sup, httpsPort, httpPort, uiBackend, ingress.WithCaddyAdminPort(freePort(t)))
 	if err := srv.Bootstrap(); err != nil {
 		t.Fatalf("bootstrap caddy: %v", err)
 	}
@@ -232,7 +247,7 @@ func findCaddy(t *testing.T) string {
 	if _, err := os.Stat(caddysup.DefaultCaddyBinary); err == nil {
 		return caddysup.DefaultCaddyBinary
 	}
-	t.Skip("caddy binary not found; skipping ingress integration test")
+	t.Skip("caddy binary not found; skipping the tests that drive a real caddy")
 	return ""
 }
 
@@ -388,7 +403,7 @@ func TestIngressProxiesToAnHTTPSBackend(t *testing.T) {
 
 	port := freePort(t)
 	sup := caddysup.NewSupervisor(caddyBin, filepath.Join(t.TempDir(), "Caddyfile"))
-	srv := NewServer(sup, port, freePort(t), "", WithCaddyAdminPort(freePort(t)))
+	srv := ingress.NewServer(sup, port, freePort(t), "", ingress.WithCaddyAdminPort(freePort(t)))
 	if err := srv.Bootstrap(); err != nil {
 		t.Fatalf("bootstrap caddy: %v", err)
 	}
@@ -483,8 +498,8 @@ func TestIngressDefaultBackendOverHTTPS(t *testing.T) {
 
 			httpPort := freePort(t)
 			sup := caddysup.NewSupervisor(caddyBin, filepath.Join(t.TempDir(), "Caddyfile"))
-			srv := NewServer(sup, freePort(t), httpPort, addr,
-				WithDefaultBackendTLS(tc.backendTLS), WithCaddyAdminPort(freePort(t)))
+			srv := ingress.NewServer(sup, freePort(t), httpPort, addr,
+				ingress.WithDefaultBackendTLS(tc.backendTLS), ingress.WithCaddyAdminPort(freePort(t)))
 			if err := srv.Bootstrap(); err != nil {
 				t.Fatalf("bootstrap caddy: %v", err)
 			}

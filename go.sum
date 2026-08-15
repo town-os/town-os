@@ -1,11 +1,5 @@
 dario.cat/mergo v1.0.2 h1:85+piFYR1tMbRrLcDwR18y4UKJ3aH1Tbzi24VRW1TK8=
 dario.cat/mergo v1.0.2/go.mod h1:E/hbnu0NxMFBjpMIE34DRGLWqDy0g5FuKDhCb31ngxA=
-gitea.com/town-os/rolodex-dns/go v0.0.0-20260808030231-8aa1c6a132a9 h1:LD+0SUP3P/ukw2sKAbg1uhp7r1zWKJs/hnQpKSN26s0=
-gitea.com/town-os/rolodex-dns/go v0.0.0-20260808030231-8aa1c6a132a9/go.mod h1:T7JRiHx4C/Vf1ItevwjyzkhWhEPYfq/oCc2DAt0HWYk=
-gitea.com/town-os/rolodex-dns/go v0.0.0-20260812215946-5844fff5bb57 h1:TiG76d1BzyMByVc2vKTzRcNFHq3onNTyNZG8k8XES/U=
-gitea.com/town-os/rolodex-dns/go v0.0.0-20260812215946-5844fff5bb57/go.mod h1:T7JRiHx4C/Vf1ItevwjyzkhWhEPYfq/oCc2DAt0HWYk=
-gitea.com/town-os/rolodex-dns/go v0.0.0-20260815003116-9fe53869ed54 h1:GuK4XCWvk71cs9fmoGyD/ql0y9PccpcCPBt53zA1Mh4=
-gitea.com/town-os/rolodex-dns/go v0.0.0-20260815003116-9fe53869ed54/go.mod h1:T7JRiHx4C/Vf1ItevwjyzkhWhEPYfq/oCc2DAt0HWYk=
 gitea.com/town-os/rolodex-dns/go v0.0.0-20260815084027-4e93465935bc h1:shV3j818WM+VE8oBl6waNgZFO821QdPxYYm8rdXvEL0=
 gitea.com/town-os/rolodex-dns/go v0.0.0-20260815084027-4e93465935bc/go.mod h1:T7JRiHx4C/Vf1ItevwjyzkhWhEPYfq/oCc2DAt0HWYk=
 github.com/Microsoft/go-winio v0.5.2/go.mod h1:WpS1mjBmmwHBEWmogvA2mj8546UReBk4v8QkMxJ6pZY=

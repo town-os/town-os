@@ -30,6 +30,7 @@ Setup
 
 Build & lint
   lint                    Run golangci-lint and the UI lint suite.
+  tidy                    Prune go.mod/go.sum with go mod tidy.
   production-image        Build the production systemcontroller container image.
   test-image              Build the integration-test container image.
   ui-image                Build the local UI image used by tests (host arch).

@@ -315,6 +315,9 @@ ssh:
 lint:
 	@make/lint.sh
 
+tidy:
+	@make/tidy.sh
+
 btrfs:
 	@make/btrfs.sh create
 

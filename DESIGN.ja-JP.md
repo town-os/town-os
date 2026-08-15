@@ -1483,9 +1483,8 @@ Town OS には `rolodex-dns` のコンテナが動かす統合されたローカ
 
 rolodex 自体は systemd がインストールして監督する起動サービスである —— systemcontroller はコンテナの水準でそれをインストールも、起動も、停止も、再起動もしない。代わりに `rolodex.Manager` は:
 
-- **`WriteConfig`** -- `DataDir` へ `rolodex.yml` を書く。冪等である。ファイルが存在し、systemcontroller のバイナリより新しく、期待する内容と既に一致しているときは書かずに飛ばす。ファイルが書かれたかどうかを示す真偽値を返す（呼び出し側が systemd のユニットを再起動するかを決められるように）。
-
-> **この項は歴史である。** `WriteConfig` も `RewriteConfig` も削除され、Town OS は rolodex の設定ファイルをまったく書かない。かつてそれらが描き出していた設定は、動いているサーバーへ書き込まれるようになり、残ったファイルはインストールイメージのものである。上の「rolodex.yml は起動用の設定にすぎない」の項を参照。
+- **`Forwarders` / `ResolutionMode` / `Blocklists`** -- Town OS が所有する設定であり、保存された構成とホストの探索から解決される。マネージャはファイルを書かない。これらは `ProgramRolodex` が動いているサーバーへ押し込むものである。下の「rolodex.yml は起動用の設定にすぎない」の項を参照。
+- **`Generation`** -- rolodex が起動時にバインドする gRPC ソケットの同一性（デバイス、inode、mtime）。rolodex が再起動したちょうどそのときに変わるので、プログラムした設定をすべて落とした再起動に気づく手立てはこれである。ソケットが無いときは空で、それは rolodex が動いていないことを意味する。
 - **`WaitForDNSReady`** -- `DNSLoopback:{port}` を TCP でポーリングし、接続を受け入れるか 30 秒の期限が過ぎるまで続ける。DNS に依存するあらゆる操作（イメージの pull など）の前に、起動時に呼ばれる。
 - **`SystemServices`** -- rolodex のシステムサービスのメタデータ（鍵、表示名、イメージ、ポート、ユニット名）を返すので、状態の応答と UI で他のシステムサービスと並んで現れる。
 - **`Status`** -- systemd のユニットの状態を問い合わせ、rolodex が動いているかを報告する。
@@ -1506,7 +1505,9 @@ rolodex のコンテナは `--net host` で動き、DNS を設定されたポー
 
 守られていた実体は何も無かった。ファイルの中のどの値も Town OS の状態から描き出される —— DNS のポート、フォワーダー、解決のモード、二つのブロックリスト、メトリクスのポート —— そしてそのどれかを変える実行時の経路は、いずれにせよ既にファイルを上書きしていた（それが `RewriteConfig` の正体である）。手による編集は、以前は次の設定変更まで生き延びた。今は次の起動まで生き延びる。
 
-回帰のテストは `TestWriteConfigReplacesConfigNewerThanTheBinary` と `TestWriteConfigAddsSectionsMissingFromAnOlderRendering`（単体）、そして `TestUpgradedControllerOpensRolodexMetricsListener`（統合）である。最後のものは `9689461` より前の設定を未来の mtime とともに置き、起動の入口を通してそれを調停し、そのあと本物の rolodex のコンテナが開ける listener を収集する。
+**この項は歴史である。** `WriteConfig` も `RewriteConfig` も削除され、Town OS は rolodex の設定ファイルをまったく書かない。かつてそれらが描き出していた設定は、動いているサーバーへ書き込まれるようになり、残ったファイルはインストールイメージのものである。下の「rolodex.yml は起動用の設定にすぎない」の項を参照。この項を残してあるのは、ここに書かれた失敗 —— 黙って何もしない設定の書き込みが、ある機能が一度も動かなかったという形でしか表に出てこない —— が、この部分系が繰り返し生み出すバグの形だからである。
+
+それらの回帰のテストは、守っていたコードとともに無くなった。代わりになるものは次の項に挙げてある。
 
 ### rolodex.yml は起動用の設定にすぎない。設定は gRPC で書き込む
 
@@ -1521,6 +1522,10 @@ Town OS が持つそれ以外のすべて —— フォワーダーの一覧、`
 **上流で修正済み。** rolodex が「:53 に届くか」の探索を起こすのは、かつては**設定ファイルの中で**ブロックリストが有効なときだけだった。そのため一覧がそのファイルに書かれなくなって以降この探索は起動せず、設定されたブロックリストは、まさにその探索が存在する理由である網の上で劣化していた。いまはこれは `DnsblChecker::resolver_availability_loop` であり、無条件に起動され、チェッカーの*実行時の*有効フラグで判断する —— 自動解決の回復ループがすでに持っていたのと同じ形である。gRPC で有効にされた一覧は数秒のうちに探索を得る。
 
 回帰テストは `TestProgramRolodex*` と `TestReconcileProgramming*`（ユニット）、および `TestProgrammedSettingsSurviveARolodexRestart` と `TestGenerationChangesOnlyWhenRolodexRestarts`（統合）である。後者は本物の rolodex に書き込み、再起動し、サーバー自身が忘れたことを確かめ、書き直す。
+
+**イメージとファイルは対であり、その間を取り持つ交渉は何も無い。** `rolodex.yml` は `../install` が書き、その箱がたまたま動かしている rolodex のイメージが解析する。どちらの向きにもバージョンの握手は無く、serde は知らないフィールドも欠けたフィールドもそのまま拒む。イメージの版では必須なのにファイルに無いフィールド、あるいはファイルにあってイメージが知らないフィールドがあれば、起動時の固い `failed to parse config file` になり、`Restart=always` の下ではそれは crash loop、その箱の上のすべてから DNS が消える。これは既に一度、この試験台で起きた。公開されていたイメージが `rbl` → `dnsbl` の改名より前のもので、本物の rolodex を起こすテストはすべて `missing field \`rbl\`` で死に、mock を使うテストはすべて通った。そこから出てくる規則はこうである。install の側の `rolodex-config.sh` と公開される rolodex のイメージは**一緒に**動く。そしてここで `rolodex-dns/go` を上げるのは半分でしかない —— 両方を必要とした SVCB の固定については「この箱が提供する暗号化された伝送路」の項を参照。
+
+**番人は一つ、向きも一つ。** `TestRolodexDohBackendMatchesTheInstallScript` は `../install/scripts/rolodex-config.sh` から `doh.bind` を取り出して `RolodexDohBackend` と突き合わせるので、**こちら側**でインストールの指令書から離れていく編集はここで落ちる。逆向き —— 編集されたのがインストールの指令書のほう —— は、そのあと誰かがこのリポジトリのテストを走らせたときにしか捕まらないし、install のリポジトリが取り出されていない場所ではこのテストは**飛ばされる**。試験用のコンテナがまさにそれである。install の側には検査が無く、二つのリポジトリの間に生成された共有の定数も無い。この番人は、それが覆う向きだけを覆うものとして扱うこと。
 
 ### ローカルのフォワーダー
 
