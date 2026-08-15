@@ -32,18 +32,45 @@ ARCH="$(build_arch_tag)"
 #
 # That fetch repoints the name in podman storage at the target arch, and it has
 # to: storage holds one image per name:tag and the runtime stage needs the other
-# one. What it no longer does is destroy anything. The cache tars are keyed by
-# architecture (image_cache_tar in lib.sh), so the host-arch copy survives
-# untouched, and the next native build's ensure_image sees the wrong arch in
-# storage and restores its own from a local `podman load` rather than a network
-# pull. Before that keying the two architectures evicted each other from a
-# single tar, and every alternation between them re-pulled every base image.
+# one. What it must not do is happen twice, and it did. The cache tars are keyed
+# by architecture (image_cache_tar in lib.sh), so a native build restores its own
+# base from a local `podman load` — but podman's implicit FROM fetch goes nowhere
+# near that cache, so the CROSS direction never wrote a tar of its own and paid a
+# full network pull on every single alternation. The evidence was a cache holding
+# debian-bookworm-slim-amd64.tar and no arm64 tar at all, on a checkout that had
+# cross-built repeatedly. stage_runtime_bases below is what closes that: the
+# target-arch base is put in storage THROUGH ensure_image, so it comes from the
+# cache when there is one and is saved to it when there is not.
 BUILD_PLATFORM_ARGS=()
 PULL_ARGS=(--pull=never)
 if cross_building; then
   BUILD_PLATFORM_ARGS=(--platform "linux/$(build_oci_arch)")
   PULL_ARGS=()
 fi
+
+# stage_runtime_bases IMAGE... — put each image in podman storage at the BUILD
+# arch, from the arch-keyed cache when possible, before a build asks for it.
+#
+# Only the runtime bases go through here, and the distinction is the one the
+# Containerfiles already make. A stage declared `FROM --platform=$BUILDPLATFORM`
+# (golang, bun, rust) is the toolchain: it runs HERE, cross-compiles, and is
+# wanted at the host arch whatever is being built — so it is left alone, and
+# `load-base` staging it at the host arch stays correct. A stage declared with a
+# bare FROM is the runtime: it resolves at the TARGET platform and ships, and it
+# is the one that flips architecture underneath the store when TARGET moves.
+#
+# Calling this makes the flip a cache load instead of a network pull, in BOTH
+# directions rather than only back to native, and — because ensure_image saves
+# what it pulls — makes the first cross build of a base the last one that costs
+# anything. It is a no-op when storage already holds the right architecture, so
+# the native path pays a `podman image inspect` and nothing else.
+stage_runtime_bases() {
+  local arch img
+  arch="$(build_oci_arch)" || return 1
+  for img in "$@"; do
+    ensure_image "${img}" "${arch}" || return 1
+  done
+}
 
 # The local targets build images that are RUN on this host — the test harness,
 # dev, and the locally built UI/NC/ingress/gfeh images the harness injects into
@@ -190,6 +217,9 @@ case "$1" in
   release)
     step "Building release image"
     require_cross_binfmt
+    # Containerfile's runtime stage. The toolchain stages (golang, bun) are
+    # $BUILDPLATFORM-pinned and stay at the host arch.
+    stage_runtime_bases docker.io/library/debian:bookworm-slim
     mkdir -p .cache/go-mod .cache/go-build "${BUN_CACHE}"
     ${SUDO} podman build --network=host "${PULL_ARGS[@]}" "${BUILD_PLATFORM_ARGS[@]}" \
       --build-arg "TOWN_OS_GO_TAGS=${GO_BUILD_TAGS}" \
@@ -209,6 +239,7 @@ case "$1" in
     # no changing input, so a cache hit silently ships an old UI. The mounted
     # The mounted host bun cache keeps bun install fast despite --no-cache.
     require_cross_binfmt
+    stage_runtime_bases docker.io/library/caddy:latest
     mkdir -p "${BUN_CACHE}"
     ${SUDO} podman build --network=host "${PULL_ARGS[@]}" "${BUILD_PLATFORM_ARGS[@]}" --no-cache \
       "${BUN_BUILD_ARGS[@]}" \
@@ -228,6 +259,7 @@ case "$1" in
       exit 1
     fi
     step "Building Proton runner image"
+    stage_runtime_bases docker.io/library/debian:bookworm
     ${SUDO} podman build --network=host "${BUILD_PLATFORM_ARGS[@]}" \
       -t "$(staged_ref "${RELEASE_PROTON_IMAGE}")" -f Containerfile.proton .
     ;;
@@ -235,10 +267,14 @@ case "$1" in
     step "Building network controller image"
     require_cross_binfmt
     mkdir -p .cache/go-mod .cache/go-build
-    # No --pull=never: release-nc-image has no dependency on the image-cache
-    # load, so the bases (golang:1.25-bookworm, caddy:2-alpine, alpine:latest)
-    # may not be in the host store on a fresh checkout even though all three
-    # are in BASE_IMAGES/ALL_IMAGES. Let podman pull them on demand.
+    # Both of Containerfile.networkcontroller's bare-FROM stages: the alpine
+    # the image ships on, and the caddy it lifts a binary out of. The donor
+    # counts as a runtime base — the binary it hands over has to run on the
+    # TARGET, so resolving it at the target platform is the point.
+    stage_runtime_bases docker.io/library/caddy:2-alpine docker.io/library/alpine:latest
+    # Still no --pull=never: the staging above covers the runtime bases, but
+    # golang:1.25-bookworm is the builder and may be absent on a fresh
+    # checkout, since this target has no dependency on the image-cache load.
     ${SUDO} podman build --network=host "${BUILD_PLATFORM_ARGS[@]}" \
       --volume "$(pwd)/.cache/go-mod:/go/pkg/mod:z" \
       --volume "$(pwd)/.cache/go-build:/root/.cache/go-build:z" \
@@ -248,11 +284,11 @@ case "$1" in
     step "Building ingress image"
     require_cross_binfmt
     mkdir -p .cache/go-mod .cache/go-build
-    # No --pull=never: release-ingress-image has no dependency on the
-    # image-cache load, so the bases (golang:1.25-bookworm, caddy:2-alpine,
-    # alpine:latest) may not be in the host store on a fresh checkout even
-    # though all three are in BASE_IMAGES/ALL_IMAGES. Let podman pull them on
-    # demand.
+    # As release-nc: the ingress ships on alpine and lifts caddy out of the
+    # same donor, and both resolve at the target platform.
+    stage_runtime_bases docker.io/library/caddy:2-alpine docker.io/library/alpine:latest
+    # Still no --pull=never: golang:1.25-bookworm is the builder base and this
+    # target has no dependency on the image-cache load.
     ${SUDO} podman build --network=host "${BUILD_PLATFORM_ARGS[@]}" \
       --volume "$(pwd)/.cache/go-mod:/go/pkg/mod:z" \
       --volume "$(pwd)/.cache/go-build:/root/.cache/go-build:z" \
@@ -261,6 +297,9 @@ case "$1" in
   release-gfeh)
     step "Building gfeh image"
     require_cross_binfmt
+    # Containerfile.gfeh's runtime stage; rust:1-bookworm is the builder and is
+    # deliberately neither cached nor staged (see the gfeh-local arm).
+    stage_runtime_bases docker.io/library/debian:bookworm-slim
     mkdir -p .cache/cargo-registry
     # --no-cache is load-bearing, not caution. The image takes whatever gfehd
     # crates.io holds today, and `cargo install gfehd` is a byte-identical RUN

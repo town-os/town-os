@@ -126,10 +126,18 @@ esac
 // returning its combined output, the stub's record directory, and the error.
 func runLib(t *testing.T, snippet string, env ...string) (string, string, error) {
 	t.Helper()
+	return runLibWithStub(t, podmanStub, snippet, env...)
+}
+
+// runLibWithStub is runLib against a caller-supplied podman stub, so a test
+// that needs podman to model something other than tagging can say so without
+// growing this one stub into a second implementation of podman.
+func runLibWithStub(t *testing.T, stub, snippet string, env ...string) (string, string, error) {
+	t.Helper()
 
 	stubDir := t.TempDir()
 	recordDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(stubDir, "podman"), []byte(podmanStub), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(stubDir, "podman"), []byte(stub), 0o755); err != nil {
 		t.Fatalf("write podman stub: %v", err)
 	}
 
