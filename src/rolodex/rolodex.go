@@ -1,8 +1,10 @@
 // Package rolodex provides a client interface for the Rolodex DNS server.
 // The Rolodex systemd unit is a boot service managed entirely by systemd —
 // the systemcontroller does not install, start, stop, or restart it.
-// This package writes the rolodex configuration file, waits for DNS
-// readiness, and reports service status.
+// This package holds the rolodex settings Town OS owns, programs them into the
+// running server over gRPC (rolodex keeps them in memory only), waits for DNS
+// readiness, and reports service status. It writes no configuration file: the
+// only file rolodex reads is the bootstrap config the install image renders.
 package rolodex
 
 import (
@@ -11,9 +13,9 @@ import (
 	"log/slog"
 	"net"
 	"os"
-	"path/filepath"
-	"strings"
+	"strconv"
 	"sync"
+	"syscall"
 	"time"
 
 	"gitea.com/town-os/town-os/src/systemd"
@@ -50,13 +52,13 @@ const (
 	// ResolutionModeForward forwards unmatched queries to the configured
 	// upstream forwarders (legacy behavior). Used by forwarding tests.
 	ResolutionModeForward = "forward"
-	// DefaultResolutionMode is the upstream resolution strategy written to
-	// rolodex.yml when Config.ResolutionMode is unset.
+	// DefaultResolutionMode is the upstream resolution strategy programmed
+	// into rolodex when Config.ResolutionMode is unset.
 	DefaultResolutionMode = ResolutionModeAuto
 )
 
-// DefaultForwarders are the upstream DNS forwarder addresses written to
-// rolodex.yml when Config.Forwarders is not set.
+// DefaultForwarders are the upstream DNS forwarder addresses programmed into
+// rolodex when Config.Forwarders is not set.
 var DefaultForwarders = []string{"8.8.8.8:53", "8.8.4.4:53"}
 
 // SystemService describes the rolodex system service metadata.
@@ -103,7 +105,7 @@ type Config struct {
 	// avoid colliding with a production rolodex service.
 	Key string
 	// Forwarders overrides the upstream DNS forwarder addresses
-	// ("host:port") written to rolodex.yml. Defaults to
+	// ("host:port") programmed into rolodex. Defaults to
 	// DefaultForwarders. Consulted in "forward" mode, and as the
 	// local-forwarder tier of "auto"; in "recursive" mode rolodex resolves
 	// from the roots and ignores them.
@@ -138,12 +140,10 @@ type Config struct {
 	// (iterative from the root servers only, no fallback), or "forward"
 	// (forward to Forwarders). Defaults to DefaultResolutionMode.
 	ResolutionMode string
-	// RBL and DNSBL are the two blocklist provider lists rendered into
-	// rolodex.yml. They seed the manager at boot from the persisted
-	// configuration; SetBlocklists replaces them when an operator changes one.
-	// The zero value of each renders exactly the "disabled, no providers"
-	// section this file has always carried.
-	RBL   Blocklist
+	// DNSBL is the blocklist provider list programmed into rolodex. It seeds
+	// the manager at boot from the persisted configuration; SetBlocklist
+	// replaces it when an operator changes it. The zero value is "disabled, no
+	// providers", which is also rolodex's own default.
 	DNSBL Blocklist
 }
 
@@ -152,10 +152,10 @@ type Config struct {
 // stop, or restart it.
 type Manager struct {
 	cfg Config
-	// mu guards the blocklist lists alone. They are the only configuration
-	// this manager holds that an HTTP handler writes after construction
-	// (POST /dns/rbl and POST /dns/dnsbl), and they carry slices — two
-	// concurrent saves racing on one is a data race, not a torn scalar.
+	// mu guards the blocklist alone. It is the only configuration this manager
+	// holds that an HTTP handler writes after construction (POST /dns/dnsbl),
+	// and it carries a slice — two concurrent saves racing on it is a data
+	// race, not a torn scalar.
 	mu sync.RWMutex
 }
 
@@ -238,23 +238,25 @@ func ValidResolutionMode(mode string) bool {
 		mode == ResolutionModeForward
 }
 
-// SetResolutionMode changes the mode this manager renders into rolodex.yml.
-// Callers must follow with RewriteConfig + a unit restart for it to take
-// effect on the running server.
+// SetResolutionMode changes the mode this manager holds. It is what
+// ProgramRolodex pushes to the running server, at boot and after every rolodex
+// restart; a caller changing it at runtime programs the server itself so the
+// change takes effect immediately, with no unit restart.
 func (m *Manager) SetResolutionMode(mode string) {
 	m.cfg.ResolutionMode = mode
 }
 
-// Blocklists returns the RBL and DNSBL provider lists this manager renders
-// into rolodex.yml.
-func (m *Manager) Blocklists() (rbl, dnsbl Blocklist) {
+// Blocklist returns the DNSBL provider list this manager holds, which is what
+// gets programmed into the running rolodex.
+func (m *Manager) Blocklist() Blocklist {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.cfg.RBL.clone(), m.cfg.DNSBL.clone()
+	return m.cfg.DNSBL.clone()
 }
 
-// SetBlocklists changes the provider lists this manager renders into
-// rolodex.yml. Callers follow with RewriteConfig.
+// SetBlocklist changes the provider list this manager holds, so that the
+// next programming pass — boot, or the tick after a rolodex restart — pushes
+// these rather than the ones this process started with.
 //
 // Unlike SetResolutionMode, this needs NO unit restart: the live server is
 // programmed over gRPC by the same handler, so bouncing DNS to apply a change
@@ -263,21 +265,10 @@ func (m *Manager) Blocklists() (rbl, dnsbl Blocklist) {
 // under Restart=always, a system-services refresh, the restart a
 // resolution-mode change performs — comes back with the lists still
 // configured, because rolodex persists none of this itself.
-func (m *Manager) SetBlocklists(rbl, dnsbl Blocklist) {
+func (m *Manager) SetBlocklist(dnsbl Blocklist) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.cfg.RBL = rbl.clone()
 	m.cfg.DNSBL = dnsbl.clone()
-}
-
-// RewriteConfig is the runtime name for WriteConfig, kept because the runtime
-// call sites (a resolution-mode change, a blocklist edit, a local-forwarder
-// toggle) read better naming the intent. The two used to differ: WriteConfig
-// carried an mtime guard that RewriteConfig deliberately bypassed. That guard
-// is gone — see WriteConfig for why — so they are now one behavior with two
-// names, and neither can silently drop a change.
-func (m *Manager) RewriteConfig() (bool, error) {
-	return m.WriteConfig()
 }
 
 // UnitName returns the systemd unit that supervises rolodex.
@@ -329,152 +320,48 @@ func (m *Manager) LocalForwarders() bool {
 }
 
 // SetLocalForwarders changes whether the host's own resolvers are used as the
-// forwarder list. Callers must follow with RewriteConfig + a unit restart for
-// it to take effect on the running server.
+// forwarder list. The list itself is re-derived on every read (see forwarders),
+// and programmed into the running server — no unit restart.
 func (m *Manager) SetLocalForwarders(enabled bool) {
 	m.cfg.LocalForwarders = enabled
 }
 
-// rolodexConfig returns the canonical rolodex YAML configuration with the
-// given DNS port, upstream forwarders, resolution mode, and metrics port. The
-// bind address is always DNSLoopback (127.0.0.2) because the rolodex container
-// runs with --net host.
+// Generation identifies the current run of the rolodex server, and changes
+// exactly when rolodex restarts.
 //
-// The metrics section is written unconditionally so Prometheus always has a
-// rolodex target: DNS is the subsystem whose failures are hardest to see from
-// the outside (a SERVFAIL looks like a broken app), and the counters that make
-// the split-horizon pipeline legible — which stage answered, which upstream
-// tier is live, cache hit rate — exist only here. It is opt-in upstream and
-// absent by default, so writing it is what turns it on. The endpoint is
-// unauthenticated plain HTTP, which is why it binds a loopback address and is
-// never published to the LAN. A rolodex older than 0.4.3 does not know the key
-// and ignores it (its config struct does not deny unknown fields), so the only
-// cost of an old image is a scrape target that reads as down.
+// It is the identity of the gRPC socket rolodex binds at startup — device,
+// inode and modification time — because that is a restart signal Town OS can
+// read with one stat, with no D-Bus round trip, no unit property this codebase
+// does not already expose, and no RPC of its own. rolodex unlinks and rebinds
+// the socket on every start, so a new run always has a new inode.
 //
-// resolution.mode defaults to "auto": rolodex tries the root servers first and
-// falls back through DoH/DoT, the local forwarder, and a public :53 resolver,
-// sticking to whichever tier last worked. Bare "recursive" has no fallback — on
-// a network that filters or hijacks outbound :53 every external name SERVFAILs,
-// and because the resolver sends a single un-retransmitted datagram per server,
-// even ordinary packet loss surfaces as SERVFAIL. Auto keeps recursion's privacy
-// where the network allows it and degrades instead of failing where it does not.
-// The mode is written explicitly (rather than left to rolodex's own default) so
-// Town OS behavior does not move when upstream changes its default. The
-// forwarders are still written; they are consulted only in "forward" mode and as
-// auto's local-forwarder tier.
+// Why a restart signal is needed at all: rolodex holds forwarders, resolution
+// mode and both blocklists in memory only. It seeds them from its config file
+// at startup and persists nothing set over gRPC, so everything Town OS
+// programmed is gone the moment the process restarts — a crash under
+// Restart=always, a DHCP lease change bouncing the unit, an operator
+// restarting it by hand. Comparing this value against the one held at the last
+// successful programming is what turns "rolodex restarted" into "reprogram
+// it", promptly, without polling rolodex itself.
 //
-// Both blocklist sections are written unconditionally, and both are rendered
-// from Town OS's persisted configuration rather than pinned to "disabled, no
-// providers". Rolodex holds the provider lists in memory only — it seeds them
-// from this file and persists nothing a gRPC SetRblConfig/SetDnsblConfig call
-// changes — so this file is the only thing a restarting rolodex reads them back
-// from. The dnsbl section previously was not written at all, which left the
-// domain blocklist with no way to be restored even in principle. See
-// renderBlocklist.
-func rolodexConfig(p rolodexConfigParams) string {
-	mode := p.Mode
-	if mode == "" {
-		mode = DefaultResolutionMode
+// An empty string means the socket is not there — rolodex is not running, or
+// has not bound yet. Callers treat that as "nothing to program", not as a
+// change: programming a server that is not up cannot succeed, and recording it
+// as a generation would skip the real programming once it does.
+func (m *Manager) Generation() string {
+	info, err := os.Stat(m.SocketPath())
+	if err != nil {
+		return ""
 	}
-	metricsPort := p.MetricsPort
-	if metricsPort == "" {
-		metricsPort = DefaultMetricsPort
+	sys, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		// Not Linux, or an unexpected FileInfo: fall back to mtime alone.
+		// Coarser (an inode reused within the same nanosecond would be
+		// missed) but never wrong in the direction that matters — a restart
+		// that takes any measurable time still changes it.
+		return strconv.FormatInt(info.ModTime().UnixNano(), 10)
 	}
-	var fwd strings.Builder
-	for _, f := range p.Forwarders {
-		fmt.Fprintf(&fwd, "  - %q\n", f)
-	}
-	return fmt.Sprintf(`database_path: /data/rolodex.db
-dns:
-  bind:
-    - udp: "%s:%s"
-    - tcp: "%s:%s"
-grpc:
-  tcp_bind: ""
-  unix_socket: /data/rolodex.sock
-  shared_secret: ""
-forwarders:
-%sresolution:
-  mode: %s
-%s%smetrics:
-  bind: "%s:%s"
-`,
-		DNSLoopback, p.Port, DNSLoopback, p.Port,
-		fwd.String(), mode,
-		renderBlocklist("rbl", p.RBL), renderBlocklist("dnsbl", p.DNSBL),
-		DNSLoopback, metricsPort,
-	)
-}
-
-// rolodexConfigParams is what rolodexConfig renders. It is a struct rather
-// than a positional list because six same-typed strings in a row is a bug
-// waiting to be introduced by a transposition the compiler cannot see.
-type rolodexConfigParams struct {
-	Port        string
-	Forwarders  []string
-	Mode        string
-	MetricsPort string
-	RBL         Blocklist
-	DNSBL       Blocklist
-}
-
-// configParams collects everything rolodexConfig needs from this manager,
-// taking the blocklist read lock once.
-func (m *Manager) configParams() rolodexConfigParams {
-	rbl, dnsbl := m.Blocklists()
-	return rolodexConfigParams{
-		Port:        m.dnsPort(),
-		Forwarders:  m.forwarders(),
-		Mode:        m.resolutionMode(),
-		MetricsPort: m.metricsPort(),
-		RBL:         rbl,
-		DNSBL:       dnsbl,
-	}
-}
-
-// WriteConfig renders rolodex.yml into DataDir and writes it when the bytes
-// differ from what is already there. It returns true only when the file
-// actually changed, so the caller restarts the unit only when there is
-// something to restart it for.
-//
-// It reconciles unconditionally, and that is a fix rather than a simplification.
-// It used to skip any rolodex.yml whose mtime was newer than the
-// systemcontroller binary's, on the theory that a newer file had been
-// hand-edited. The file a boot writes is always newer than the binary in the
-// image that wrote it, so from the SECOND boot onward that guard matched the
-// controller's own output and WriteConfig became a permanent no-op: rolodex.yml
-// froze at whatever the first controller to run on that box rendered, for the
-// life of the box, and no image update could move it.
-//
-// Every section added after a box's first boot therefore never arrived. That
-// shipped twice — `dnsbl:` (31f7e80) and then `metrics:` (9689461) — and the
-// second one is why a deployed box had no rolodex metrics listener at all:
-// Prometheus scraped 127.0.0.2:9153 on schedule, nothing was ever bound there,
-// and every DNS panel rendered an empty chart rather than an error.
-//
-// Nothing real is lost. Every value in this file is rendered from Town OS state
-// — DNS port, forwarders, resolution mode, both blocklists, the metrics port —
-// and every runtime path that changes one of them already wrote the file with
-// no regard for the guard (that is what RewriteConfig was). A hand edit
-// survived until the next settings change before; now it survives until the
-// next boot.
-func (m *Manager) WriteConfig() (bool, error) {
-	if err := os.MkdirAll(m.cfg.DataDir, 0755); err != nil { //nolint:gosec // data dir must be accessible by container process
-		return false, fmt.Errorf("create data dir: %w", err)
-	}
-
-	config := rolodexConfig(m.configParams())
-	configPath := filepath.Join(m.cfg.DataDir, "rolodex.yml")
-
-	if existing, err := os.ReadFile(configPath); err == nil && string(existing) == config { //nolint:gosec // G304 -- configPath is built from the controlled DataDir
-		return false, nil
-	}
-
-	if err := os.WriteFile(configPath, []byte(config), 0644); err != nil { //nolint:gosec // config must be readable by container process
-		return false, fmt.Errorf("write config: %w", err)
-	}
-
-	return true, nil
+	return fmt.Sprintf("%d:%d:%d", sys.Dev, sys.Ino, info.ModTime().UnixNano())
 }
 
 // WaitForDNSReady polls the DNS TCP port until it accepts connections or the

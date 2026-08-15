@@ -27,7 +27,7 @@ async function waitForDNSMutable(client, timeoutMs = 15000) {
   const deadline = Date.now() + timeoutMs
   for (;;) {
     try {
-      await client.getRBLConfig()
+      await client.getDNSBLConfig()
       return true
     } catch {
       if (Date.now() >= deadline) return false
@@ -1915,20 +1915,7 @@ describe('SystemControllerClient integration', () => {
       expect(typeof status.enabled).toBe('boolean')
     })
 
-    // --- RBL / DNSBL / blocklists / services (e2e: JS client -> real DNS) ---
-
-    it('rbl config roundtrip', async () => {
-      const resp = await client.authenticate('admin', 'adminpass')
-      client.setToken(resp.token)
-      if (!(await waitForDNSMutable(client))) return // rolodex not available in harness
-
-      await client.setRBLConfig(true, [{ zone: 'zen.spamhaus.org', enabled: true }])
-      const cfg = await client.getRBLConfig()
-      expect(cfg.enabled).toBe(true)
-      expect(cfg.providers.some((p) => p.zone === 'zen.spamhaus.org')).toBe(true)
-
-      await client.setRBLConfig(false, [])
-    })
+    // --- DNSBL / blocklists / services (e2e: JS client -> real DNS) ---
 
     it('dnsbl config roundtrip', async () => {
       const resp = await client.authenticate('admin', 'adminpass')
@@ -1949,24 +1936,24 @@ describe('SystemControllerClient integration', () => {
     // refusal blocks every name checked against that provider. This proves the
     // browser can say what a refusal looks like for a given provider, and that
     // the answer survives the round trip through the controller and rolodex.
-    it('rbl refusal codes roundtrip', async () => {
+    it('dnsbl refusal codes roundtrip', async () => {
       const resp = await client.authenticate('admin', 'adminpass')
       client.setToken(resp.token)
       if (!(await waitForDNSMutable(client))) return // rolodex not available in harness
 
-      await client.setRBLConfig(
+      await client.setDNSBLConfig(
         true,
         [
-          { zone: 'zen.spamhaus.org', enabled: true, refusal_codes: ['127.255.255.0/24'], refusal_cooldown_secs: 900 },
-          { zone: 'bl.spamcop.net', enabled: true },
+          { zone: 'dbl.spamhaus.org', enabled: true, refusal_codes: ['127.255.255.0/24'], refusal_cooldown_secs: 900 },
+          { zone: 'multi.surbl.org', enabled: true },
         ],
         1800,
       )
 
-      const cfg = await client.getRBLConfig()
+      const cfg = await client.getDNSBLConfig()
       expect(cfg.refusal_cooldown_secs).toBe(1800)
 
-      const spamhaus = cfg.providers.find((p) => p.zone === 'zen.spamhaus.org')
+      const spamhaus = cfg.providers.find((p) => p.zone === 'dbl.spamhaus.org')
       expect(spamhaus).toBeTruthy()
       // Exactly what was named, with none of the built-in codes merged in.
       expect(spamhaus.refusal_codes).toEqual(['127.255.255.0/24'])
@@ -1975,11 +1962,11 @@ describe('SystemControllerClient integration', () => {
       // A provider that named no codes reads back RESOLVED — as the built-in
       // set — so the screen can show what the box is really matching on rather
       // than an empty list that looks like no protection at all.
-      const spamcop = cfg.providers.find((p) => p.zone === 'bl.spamcop.net')
-      expect(spamcop).toBeTruthy()
-      expect(spamcop.refusal_codes.length).toBeGreaterThan(0)
+      const surbl = cfg.providers.find((p) => p.zone === 'multi.surbl.org')
+      expect(surbl).toBeTruthy()
+      expect(surbl.refusal_codes.length).toBeGreaterThan(0)
 
-      await client.setRBLConfig(false, [])
+      await client.setDNSBLConfig(false, [])
     })
 
     it('rejects a refusal code that is not an address', async () => {
@@ -1988,10 +1975,10 @@ describe('SystemControllerClient integration', () => {
       if (!(await waitForDNSMutable(client))) return // rolodex not available in harness
 
       await expect(
-        client.setRBLConfig(true, [
-          { zone: 'zen.spamhaus.org', enabled: true, refusal_codes: ['over-quota'] },
+        client.setDNSBLConfig(true, [
+          { zone: 'dbl.spamhaus.org', enabled: true, refusal_codes: ['over-quota'] },
         ]),
-      ).rejects.toThrow(/POST \/dns\/rbl:/)
+      ).rejects.toThrow(/POST \/dns\/dnsbl:/)
     })
 
     it('local rbl entry add/list/remove changes DNS state', async () => {
@@ -2050,18 +2037,16 @@ describe('SystemControllerClient integration', () => {
       ).rejects.toThrow()
     })
 
-    it('rbl/dnsbl/services reads require auth', async () => {
+    it('dnsbl/local-blocklist/services reads require auth', async () => {
       const noAuth = new SystemControllerClient(baseURL)
-      await expect(noAuth.getRBLConfig()).rejects.toThrow(/GET \/dns\/rbl:.*missing authorization token/)
       await expect(noAuth.getDNSBLConfig()).rejects.toThrow(/GET \/dns\/dnsbl:.*missing authorization token/)
       await expect(noAuth.listLocalRBL()).rejects.toThrow(/GET \/dns\/rbl\/local:.*missing authorization token/)
       await expect(noAuth.listDNSBLAllowlist()).rejects.toThrow(/GET \/dns\/dnsbl\/allowlist:.*missing authorization token/)
       await expect(noAuth.listDNSServices()).rejects.toThrow(/GET \/dns\/services:.*missing authorization token/)
     })
 
-    it('rbl/dnsbl/services writes require admin', async () => {
+    it('dnsbl/local-blocklist/services writes require admin', async () => {
       const noAuth = new SystemControllerClient(baseURL)
-      await expect(noAuth.setRBLConfig(true, [])).rejects.toThrow(/POST \/dns\/rbl:/)
       await expect(noAuth.setDNSBLConfig(true, [])).rejects.toThrow(/POST \/dns\/dnsbl:/)
       await expect(noAuth.addLocalRBL('x.example.com', '')).rejects.toThrow(/POST \/dns\/rbl\/local\/add:/)
       await expect(noAuth.addDNSBLAllowlist('x.example.com', '')).rejects.toThrow(/POST \/dns\/dnsbl\/allowlist\/add:/)

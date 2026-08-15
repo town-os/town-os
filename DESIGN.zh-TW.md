@@ -59,7 +59,7 @@ Town OS 如何運作：架構、各子系統的行為、API 介面，以及維�
 12. **解析鏡像標籤** —— `resolveImageTag()`：優先取 `TOWN_OS_TAG` 環境變數（由 install 構建系統設定），否則取 `rc.latest-<arch>`（`defaultVersionTag()`，架構由 `runtime.GOARCH` 經 `archTag()` 對映為 `x86_64`/`aarch64`）。不存在 `/town-os.tag` 檔案，也沒有編譯期的 `Version` 固定值。每一個同族鏡像標籤（UI、rolodex、network controller、ingress）都由這一個值推導；推送標籤是按架構分的，因此推匯出的同族標籤也是。
 13. **推導 NC 鏡像** —— `quay.io/town/networkcontroller:<tag>`，可通過 `NC_IMAGE` 覆蓋。它是拉取的（第 18 步），從不構建。
 14. **啟動後台倉庫重新整理** —— goroutine 每 5 分鐘輪詢一次。
-15. **階段 `boot_dns`：寫入 Rolodex 配置，內容變化則重啟** **(非致命)** —— Rolodex 是由 systemd 管理的啟動服務。systemcontroller 寫出 `rolodex.yml`（冪等：僅當渲染出的位元組與磁碟上已有的內容一致時才跳過——它為什麼不再理會檔案的 mtime，參見[凍住的那份配置](#凍住的那份配置)），並且僅在檔案確實被寫入時才重啟服務。`resolution.mode` 來自 `dns_resolution_mode` 設定；儲存值無法解析時回退到預設值，而不是渲染出一份 rolodex 會拒絕的配置。`forwarders:` 來自 `dns_local_forwarders` 設定：開啟時，該列表在每次啟動時從宿主機的解析器中發現，因此換了網路的機器無需操作者做任何事就能用上新的解析器（參見 [Local forwarders](#本地轉發器)）。rolodex 容器以 `--net host` 執行，並直接把 DNS 繫結到 `127.0.0.2:{port}`。隨後等待 DNS 就緒（TCP 連線輪詢），並配置 systemd-resolved 把該 TLD 路由到 rolodex——**當 `TOWN_OS_DNS_PORT` 已把 rolodex 從 `:53` 遷走時，這一步被跳過**，因為 resolved 的按域名伺服器地址不攜帶埠，那樣會讓該 TLD 下的每一次查詢都被黑洞吞掉。
+15. **階段 `boot_dns`：建立 rolodex 管理器並等待 DNS 就緒** **(非致命)** —— Rolodex 是由 systemd 管理的啟動服務，到這一步它已經在應答了：它比 systemcontroller 更早啟動，憑的是安裝映像寫下的那份 `rolodex.yml`——因為在有東西能解析網域名稱之前，控制器根本拉不動任何映像。**這裡不寫 `rolodex.yml`，也不重啟該服務**——參見下文「rolodex.yml 只是啟動配置；設定透過 gRPC 編程」一節，以及[凍住的那份配置](#凍住的那份配置)所記錄的、終結了那次寫入的故障。這一階段建立的是 `rolodex.Manager`，內容來自 Town OS 自己擁有的那些設定：`resolution.mode` 來自 `dns_resolution_mode`（儲存值無法解析時回退到預設值，而不是把一個 rolodex 會拒絕的模式編程進去）；轉發器列表來自 `dns_local_forwarders`（開啟時，該列表在每次啟動時從宿主機的解析器中發現，因此換了網路的機器無需操作者做任何事就能用上新的解析器——參見 [Local forwarders](#本地轉發器)）；那份阻擋清單來自它的儲存設定。其中每一項，都會在本次啟動稍後由 reconcile 步驟中的 `ProgramRolodex` 推送進**正在執行**的伺服器裡。rolodex 容器以 `--net host` 執行，並直接把 DNS 繫結到 `127.0.0.2:{port}`。隨後等待 DNS 就緒（TCP 連線輪詢），並配置 systemd-resolved 把該 TLD 路由到 rolodex——**當 `TOWN_OS_DNS_PORT` 已把 rolodex 從 `:53` 遷走時，這一步被跳過**，因為 resolved 的按域名伺服器地址不攜帶埠，那樣會讓該 TLD 下的每一次查詢都被黑洞吞掉。
 16. **讀取監控後端並發現 btrfs 磁碟裝置** —— `monitoring_backend`（預設 `uplot`）；`monitoring.BtrfsDevices(btrfsPath)` **(非致命)** 通過 `/monitoring/status` 暴露底層塊裝置。
 17. **階段 `boot_services` 的第一步：自我更新** **(非致命)** —— `SelfUpdate` 刷新控制器*自身*的鏡像；當它所執行的標籤已經指向另一個鏡像時，請求 systemd 重啟 `town-os-systemcontroller.service` 並就此結束本次啟動（見*控制器自我更新*）。
 18. **階段 `boot_services`：拉取核心容器鏡像** **(非致命)** —— NC 鏡像、Prometheus、Node Exporter、UI 鏡像、物件儲存（gfeh）鏡像、ingress 鏡像，以及在選中該後端時的 Grafana，通過 `parallelEnsureImages` 並行拉取（**浮動**標籤每次啟動都會重新拉取；固定標籤只在缺失時拉取——見*啟動會刷新浮動鏡像標籤*）。凡是被啟動期單元參照的鏡像都屬於這裡：鏡像不在本地的單元會在 `podman run` 內部自行拉取，於是它的就緒等待要與一次 registry 下載賽跑。gfeh 與隨後的 ingress 曾先後從這份清單中缺席，而每一次看上去都只是某個服務沒起來。監控 UI 無需單獨條目——在 uPlot 後端下它執行的就是 NC 鏡像，而後者已在集合的首位。
@@ -1398,7 +1398,9 @@ ingress 是共享的 Host 路由器：一個 sidecar，監管一個 Caddy 子程
 
 ### 渲染
 
-輸出**按主機名排序**，因此跨多次 reconcile 渲染出的位元組是確定性的——這正是讓監管程序對內容未變的過載做空操作的前提。全域配置為 `auto_https off`（證書由 Town OS 管理）與 `protocols h1 h2`（ingress 只發布 TCP，因此基於 UDP 的 H3/QUIC 不可達）。Caddy 的管理 API 被刻意**保持啟用**在其預設的容器本地 `localhost:2019` 上：監管程序用 `caddy reload` 編排新路由，而該命令正是與那個端點通訊，因此 `admin off` 會讓首次啟動之後的每一次路由更新都失效。
+輸出**按主機名排序**，因此跨多次 reconcile 渲染出的位元組是確定性的——這正是讓監管程序對內容未變的過載做空操作的前提。全域配置為 `auto_https off`（憑證由 Town OS 管理）、`protocols h1 h2`（ingress 只發布 TCP，因此基於 UDP 的 H3/QUIC 不可達），以及管理端點。Caddy 的管理 API 被刻意**保持啟用**：監管程序用 `caddy reload` 編排新路由，而該命令正是與那個端點通訊，因此 `admin off` 會讓首次啟動之後的每一次路由更新都失效。
+
+它的位址是**寫進設定裡的** `admin 127.0.0.1:<連接埠>`，而不是留給 Caddy 的預設值，預設取 Caddy 自己的 `2019`（`ingress.DefaultAdminPort`，可用 `--caddy-admin-port` / `ingress.WithCaddyAdminPort` 覆寫）。正式環境保持 2019——ingress 容器有自己的網路命名空間，除 :443、:80 和回環上的指標連接埠外什麼都不發布，因此管理 API 只在該容器內部可達，別處都不行。**任何在主機命名空間裡執行 Caddy 的情境都必須把它挪開**，而每個測試都屬於這種情境：`go test ./src/...` 直接跑在主機上，整合容器又是 `--net host`，所以兩次並行的 `make test-full` 會把兩個 Caddy 子行程放到同一個 :2019 上——第二個繫結失敗並結束，而在此之前，任何一次執行的 `caddy reload` 都可能落到另一次執行的管理 API 上，把錯誤的 Caddyfile 編排進去（鐵律）。把位址渲染出來同時也是*讓* `caddy reload` 指向它的方式：該命令會從它所轉接的那份設定裡讀出管理位址。`127.0.0.1` 這個寫法是刻意的——在雙堆疊機器上 `localhost` 會先解析到 `::1`，而 Caddy 只繫結其中一個。
 
 ingress 是**與網路介面無關的**：它以 `-p 443:443` / `-p 80:80` 釋出且不指定宿主機 IP，其 Caddyfile 中**沒有 `bind` 指令**，因此 Caddy 在所有介面上監聽，並純粹依據 SNI/Host 選擇 vhost。（唯一被釘在某個主機 IP 上的監聽器是 Prometheus 端點，它服務的是這臺機器自己而不是它的客戶端——參見 [ingress 的指標](#ingress-的指標)。）區域網客戶端與 overlay peer 命中同一個監聽器、SNI 選中同一個 vhost、拿到同一張本地 CA 葉子證書，並被代理到同一個容器。不要新增 `bind` 指令，也不要新增按網路的監聽器。
 
@@ -1426,7 +1428,7 @@ ingress 在**屬於它自己的第三個監聽器**上提供 Prometheus 文字�
 | `townos_ingress_route_changes_total{op}` | counter | `set`/`add`/`remove` |
 | `townos_ingress_dropped_total{kind,reason}` | counter | 渲染器拒絕掉的東西 |
 
-此外還有 **caddy 自己的指標族**：從子行程容器本地的 admin API（`127.0.0.1:2019/metrics`）取回，原樣附加在回應之後。它們的名稱空間是 `caddy_*`/`go_*`/`process_*`，不可能與 `townos_ingress_*` 衝突。透傳是它們能到達 Prometheus 的唯一途徑——admin API 是刻意不對外釋出的——而它們描述的正是真正服務這臺機器每一個請求的那個行程。回應體不會被重新渲染：把它解析回指標族只會丟失資訊（caddy 匯出直方圖，而 `src/metrics` 刻意不建模直方圖）。
+此外還有 **caddy 自己的指標族**：從子行程容器本地的 admin API（`127.0.0.1:<管理連接埠>/metrics`，由 Caddyfile 裡那同一個位址建出，因此挪走的子行程不會把抓取留在 2019 上）取回，原樣附加在回應之後。它們的名稱空間是 `caddy_*`/`go_*`/`process_*`，不可能與 `townos_ingress_*` 衝突。透傳是它們能到達 Prometheus 的唯一途徑——admin API 是刻意不對外釋出的——而它們描述的正是真正服務這臺機器每一個請求的那個行程。回應體不會被重新渲染：把它解析回指標族只會丟失資訊（caddy 匯出直方圖，而 `src/metrics` 刻意不建模直方圖）。
 
 有幾點是刻意的：
 
@@ -1482,7 +1484,9 @@ Town OS 內建一個由 `rolodex-dns` 容器驅動的本地 DNS 解析器。rolo
 
 rolodex 本身是由 systemd 安裝與監管的啟動服務——systemcontroller 不在容器層面安裝、啟動、停止或重啟它。取而代之，`rolodex.Manager` 負責：
 
-- **`WriteConfig`** —— 把 `rolodex.yml` 渲染進 `DataDir`，只要位元組與磁碟上的不同就寫入。返回一個布林值表示檔案是否真的發生了變化（以便呼叫方僅在確有可重啟之事時才重啟 systemd 單元）。**它無條件地做調和，而這是承重的**——參見[凍住的那份配置](#凍住的那份配置)。
+- **`WriteConfig`** —— 把 `rolodex.yml` 寫入 `DataDir`。冪等：當該檔案存在、比 systemcontroller 二進位制更新、且內容已與預期一致時跳過寫入。返回一個布林值表示檔案是否被寫入（以便呼叫方決定是否重啟 systemd 單元）。
+
+> **本節是歷史。** `WriteConfig` 與 `RewriteConfig` 都已刪除，Town OS 完全不再寫 rolodex 的設定檔：它們過去算繪的那些設定，現在是編程進正在執行的服務裡的，而留下的那個檔案屬於安裝映像。參見上文「rolodex.yml 只是啟動配置」一節。
 - **`WaitForDNSReady`** —— 通過 TCP 輪詢 `DNSLoopback:{port}`，直到它接受連線或超過 30 秒截止時間。在啟動時、任何依賴 DNS 的操作（例如鏡像拉取）之前呼叫。
 - **`SystemServices`** —— 返回 rolodex 系統服務的後設資料（key、顯示名、鏡像、埠、單元名），使它與其他系統服務一同出現在狀態響應與 UI 中。
 - **`Status`** —— 查詢 systemd 單元狀態以報告 rolodex 是否在執行。
@@ -1493,7 +1497,7 @@ rolodex 容器以 `--net host` 執行，並把 DNS 繫結到 `DNSLoopback`（`12
 
 **不要把裸 `recursive` 作為預設值。** 它*沒有*回退，而且 rolodex 的迭代解析器（`src/resolver.rs`）對每個域名伺服器只發送**一個不重傳的 UDP 資料包，截止時間 1500 毫秒**；噹噹前委派集合中的每個伺服器都失敗時，`resolve()` 報錯，而 `iterative_query` 會把*任何*錯誤都轉換成 SERVFAIL。因此一個丟包就會讓一次查詢 SERVFAIL；而在過濾或劫持出站 :53 的網路上（酒店、強制門戶、某些 ISP），*每一個*外部名稱都會 SERVFAIL。`auto` 在網路允許的地方保留遞迴帶來的隱私性，在不允許的地方則降級而不是失敗。相關：rolodex 的委派快取與否定快取落在 `ce44bb5`，而該提交**不在任何已釋出的標籤中**——在釋出版本包含它之前，recursive 模式會為每一個未快取的名稱與每一次 NXDOMAIN 重新從根開始走一遍（實測：冷公共名稱 0.6–1.9 秒，RFC1918 PTR 為 2.7 秒）。
 
-該模式可由運維在執行時通過 `dns_resolution_mode` 設定配置（`auto` | `recursive` | `forward`；由 `ValidateDNSResolutionMode` 校驗，因此無法解析的值絕不可能到達 `rolodex.yml` 並把 DNS 弄砸）。`main.go` 在啟動時把它讀入 `rolodex.Config`；通過 `POST /settings/set` 的更改會執行 `Controller.RefreshDNSResolutionMode`，後者呼叫 **`Manager.RewriteConfig()`** 並重啟 rolodex 單元。`RewriteConfig` 如今只是 `WriteConfig` 在執行時的一個*名字*，除此之外別無區別——兩者行為完全一致。它們曾經並不一致，而那處區別正是下一節的主題。
+該模式可由運維在執行時通過 `dns_resolution_mode` 設定配置（`auto` | `recursive` | `forward`；由 `ValidateDNSResolutionMode` 校驗，因此無法解析的值絕不可能到達 `rolodex.yml` 並把 DNS 弄砸）。`main.go` 在啟動時把它讀入 `rolodex.Config`；通過 `POST /settings/set` 的更改會執行 `Controller.RefreshDNSResolutionMode`，後者用 **`SetResolutionMode`** 把新模式編程進正在執行的伺服器——不寫檔案，不重啟單元，DNS 也不中斷。rolodex 遇到不認得的模式會直接拒絕而不是退回預設值，這正是這個值在送出之前先被校驗的原因。
 
 ### 凍住的那份配置
 
@@ -1504,6 +1508,20 @@ rolodex 容器以 `--net host` 執行，並把 DNS 繫結到 `DNSLoopback`（`12
 沒有任何真實的東西被保護到。檔案裡的每一個值都是從 Town OS 的狀態渲染出來的——DNS 埠、轉發器、解析模式、兩份阻斷名單、指標埠——而每一條會改動其中之一的執行時路徑，本來就已經不管不顧地覆蓋了該檔案（那正是 `RewriteConfig` 的全部）。手工編輯以前能活到下一次設定變更；現在它活到下一次啟動。
 
 回歸測試是 `TestWriteConfigReplacesConfigNewerThanTheBinary` 與 `TestWriteConfigAddsSectionsMissingFromAnOlderRendering`（單元），以及 `TestUpgradedControllerOpensRolodexMetricsListener`（整合）——後者放置一份 `9689461` 之前的配置並給它一個未來的 mtime，通過啟動入口把它調和一遍，然後抓取一個真實 rolodex 容器隨之開啟的那個監聽器。
+
+### rolodex.yml 只是啟動配置；設定透過 gRPC 編程
+
+`rolodex.yml` 由安裝映像寫出（`../install` 裡的 `scripts/rolodex-config.sh`，作為 rolodex 的 `ExecStartPre`），除此之外沒有別的寫入者。它只承載兩樣無法在執行中的 rolodex 上設定的東西：DNS 的 **bind 清單**（UDP 與 TCP 上的 `127.0.0.2:53` —— systemd-resolved 被指向的位址，而且監聽器必須在任何 API 呼叫之前就存在）以及 **metrics 監聽器**，rolodex 只在啟動時依該段是否存在把它打開一次。它還寫下 `resolution.mode: auto` 與公共轉發器作為**啟動預設值**，與這裡的 `DefaultForwarders` 一致，因此第一次推送之前的視窗是一個確定的狀態，而不是 rolodex 內建選擇碰巧是什麼就是什麼。其中每一個值都是常數，所以這個檔案在每次啟動時都逐位元組相同。Town OS 完全不寫設定檔。
+
+其餘由 Town OS 擁有的一切 —— 轉發器清單、`resolution.mode`、以及那份阻擋名單 —— 都由 `ProgramRolodex` 透過管理 API 編程進**正在執行的**服務裡。這正是設定變更變得沒有代價的原因：過去套用一次變更意味著重寫檔案並重啟單元，而重啟這台機器唯一的解析伺服器，就是讓機器上的一切都斷一次 DNS。`SetForwarders` 是無條件推送的（rolodex 那一側只是一次普通儲存，而且沒有可用於比對的讀取介面）；`SetResolutionMode` 會先比對，因為切換進 `auto` 會重啟分層探測，定期重複宣告會不斷丟掉一個已經穩定下來的層級；阻擋名單走 `ReconcileBlocklists`，它本來就是讀回再比對（只有一份，不是兩份 —— RBL 那一半已經退役）。
+
+**每次 rolodex 重啟之後都必須重新跑一遍。** rolodex 在啟動時從設定檔播種這一切，並且不會保存任何透過 gRPC 設定的內容，所以一次 Town OS 沒有下令的重啟 —— `Restart=always` 下的崩潰、DHCP 租約變化透過 `town-os-rolodex-config.path` 彈動單元、維運手動重啟 —— 會悄悄把這台機器退回 rolodex 的預設值：以與維運者所選不同的方式解析，並且什麼都不過濾。沒有任何東西會暴露這一點，這些設定不會被任何地方讀回。
+
+重啟訊號是 `rolodex.Manager.Generation()`：rolodex 在啟動時綁定的 gRPC socket 的身分（裝置號、inode、mtime）。rolodex 每次啟動都會 unlink 並重新綁定它，所以新的一次執行總是有新的 inode，而察覺這件事只需要一次 `stat` —— 不需要 D-Bus 往返，不需要這套程式碼尚未暴露的單元屬性，也不需要專門的 RPC。`reconcileRolodexProgramming` 跑在它自己的 **15 秒** 心跳上，只要 generation 沒變就什麼都不做；之所以是秒級而不是分鐘級，是因為這段空隙裡機器的解析與過濾方式和設定不一致。只有在一整趟都成功之後才記錄 generation，因此部分失敗會重試，而不會被當成已完成。
+
+**上游已修正。** rolodex 從前只有在**設定檔裡**啟用了阻擋名單時才會啟動它的「:53 是否可達」探測，因此當名單不再寫進那個檔案之後，探測就再也不會啟動，而一份已設定的阻擋名單恰恰會在那個探測賴以存在的網路上劣化。現在它是 `DnsblChecker::resolver_availability_loop`，無條件派生，並且把關的是檢查器*執行期*的啟用旗標——正是自動解析恢復迴圈早就有的那種形狀。一份透過 gRPC 打開的名單，幾秒之內就能拿到探測。
+
+回歸測試是 `TestProgramRolodex*` 與 `TestReconcileProgramming*`（單元測試），以及 `TestProgrammedSettingsSurviveARolodexRestart` 與 `TestGenerationChangesOnlyWhenRolodexRestarts`（整合測試）—— 後者會對一個真實的 rolodex 編程、重啟它、確認服務自己已經忘記，然後重新編程。
 
 ### 本地轉發器
 
@@ -1522,6 +1540,61 @@ Town OS 預設寫出的 `forwarders:` 列表是 `DefaultForwarders`——公共�
 `GET /dns/status` **同時**報告 `local_forwarders`（運維要求的）與 `forwarders`（`rolodex.yml` 實際持有的）。它們只在一種情況下不一致——發現沒有找到任何可用地址、於是保留了公共預設值——而那正是"開關顯示為開、卻什麼也沒變"的那唯一一種情形，因此只顯示標誌的 UI 會展示一項並未生效的設定。設定介面正因如此才渲染生效中的列表，並在它為空時明確說明。
 
 **測試與開發中 rolodex 鏡像按架構拉取** —— make 測試框架拉取宿主機對應架構的 rc 標籤 `quay.io/town/rolodex:rc.latest-<arch>`（其中 `<arch>` 是 `uname -m` 的原始形式 `x86_64`/`aarch64`），而**不是**不帶架構字尾的普通 `rc.latest`。Town OS 內部的鏡像拉取預設走 rc 通道，因此測試框架、開發環境與執行時都跟蹤 `rc.latest-<arch>`。rolodex 從每台主機本機推送按架構的標籤（rolodex-dns 倉庫中的 `make push-rc` / `make push-release`），因此任何架構的測試主機都不需要多架構 manifest 組裝；*普通的* `rc.latest`（無架構字尾）是單架構 manifest，在另一種架構上會以 `exec format error` 崩潰重啟——只有帶字尾的 `rc.latest-<arch>` 可以安全地直接拉取。Makefile 計算 `HOST_ARCH`（規範化為 `x86_64`/`aarch64`）並把 `ROLODEX_IMAGE_TAG` 預設設為 `rc.latest-$(HOST_ARCH)`；`ROLODEX_IMAGE` 由它推導，並經由環境變數注入測試/開發容器。可用 `make ROLODEX_IMAGE_TAG=<tag> ...`（例如用 `latest-$(HOST_ARCH)` 取已釋出的 rolodex）或 `ROLODEX_IMAGE` 環境變數覆蓋。生產/執行時行為與之一致——除非設定了 `ROLODEX_IMAGE`，否則 systemcontroller 從自己的釋出標籤推導（並通過 `defaultVersionTag()` 回退到 `rc.latest-<arch>`）；測試與開發框架總是會設定它。開發容器中烘焙的 rolodex 單元（`integration/testdata/town-os-system--rolodex.service`）使用 `@ROLODEX_IMAGE@` 佔位符，在鏡像構建時經由 `integration/testdata/Containerfile.dev` 中的 `ROLODEX_IMAGE` 構建引數替換（該引數為空時構建失敗），因此烘焙的單元始終與測試框架載入的鏡像一致。
+
+### 這臺機器**對外提供**的加密傳輸：DoH 走 ingress，DoT 與 DoQ 直連
+
+上面講的都是作為*客戶端*的 rolodex——DoH 與 DoT 出現在 `auto` 的分層清單裡，是這臺機器抵達網際網路的方式。本節講的是另一個方向：**對區域網路上的客戶端提供**的加密 DNS，那是另一組監聽器，歸屬也不同。
+
+三者都由安裝映像的 `rolodex.yml`（`../install` 裡的 `scripts/rolodex-config.sh`）打開，這裡什麼也不打開。rolodex 只在啟動時依據各自配置小節是否存在把它們各打開一次，和 metrics 監聽器完全一樣，所以它們都無法透過 gRPC 開啟——參見上文「rolodex.yml 只是啟動配置；設定透過 gRPC 編程」一節。
+
+**DoH 由 ingress 擋在前面。** rolodex 把 DoH 繫結在回送位址 `127.0.0.2:4443`（`RolodexDohBackend`），ingress 則像發布任何一個普通 vhost 那樣把它發布在 `dns.<tld>`（`DohHostLabel`），並在這一跳內部代理時跳過憑證驗證（`dohIngressRoute`）。因此客戶端驗證的是 ingress 的葉子憑證，由本機 CA 在它自己的葉子倉庫（`doh`/`resolver`/`current`）下簽發，所以重簽它絕不會驚動 pages 或 gfeh 的葉子。這正是整套安排的意義所在：rolodex 用自簽憑證終結它自己的 TLS，沒有任何一個會做驗證的 DoH 客戶端會接受它，而也永遠不需要有誰接受——它終結的是一跳從不離開這臺機器的連線。客戶端使用 `https://dns.<tld>/dns-query`。被代理的是整個 vhost 而不是那一個路徑，因為 rolodex 的 DoH 路由只服務這一個路徑、其餘一律 404——在這裡再加一個路徑比對，只會多出一處可以把路徑寫錯的地方。
+
+用 `4443` 而不是 `443` 是有分量的。ingress 發布在 `0.0.0.0:443` 上，而 rolodex 以 `--net host` 執行，因此同一個命名空間裡的萬用 `:443` 與具體的 `127.0.0.2:443` 會讓後繫結的那個 EADDRINUSE——按啟動順序不同，倒下的要麼是 DNS，要麼是 ingress。這個數字還被寫在兩個彼此讀不到對方的倉庫裡：這裡，以及 `../install` 的 `doh.bind`。`TestRolodexDohBackendIsTheLoopbackPortInstallWrites` 把這一側釘在字面量上；`TestRolodexDohBackendMatchesTheInstallScript` 則在兩個倉庫都檢出的地方直接去讀那份安裝指令碼，而在測試容器裡（`../install` 並不存在）跳過。
+
+**vhost 需要一個名字，而只有 DNS 的兩個 reconciler 能給它。** `dns.<tld>` 背後沒有套件、沒有頁面、也沒有物件儲存分割區，所以別的東西永遠不會提到它：`RebuildDNS` 顯式發布它的 A 記錄（在雙棧機器上還有 AAAA，因為那張葉子憑證把主機的兩個位址都寫進了 SAN），而 `ReconcileDNS` 把它帶進期望集合裡，這樣每小時那趟清理孤兒記錄的掃描，才不會在啟動一小時之後刪掉啟動時發布的東西。沒有這條記錄，失敗發生在 TLS 之前、在搆到 ingress 之前——一個乾脆的 NXDOMAIN，讀起來就跟這個功能壓根沒做過一模一樣。回歸測試：`TestRebuildDNSPublishesTheDoHEndpointsName` 與 `TestReconcileDNSKeepsTheDoHEndpointsName`（單元），`TestDohResolvesThroughTheIngress` 與 `TestDohEndpointResolvesOnRealDNS`（整合）。
+
+**DoT 與 DoQ 完全繞開 ingress**，這是一個已知的缺口，而不是設計。ingress 只發布 TCP，它的 Caddy 又被釘在 `protocols h1 h2` 上（`renderCaddyfile`），所以對非 HTTP 的協定，穿過它的四層通路根本不存在。安裝映像把兩者都繫結在區域網路側的 `0.0.0.0:853`——這是標準的一對，DoT 用 TCP，DoQ 用 UDP/QUIC（rolodex 自己給 DoQ 的預設埠是 `8853`，沒有客戶端會去找它）。位址用 `0.0.0.0` 而不是某個具體位址，是因為這些小節各自只接受**一個** bind 字串：釘死第一個全域位址，會讓第一次 DHCP 租約之前什麼都不提供，並且在第二個位址上永遠不提供。`dns.bind` 做不了同樣的事，因為 `:53` 與 podman 自己的 DNS 監聽器衝突；`:853` 沒有這個衝突，代價是繫上了每一個介面，包括 podman 網橋與 overlay。IPv6 沒有被覆蓋——一個 bind 字串沒法同時點名兩個位址族。
+
+**兩者提供的都是由這台機器自己的 CA 簽發的葉憑證。** 安裝映像把 `dot.tls`／`doq.tls` 指向 `/data/tls/dot/{cert,key}.pem`，而 `issueRolodexTransportLeaf` 在每一次 `RebuildDNS` 時恰好寫下那一對，帶的 SAN 與 DoH vhost 的葉憑證相同：`dns.<tld>` 加上這台機器的各個位址。因此一個做校驗的 DoT 或 DoQ 用戶端，是拿家裡本來就信任的那個 CA 去驗證，而不是被塞過來一份自簽憑證要它去釘住。
+
+這件事之所以是一個檔案而不是一次 RPC，原因在於次序。rolodex 是在 systemcontroller *之前*啟動的——在有東西能解析名稱之前，控制器一個映像也拉不下來——所以在首次啟動時，rolodex 讀它的設定時 CA 還不存在。rolodex 把「被指名但尚不存在的憑證」當作「先提供一份產生的，並盯著真正的那一份」，因此簽發這份葉憑證**就是**那次交接：它會在一次 30 秒的輪詢之內被接過去，不需要重啟，也沒有什麼要協調。這同時也讓 rolodex 的憑證熱重載第一次在這台機器上真正活起來；產生的材料是被刻意不輪詢的，所以在有一個監聽器指向檔案之前，那整套機制都是搆不到的程式碼。
+
+路徑落在 `/data` 之下，是因為那是 rolodex 容器唯一能看見的東西——它的單元只掛載 `/town-os/rolodex:/data`，別的都沒有，所以這份葉憑證放在資料目錄裡，而不是與其他所有葉憑證一起放在 btrfs 的 TLS 子卷下。這裡的 `RolodexTLSSubdir` 與 `../install` 的 `scripts/rolodex-config.sh` 裡的 `cert_path`，是同一個掛載寫在兩個倉庫裡的兩半；只改其中一邊，會讓 rolodex 盯著一個沒人去寫的檔案。測試：`TestRolodexTransportLeafLandsInTheMountedDataDir`、`…NamesTheHostAndItsAddresses`、`…IsSignedByTheBoxCA`、`…FollowsAnAddressChange`。
+
+**即使用戶端並不預先信任本機的 CA，它依然能驗證這張憑證**，因為葉憑證被釘在了 rolodex 自身具備權威的那個區裡。`collectRolodexTransportTLSA` 會在每一次 `RebuildDNS` 時，於 `_853._tcp.dns.<tld>` 與 `_853._udp.dns.<tld>` 發佈 DANE-EE 記錄——`3 1 1`，即葉憑證 SPKI 的雜湊——與軟體套件、page 和 gfeh 的釘扎並列。這才是簽發這張葉憑證對一台從未加入過本戶的裝置的意義所在：它能夠抵達這個解析器，因而能取到釘扎，因而無需先安裝 CA 就能檢驗對方遞過來的東西。
+
+一張憑證對應兩筆記錄，因為 TLSA 記錄的歸屬是一個服務**端點**而非一張憑證，而 DoT 與 DoQ 共用連接埠與葉憑證，只在傳輸層上不同。只發佈其中一筆比兩筆都不發佈更糟：一個支援 DANE 的用戶端若為自己選定的傳輸找不到記錄，就會失效阻斷，於是缺失的那一半讀起來是「這台機器的 DoQ 壞了」，而不是「這台機器沒有 DANE」。要能表達這一點，`rolodex.TLSAEntry` 必須帶上 `Proto`——它此前把 `_tcp` 寫死，DoQ 的釘扎根本無從存在。留空仍然表示 tcp，也就是所有提供 HTTP 的軟體套件。
+
+葉憑證落盤之前不會發佈任何東西，理由與 `collectGfehTLSA` 跳過尚未簽發葉憑證的分區相同：為一張尚不存在的憑證發佈釘扎，會讓每個用戶端在它最終出現時拒絕連線。測試：`TestRolodexTransportTLSAPinsBothEncryptedDNSEndpoints`、`…PublishesNothingWithoutALeaf`，以及負責建構擁有者名稱的 `TestTLSANameProtocol`。端到端方面，`TestDotAdoptsTheCAIssuedLeafWithoutARestart` 證明 rolodex 會在一個輪詢週期內、且不必重啟就換用簽發出來的葉憑證——這個交接是任何單元測試都觀察不到的，因為它講的是另一個行程注意到一個檔案；而 `TestRolodexPublishesTheDoQPinUnderUDP` 證明真實的 rolodex 會在 `_853._udp` 之下儲存並回傳該釘扎，這是模擬用戶端做不到的。
+
+**用戶端會被以兩種方式告知這一切在哪裡。** `publishDDRDesignation` 在 `_dns.resolver.arpa.` 上存放 SVCB 記錄（RFC 9462），在 `dns.<tld>` 之下點名 DoH 的 URL、DoT 的埠與 DoQ 的埠，並按那個優先次序排列——DoH 在先，因為 `:443` 能穿過那些過濾 `:853` 的 DPI。一個懂 DDR 的用戶端只要對這台機器解析那一個名稱，別的什麼都不必被告知。這份指定記錄活在 `arpa.` 裡，而 rolodex 從不把它拿到上游去解析，這恰恰是關鍵：那道拒絕坐落在每一次本地查找的下方，所以只有被問的那台解析器才能為它自己的指定記錄作答。
+
+與這裡其他所有發布者不同，它是先移除再重寫的。`RebuildDNS` 一開始就把該 TLD 的區域拆掉，正是那一步讓其餘的具備冪等性——但 `_dns.resolver.arpa.` 不在這台機器擁有的任何區域裡，拆除永遠搆不著它，而沒有那次移除，每一次重建都會再疊一份，或者打出一次重複失敗。先移除，也正是讓 TLD 變更真正生效、而不是把兩者一起廣告出去的原因。測試：`TestDDRDesignationIsIdempotentAcrossRebuilds`、`TestDDRDesignationFollowsATLDChange`。
+
+**指定記錄需要一個認得 SVCB 的 rolodex**，也就是 `v0.6.0` 或更新——這個記錄型別是在那裡加進去的，go.mod 裡 `rolodex-dns/go` 的 pin 也隨之移動。更舊的伺服端會拒絕這條記錄，`publishDDRDesignation` 以 debug 等級記下並繼續，於是這臺機器提供著沒有任何東西能發現的加密 DNS：能用，但看不見。這正是那次往返要對著**真實的** rolodex 斷言（`TestDDRDesignationRoundTripsThroughRealRolodex`）而不是只對著 mock 的原因——mock 遞給它什麼記錄型別它都會收下。
+
+**還有一次，是以人能讀的形式。** `GET /dns/status` 帶上一個 `encrypted` 物件——DoH 的 URL、DoT／DoQ 的名稱與埠，以及那個探索用的名稱——DNS 頁面把它渲染成唯讀的一塊。這些端點是從 TLD 與入口推導出來的，因此那裡沒有什麼可設定的；缺的一直是任何一種*看見*它們的辦法——在一台已經提供 DoH、DoT 與 DoQ 有一段時間、卻沒有任何東西告訴任何人它們在哪裡的機器上。發布出去的 DoH 埠是入口的 `443`，絕不是 rolodex 內部的 `4443`：一個被指向 `4443` 的用戶端，會撞上一個只在回環上的監聽器，拿著一份它會拒絕的憑證。
+
+**DoT 有一個測試，DoQ 一個也沒有。** `TestDotServesDNSOverTLS` 啟動一個帶 `dot:` 小節的真實 rolodex，並對它完成一次 RFC 7858 交握——用來確認安裝映像寫下的那個小節確實產出了一個會說這套協定的監聽器，而不是一個只會卡住的 socket。它繫結的是回送位址上的臨時埠，而不是生產用的 `0.0.0.0:853`：在 `--net host` 之下，這裡的知名埠就是*宿主機的*，兩次 `make test-full` 會在它上面撞車。DoQ 仍然沒有測試——QUIC 客戶端是本倉庫沒有的依賴，而同一條埠的規則也適用於將來測試它的任何東西。
+
+### 改 TLD 必須把加密 DNS 一起帶走
+
+加密 DNS 同時以四個地方的名字掛在 TLD 上，而每一個都是獨立的發布者：
+
+1. DoH 端點的位址記錄（`publishDohRecord`）；
+2. 對外宣告它的 DDR 指定記錄（`publishDDRDesignation`）；
+3. DoT 與 DoQ 所提供憑證上的 SAN（`issueRolodexTransportLeaf`）；
+4. 那張憑證的 DANE 釘扎（`collectRolodexTransportTLSA`）。
+
+`rolodex.ChangeTLD` 搬的是區域與套件記錄，這四樣一個也不搬。於是 `POST /dns/tld` 把一臺機器從 `home` 改名為 `lan` 之後，它仍然在宣告 `dns.home`，對 `dns.lan` 遞出一張寫著 `dns.home` 的憑證，而在客戶端此刻真正會撥的那個名字上沒有任何釘扎。
+
+**最後這一條是壞掉，而不是降級。** 一個會檢查 DANE 的客戶端，抵達某個端點卻找不到對應的 TLSA 記錄時，會拒絕這次連線——DANE 本來就是幹這個的。所以故障不是「加密 DNS 未經驗證」，而是「加密 DNS 不工作了」，並且一直不工作，直到下一次啟動時 `RebuildDNS` 把這些重新發布。對一臺一個月才重啟一次的機器來說，那就是一個月。
+
+這四樣如今是一次呼叫 `publishEncryptedDNS`，兩個呼叫方都用它：`RebuildDNS` 與改 TLD 的路徑。它們之所以被併成一個函式，正是因為在呼叫點上看不出它們是綁在一起的——每一個都被寫成了自己的發布者、只有一個呼叫方，而第二個呼叫方把四個全忘了。`retireEncryptedDNS` 是它在釘扎這一側的逆操作：舊 TLD 的記錄會隨 `ChangeTLD` 中的區域一起倒掉，但一次不拆區域的改名，會留下一張已經沒人提供的憑證的釘扎，那是同一種「失敗即拒絕」，只是來自另一個方向。
+
+`POST /dns/tld` 現在也會呼叫 `reprogramIngress`，理由相同：vhost 的名字裡嵌著 TLD，DoH 端點的那個也在其中，否則 ingress 會一直用舊名字服務，直到重啟。
+
+回歸測試：`TestTLDChangeRepublishesTheEncryptedDNSEndpoints` 與 `TestTLDChangeLeavesNoPinAtTheOldName`（單元），`TestTLDChangeMovesTheEncryptedEndpointsOnRealDNS`（整合，針對真實 rolodex 與它的即時解析器）。
 
 ### 網路 TLD、雙棲與分離視界解析
 
@@ -1654,35 +1727,34 @@ pages 仍由 ingress 之後那個唯一共享的 `town-os-system--pages` 容器�
 - `POST /dns/records/add`（需要管理員）—— 新增 DNS 記錄。接受名稱、記錄型別、值與 TTL。
 - `POST /dns/records/remove`（需要管理員）—— 按名稱與型別移除 DNS 記錄。
 - `GET /dns/tld`（需要鑑權）—— 獲取當前頂級域。
-- `POST /dns/tld`（需要管理員）—— 設定 TLD。更改現有 TLD 並重新註冊所有已安裝的包。
+- `POST /dns/tld`（需要管理員）—— 設定 TLD。更改現有 TLD，重新註冊所有已安裝的套件，在新名字下重新發布加密 DNS 的各個端點，並重新編程 ingress 使其 vhost 跟上。參見「改 TLD 必須把加密 DNS 一起帶走」一節。
 - `POST /dns/setup`（需要管理員）—— 初始化 DNS 並註冊所有已安裝的包。
-- `GET /dns/rbl`（需要鑑權）—— 獲取 RBL（Realtime Blackhole List，反向 IP）配置：全域啟用標誌、各提供方區域及其**已解析為實際生效值**的拒絕碼、列表級的 `refusal_cooldown_secs`，以及 `rotated_out`（當前因拒絕查詢而被輪換出去的提供方，附帶拒絕碼與剩餘秒數）。參見 [Refusal codes](#拒絕碼提供方說別再問了不等於說這個被列入了)。
-- `POST /dns/rbl`（需要管理員）—— 替換 RBL 配置。接受一個啟用標誌、一個列表級的 `refusal_cooldown_secs`，以及一組 `{zone, enabled, refusal_codes, refusal_cooldown_secs}` 提供方。區域會被校驗為完全限定主機名，並轉小寫、去空白、去重；拒絕碼由 `ValidateRefusalCodes` 校驗（IPv4 地址或 `address/prefix`，按字首掩碼，`"none"` 只能單獨出現，不允許重複）。
-- `GET /dns/dnsbl`（需要鑑權）—— 獲取 DNSBL（域名黑名單，正向名稱）配置，形狀與 `/dns/rbl` 相同。
-- `POST /dns/dnsbl`（需要管理員）—— 替換 DNSBL 配置（形狀與校驗同 `/dns/rbl`；其拒絕冷卻時間與 RBL 的相互獨立）。
-- `GET /dns/rbl/local`（需要鑑權）—— 列出本地 RBL 黑名單條目（`{name, reason}`）。
-- `POST /dns/rbl/local/add`（需要管理員）—— 新增本地 RBL 條目。接受一個名稱（域名或 IP）與可選原因。名稱會被校驗（域名或 IP）、轉小寫並去空白。
-- `POST /dns/rbl/local/remove`（需要管理員）—— 按名稱移除本地 RBL 條目。
+- `GET /dns/dnsbl`（需要鑑權）—— 獲取 DNSBL（域名黑名單，正向名稱）配置：全域啟用標誌、各提供方區域及其**已解析為實際生效值**的拒絕碼、列表級的 `refusal_cooldown_secs`，以及 `rotated_out`（當前因拒絕查詢而被輪換出去的提供方，附帶拒絕碼與剩餘秒數）。參見 [Refusal codes](#拒絕碼提供方說別再問了不等於說這個被列入了)。
+- `POST /dns/dnsbl`（需要管理員）—— 替換 DNSBL 配置。接受一個啟用標誌、一個列表級的 `refusal_cooldown_secs`，以及一組 `{zone, enabled, refusal_codes, refusal_cooldown_secs}` 提供方。區域會被校驗為完全限定主機名，並轉小寫、去空白、去重；拒絕碼由 `ValidateRefusalCodes` 校驗（IPv4 地址或 `address/prefix`，按字首掩碼，`"none"` 只能單獨出現，不允許重複）。
+- `GET /dns/rbl/local`（需要鑑權）—— 列出本地阻擋名單條目（`{name, reason}`）。該路徑保留了它歷史上的 `rbl` 寫法：它是與 UI 之間已發布的契約，而且條目本身沒有變——消失的只是那些曾經共用這個字首的 RBL *提供方*查詢。
+- `POST /dns/rbl/local/add`（需要管理員）—— 新增本地阻擋名單條目。接受一個名稱（域名或 IP）與可選原因。名稱會被校驗（域名或 IP）、轉小寫並去空白。
+- `POST /dns/rbl/local/remove`（需要管理員）—— 按名稱移除本地阻擋名單條目。
 - `GET /dns/dnsbl/allowlist`（需要鑑權）—— 列出 DNSBL 白名單條目（`{name, reason}`）。
 - `POST /dns/dnsbl/allowlist/add`（需要管理員）—— 把某個名稱從基於名稱的黑名單檢查中豁免。接受一個名稱與可選原因。名稱會被轉小寫、去空白，並且**只校驗為域名**——IP 字面量會被拒絕（`ValidateDnsblAllowlistName`），因為白名單匹配的是名稱及其子域，永遠不可能匹配到一個地址。
 - `POST /dns/dnsbl/allowlist/remove`（需要管理員）—— 按名稱移除白名單條目。名稱會被規範化但不會重新校驗，因此早於某次校驗規則變更的條目仍然可以被移除。
 - `GET /dns/services`（需要鑑權）—— 列出已安裝的包服務及其釋出狀態（是否在 DNS 區域中）（`{repo, name, version, fqdn, domains, published}`），按 repo/name 去重。
 - `POST /dns/services/set`（需要管理員）—— 在 DNS 區域中釋出或取消釋出某個包服務。接受 `{repo, name, published}`。持久化該選擇並立即註冊/登出記錄。
 
-DNS 的只讀端點（`/dns/status`、`/dns/records`、`/dns/rbl/local`、`/dns/dnsbl/allowlist`、`/dns/services`、`GET /dns/tld`、`GET /dns/rbl`、`GET /dns/dnsbl`）被排除在審計日誌之外。白名單的*寫*操作會被審計（把一個名稱從所有黑名單中豁免是一項需要問責的變更）；與它們所對應的黑名單寫操作一樣，它們在 `account.RouteActions` 中沒有具名動作——由路徑本身標識它們。
+DNS 的只讀端點（`/dns/status`、`/dns/records`、`/dns/rbl/local`、`/dns/dnsbl/allowlist`、`/dns/services`、`GET /dns/tld`、`GET /dns/dnsbl`）被排除在審計日誌之外。白名單的*寫*操作會被審計（把一個名稱從所有黑名單中豁免是一項需要問責的變更）；與它們所對應的黑名單寫操作一樣，它們在 `account.RouteActions` 中沒有具名動作——由路徑本身標識它們。
 
-### RBL / DNSBL 黑名單
+### 阻擋名單
 
-Rolodex（0.2.4+）提供三種互補的垃圾/惡意/廣告攔截機制，外加（0.4.3+）一種撤銷機制與一種"不相信拒絕了查詢的提供方"的機制，全部通過 DNS API 與 `rolodex.Client` 封裝暴露（`SetRblConfig`/`GetRblConfig`、`SetDnsblConfig`/`GetDnsblConfig`、`AddLocalRblEntry`/`RemoveLocalRblEntry`/`ListLocalRblEntries`、`AddDnsblAllowlistEntry`/`RemoveDnsblAllowlistEntry`/`ListDnsblAllowlistEntries`）。全部由 **rolodex 按需查詢**——Town OS 從不下載、解析或預快取黑名單訂閱源。
+Rolodex（0.2.4+）提供兩種互補的垃圾/惡意/廣告攔截機制，外加（0.4.3+）一種撤銷機制與一種"不相信拒絕了查詢的提供方"的機制，全部通過 DNS API 與 `rolodex.Client` 封裝暴露（`SetDnsblConfig`/`GetDnsblConfig`、`AddLocalBlocklistEntry`/`RemoveLocalBlocklistEntry`/`ListLocalBlocklistEntries`、`AddDnsblAllowlistEntry`/`RemoveDnsblAllowlistEntry`/`ListDnsblAllowlistEntries`）。全部由 **rolodex 按需查詢**——Town OS 從不下載、解析或預快取黑名單訂閱源。
 
-注意該封裝的兩個 `Set*` 方法把列表級的拒絕冷卻時間作為末位引數（`SetRblConfig(ctx, enabled, providers, refusalCooldownSecs)`）；它們對映到上游的 `Set*ConfigWithRefusalCooldown`，因為上游那些保持引數個數不變的寫法是為了外部 API 相容性而存在的，而內部封裝並不需要這一點。
+**RBL 那一半已經退役。** 反向 IP 的提供方查詢、`SetRblConfig`/`GetRblConfig` 以及 `GET`/`POST /dns/rbl` 端點全都沒有了；rolodex 把 `src/rbl.rs` 改名為 `src/dnsbl.rs`，只留下了基於名稱的那次檢查。在這次改名中留存下來的是*本地*阻擋名單——它的 HTTP 路徑仍然寫作 `/dns/rbl/local*`，因為那是已發布的契約——以及 `dns_rbl_config` 這個設定鍵，如今沒有任何東西讀它，`controller_dns_blocklists.go` 裡點名它只是為了不讓這個鍵被別的東西複用。
 
-- **RBL**（Realtime Blackhole List）—— 反向 IP 黑名單區域，按需以反轉後的 IP 對某個區域發起查詢（例如 `zen.spamhaus.org`）。用於檢查反向 DNS 查詢中出現的 IP。通過 `/dns/rbl` 配置為一組 `{zone, enabled, refusal_codes, refusal_cooldown_secs}` 提供方，外加一個全域啟用標誌與一個列表級的 `refusal_cooldown_secs`。
-- **DNSBL**（域名黑名單）—— 域名黑名單區域，按需通過把被查詢的域名前置到該區域來發起查詢（例如 `googleadservices.com` + `dbl.spamhaus.org`）。DNSBL 的命中優先於轉發/迭代得到的答案。通過 `/dns/dnsbl` 配置，形狀與 RBL 相同，並有自己獨立的冷卻時間。
-- **本地 RBL 條目** —— 一份由資料庫支撐的名稱/IP 列表，通過 `/dns/rbl/local*` 手動管理，在外部提供方之前被檢查。**域名**型別的本地條目會以 `NXDOMAIN` 阻斷該域名的正向 A/AAAA 查詢，並立即生效（rolodex 在新增時更新記憶體快取）。
-- **DNSBL 白名單**（rolodex 0.4.3+）—— 運維應對第三方訂閱源誤報的逃生艙口，通過 `/dns/dnsbl/allowlist*` 管理。一個條目覆蓋該名稱**以及它之下的每一個名稱**，因此把 `vendor.example` 加入白名單也會豁免 `cdn.vendor.example`。它會**短路整個基於名稱的檢查**，優先於已配置的 DNSBL 提供方以及任何匹配的本地 RBL 條目，並且它在提供方查詢*之前*執行，因此被豁免的名稱永遠不會發出那次查詢。同樣由資料庫支撐並帶記憶體快取，因此立即生效。
+注意該封裝的 `SetDnsblConfig` 把列表級的拒絕冷卻時間作為末位引數（`SetDnsblConfig(ctx, enabled, providers, refusalCooldownSecs)`）；它對映到上游的 `SetDnsblConfigWithRefusalCooldown`，因為上游那種保持引數個數不變的寫法是為了外部 API 相容性而存在的，而內部封裝並不需要這一點。
 
-  沒有它，面對一個把家庭所需名稱列入黑名單的訂閱源，唯一的補救辦法就是停用整個提供方。請注意它與本地黑名單的不對稱：白名單條目**只能是名稱**，絕不能是 IP，因為它所短路的正是基於名稱的那次檢查。基於 IP 的 RBL 路徑不受它影響。
+- **DNSBL**（域名黑名單）—— 域名黑名單區域，按需通過把被查詢的域名前置到該區域來發起查詢（例如 `googleadservices.com` + `dbl.spamhaus.org`）。DNSBL 的命中優先於轉發/迭代得到的答案。通過 `/dns/dnsbl` 配置為一組 `{zone, enabled, refusal_codes, refusal_cooldown_secs}` 提供方，外加一個全域啟用標誌與一個列表級的 `refusal_cooldown_secs`。
+- **本地阻擋名單條目** —— 一份由資料庫支撐的名稱/IP 列表，通過 `/dns/rbl/local*` 手動管理，在外部提供方之前被檢查。**域名**型別的本地條目會以 `NXDOMAIN` 阻斷該域名的正向 A/AAAA 查詢，並立即生效（rolodex 在新增時更新記憶體快取）。
+- **DNSBL 白名單**（rolodex 0.4.3+）—— 運維應對第三方訂閱源誤報的逃生艙口，通過 `/dns/dnsbl/allowlist*` 管理。一個條目覆蓋該名稱**以及它之下的每一個名稱**，因此把 `vendor.example` 加入白名單也會豁免 `cdn.vendor.example`。它會**短路整個基於名稱的檢查**，優先於已配置的 DNSBL 提供方以及任何匹配的本地阻擋名單條目，並且它在提供方查詢*之前*執行，因此被豁免的名稱永遠不會發出那次查詢。同樣由資料庫支撐並帶記憶體快取，因此立即生效。
+
+  沒有它，面對一個把家庭所需名稱列入黑名單的訂閱源，唯一的補救辦法就是停用整個提供方。請注意它與本地黑名單的不對稱：白名單條目**只能是名稱**，絕不能是 IP，因為它所短路的正是基於名稱的那次檢查——如今 RBL 那一半已經退役，這也是僅剩的一種提供方查詢。
 
   **版本下限：** 較老的 rolodex 會以 gRPC `Unimplemented` 應答這三個白名單 RPC，表現為 500。`make test` 與 mock 的整合測試都發現不了這一點——`TestRolodexDnsblAllowlistRoundtripReal` 才是證明所固定鏡像足夠新的那個測試。
 
@@ -1692,7 +1764,7 @@ DNSxL 對"命中黑名單"與"對查詢者的抱怨"返回的是**同一種記�
 
 Rolodex 能識別這些碼，並在遇到拒絕時**把該提供方從查詢輪換中移出一段冷卻時間**，而不是相信它。Town OS 把兩半都暴露出來：
 
-- **`refusal_codes`**，按提供方配置，兩個列表都支援。每一項是一個 IPv4 地址或 `address/prefix`——之所以支援字首，是因為提供方公佈的是整段範圍，而 Spamhaus 把整個 `127.255.255.0/24` 保留給錯誤碼並會隨時間往裡新增新碼，因此把今天的三個枚舉出來，會導致明天的第四個被悄悄讀作命中。
+- **`refusal_codes`**，按提供方配置，作用於 DNSBL 提供方列表。每一項是一個 IPv4 地址或 `address/prefix`——之所以支援字首，是因為提供方公佈的是整段範圍，而 Spamhaus 把整個 `127.255.255.0/24` 保留給錯誤碼並會隨時間往裡新增新碼，因此把今天的三個枚舉出來，會導致明天的第四個被悄悄讀作命中。
 - **`refusal_cooldown_secs`**，按提供方與按列表配置。提供方的 `0` 表示沿用列表值；列表的 `0` 表示使用 rolodex 內建的預設值（3600）。
 - **`rotated_out`**，出現在 `GET` 中，報告當前哪些提供方沒有被詢問、各自以什麼碼拒絕、以及剩餘多少秒。這是運維可見的那一半：沒有它，某個黑名單不再被查詢的唯一訊號，就是它不再攔截東西了。
 
@@ -1706,15 +1778,15 @@ Rolodex 能識別這些碼，並在遇到拒絕時**把該提供方從查詢輪�
 
 **`GET` 報告的是已解析的碼**，因此一個沒有指名任何碼的提供方讀回來會帶著內建集合——這正是要點，因為運維必須能看到機器實際在拿什麼做匹配。這也意味著**客戶端絕不能在下一次儲存時把它原樣回傳**：那樣做會把今天的列表凍結進儲存的配置，此後 rolodex 新增的碼就會開始被讀作命中——正是這一機制要防止的失敗，只不過在上一層被重新引入。`BlocklistsTab.jsx` 中的 `toWire` 會把已解析的內建集合收攏回一個預設欄位，而 UI 保留一份內建列表的副本（`BUILTIN_REFUSAL_CODES`）只為一個用途：決定設定對話方塊開啟時選中哪個單選項。若那份副本漂移，對話方塊會開啟在 "Custom" 並預填當前生效的碼——那是外觀上的錯誤預設值，而不是錯誤的配置，因為除非運維儲存，否則什麼也不會改變。
 
-**版本下限：** 早於拒絕碼處理的 rolodex 會接受這些欄位——proto3 忽略未知欄位——卻什麼也不儲存。mock 測試無法把這與成功區分開，因為 mock 會把遞給它的東西原樣回傳。`TestRolodexRblRefusalCodesRoundtripReal` 及其 DNSBL 孿生測試斷言：**空的**已配置列表讀回來必須是*已解析*的，而這正是老鏡像通不過的斷言。
+**版本下限：** 早於拒絕碼處理的 rolodex 會接受這些欄位——proto3 忽略未知欄位——卻什麼也不儲存。mock 測試無法把這與成功區分開，因為 mock 會把遞給它的東西原樣回傳。`TestRolodexDnsblRefusalCodesRoundtripReal` 斷言：**空的**已配置列表讀回來必須是*已解析*的，而這正是老鏡像通不過的斷言。
 
-**不存在訂閱源攝取/預快取**：提供方區域就是配置的單位；UI 提供一份精選的知名 DNSBL/RBL 區域列表作為一鍵快捷新增，但使用者可以新增任何區域。提供方區域的寫入會替換整份配置（經校驗、轉小寫、去重）。
+**不存在訂閱源攝取/預快取**：提供方區域就是配置的單位；UI 提供一份精選的知名 DNSBL 區域列表作為一鍵快捷新增，但使用者可以新增任何區域。提供方區域的寫入會替換整份配置（經校驗、轉小寫、去重）。
 
-**快捷新增列表是一種背書，並據此標準精選**（`ui/src/routes/dns/BlocklistsTab.jsx` 中的 `DNSBL_SUGGESTIONS` / `RBL_SUGGESTIONS`）。一個區域只有在家用機器開箱即可使用時才應出現在那裡：仍在運營、免費，並且無需註冊步驟即可應答一個自遞迴的解析器。當前的 DNSBL 有 Spamhaus DBL、SURBL、URIBL、NordSpam DBL、Spam Eating Monkey；RBL 有 Spamhaus ZEN、SpamCop、PSBL。
+**快捷新增列表是一種背書，並據此標準精選**（`ui/src/routes/dns/BlocklistsTab.jsx` 中的 `DNSBL_SUGGESTIONS`）。一個區域只有在家用機器開箱即可使用時才應出現在那裡：仍在運營、免費，並且無需註冊步驟即可應答一個自遞迴的解析器。當前有 Spamhaus DBL、SURBL、URIBL、NordSpam DBL 與 Spam Eating Monkey。
 
 有三個被刻意**排除在外**，而 `TestBlocklistsTab` 的"不提供已停運或需註冊的區域"用例保證它們一直如此：`dnsbl.sorbs.net` 已於 2024-06-05 停運且其區域被清空，因此它是一個讀起來像保護的永久空操作；`b.barracudacentral.org` 要求先註冊查詢方 IP，未註冊的機器可能應答一陣子然後被切斷；UCEPROTECT 的 2/3 級會列出整個 ASN，因此一個壞鄰居就能封掉一整家 ISP。這三者都是*靜默*失敗——運維看到一個已配置的區域，就假定它在工作。
 
-另請注意，RBL（反向 IP）區域只在反向 DNS 查詢中出現 IP 時才被查詢，而普通瀏覽幾乎不產生這類查詢。真正影響瀏覽的是 DNSBL（域名）區域，而它們是針對郵件中的垃圾 URL 調優的，而非針對廣告或追蹤器——廣告/追蹤器攔截屬於訂閱源的領域，而那[被刻意排除在範圍之外](#rbl--dnsbl-黑名單)。
+另請注意，DNSBL（域名）區域是針對郵件中的垃圾 URL 調優的，而非針對廣告或追蹤器——廣告/追蹤器攔截屬於訂閱源的領域，而那[被刻意排除在範圍之外](#阻擋名單)。曾經與它們互補的那些反向 IP 區域已隨 RBL 那一半一同消失，而它們對瀏覽本來也幾乎沒有影響：它們只在反向 DNS 查詢中出現 IP 時才被查詢，而普通瀏覽幾乎不產生這類查詢。
 
 ### 按服務的 DNS 釋出
 
@@ -1725,7 +1797,7 @@ Rolodex 能識別這些碼，並在遇到拒絕時**把該提供方從查詢輪�
 DNS 管理介面在四個可深鏈的子標籤頁（`?tab=`）之上顯示 DNS 狀態（啟用、執行中、TLD、記錄數量）：
 
 - **Records** —— DNS 記錄表，配有用於新增記錄（型別：A、AAAA、CNAME、MX、TXT、SRV、PTR）、移除記錄、更改 TLD 與初始化 DNS 的對話方塊。
-- **Blocklists** —— DNSBL 與 RBL 的提供方區域區塊（全域啟用開關、按區域的啟用/移除、按區域的拒絕碼設定、建議區域快捷新增、自定義區域新增——全部為按需查詢），外加一張手動本地條目表（新增/移除）。每個區塊的開頭會列出當前因拒絕查詢而被退避的提供方（如果有的話）。沒有訂閱源，沒有"應用"按鈕，什麼也不快取。
+- **Blocklists** —— DNSBL 的提供方區域區塊（全域啟用開關、按區域的啟用/移除、按區域的拒絕碼設定、建議區域快捷新增、自定義區域新增——全部為按需查詢），外加一張手動本地條目表（新增/移除）。每個區塊的開頭會列出當前因拒絕查詢而被退避的提供方（如果有的話）。沒有訂閱源，沒有"應用"按鈕，什麼也不快取。
 - **Allow Lists**（`?tab=allowlists`，`ui/src/routes/dns/AllowListsTab.jsx`）—— DNSBL 白名單：一張帶原因的豁免域名錶，以及新增與移除。讀操作是 `requireAuth`，因此該標籤頁不限管理員；新增/移除控制元件僅限管理員。它是一個平級標籤頁而非 Blocklists 上的一張卡片，因為當某個東西無法訪問時，運維是按名稱去找豁免項的，而不是在滾動瀏覽提供方區域時順便發現它。
 - **Services** —— 已安裝的包服務，配有釋出開關（在 DNS 區域中釋出/取消釋出）。
 
@@ -1850,6 +1922,12 @@ Prometheus 與 Node Exporter 在啟動時總是被啟動。監控後端設定決
 
 - `GET /monitoring/status`（需要鑑權）—— 返回 `backend`（`"uplot"` 或 `"grafana"`）、每個服務的執行標誌（`prometheus`、`node_exporter`、`monitoring_ui`，以及僅在 Grafana 模式下的 `grafana`），以及 `disk_devices`：支撐該 btrfs 檔案系統的核心裝置基名，前端會把它代入 Disk I/O 查詢。`disk_devices` 為空表示發現失敗，面板會回退到一個匹配不到任何東西的正則。當監控未配置時返回 `{"status": "disabled"}`。按服務的鏡像與單元後設資料不在此處——那是 `GET /system-services`。
 - `GET /metrics`（localhost 或需要管理員）—— system controller 自身的 Prometheus 端點。參見 [System Controller Metrics](#system-controller-指標)。
+
+**抓取的健康狀況也在這裡回報，因為別的地方都不報。** `/monitoring/status` 還帶回 `scrape_targets`（Prometheus 自己對它抓取的每一個 job 的看法，各自帶 `job`、`instance`、`health`、`scrape_url`，失敗的那些還帶 Prometheus 記下的 `last_error`）、`down_jobs`（只有至少一個目標失敗的那些 job 的名字，也就是儀表板橫幅要說的那句話），以及 `scrape_targets_error`（在 Prometheus 明明活著的機器上，這份清單為什麼是空的）。`monitoring.FetchScrapeTargets` 從回送位址上的 Prometheus 讀 `GET /api/v1/targets`，帶 3 秒的上限，這樣一個卡住的 Prometheus 不會把一次狀態輪詢一直吊著；而且**只有在 prometheus 單元處於 active 時才會去問**——單元停著的時候，它的單元狀態已經把話說完了，再疊一個連線錯誤只會讀成第二個不同的故障。
+
+Prometheus 還沒抓過的目標報的是 `unknown` 而不是 `down`：每次重啟之後的第一個間隔裡，所有目標都處在那個狀態，把它算作 down 會讓每一次啟動都看起來像一次故障。
+
+這個東西存在，是因為一個從來就沒成功過的抓取 job，在別的任何地方都看不見。這臺機器已經發過兩次這樣的車：`prometheus.yml` 聲稱 `https`，而 `:5309` 上跑的是明文；以及 rolodex 的 `metrics:` 小節從來沒能到達它的設定檔。兩次裡，所有單元都是 active，`systemctl --failed` 是空的，而受影響的面板畫出來的是**空圖而不是錯誤**——與一個沒什麼可說的服務毫無分別。回歸測試是 `TestFetchScrapeTargets*` 與 `TestHTTPMonitoringStatus{ReportsDownScrapeJobs,SaysWhyItCouldNotAsk,SkipsTargetsWhenPrometheusIsStopped}`（單元），以及 `TestMonitoringStatusReportsADownScrapeJob`（整合，對著一個真實的 Prometheus，其中一個 job 指向一個沒人監聽的埠）。
 
 ### System Controller 指標
 
@@ -2242,12 +2320,12 @@ SIGINT 觸發 context 取消。HTTP 伺服器關閉，所有後台 goroutine 經
 其預設值位於讀取處，作為空字串的回退。不要以為把它們加入 `DefaultSettings`
 不會帶來其他影響：被播種的行與運維的選擇無法區分，而對黑名單配置而言，
 這正是"從未配置過，別動它"與"被顯式設為空，推送它"之間的差別
-（[RBL / DNSBL Blocklists](#rbl--dnsbl-黑名單)）。
+（[阻擋名單](#阻擋名單)）。
 
 | 鍵 | 缺失時的預設值 | 由誰寫入 |
 | --- | --- | --- |
 | `monitoring_backend`     | `uplot` | `POST /settings/set` |
-| `dns_rbl_config` / `dns_dnsbl_config` | 未配置（與"空"不是一回事） | `POST /dns/rbl`、`POST /dns/dnsbl` |
+| `dns_dnsbl_config` | 未配置（與"空"不是一回事） | `POST /dns/dnsbl` |
 | `dns_excluded_services`  | 空列表（釋出是選擇退出制） | `POST /dns/services/set` |
 | `dismissed_upgrades_hash` | 不存在（未忽略任何升級） | `POST /packages/upgrades/dismiss` |
 

@@ -63,11 +63,11 @@ func validateHostname(host string) error {
 	return nil
 }
 
-// ValidateRblZone validates an RBL/DNSBL provider zone (a DNS hostname such as
+// ValidateBlocklistZone validates a blocklist provider zone (a DNS hostname such as
 // "zen.spamhaus.org" or "dbl.spamhaus.org").
-func ValidateRblZone(zone string) error {
+func ValidateBlocklistZone(zone string) error {
 	if err := validateHostname(zone); err != nil {
-		return fmt.Errorf("RBL zone %q is invalid: %w", zone, err)
+		return fmt.Errorf("blocklist zone %q is invalid: %w", zone, err)
 	}
 	return nil
 }
@@ -198,24 +198,24 @@ func parseRefusalAddr(addr, code string) (netip.Addr, error) {
 	return parsed, nil
 }
 
-// ValidateLocalRblName validates a local RBL blocklist entry name, which may be
+// ValidateLocalBlocklistName validates a local blocklist entry name, which may be
 // either a domain name (forward-blocked) or an IP address (reverse-blocked).
-func ValidateLocalRblName(name string) error {
+func ValidateLocalBlocklistName(name string) error {
 	name = strings.TrimSpace(name)
 	if name == "" {
-		return errors.New("local RBL entry name must not be empty")
+		return errors.New("local blocklist entry name must not be empty")
 	}
 	if ip := net.ParseIP(name); ip != nil {
 		return nil
 	}
 	if err := validateHostname(name); err != nil {
-		return fmt.Errorf("local RBL entry %q is invalid: %w (must be a domain name or IP address)", name, err)
+		return fmt.Errorf("local blocklist entry %q is invalid: %w (must be a domain name or IP address)", name, err)
 	}
 	return nil
 }
 
 // ValidateDnsblAllowlistName validates a DNSBL allowlist entry name. Unlike
-// ValidateLocalRblName this deliberately rejects IP literals: the allowlist
+// ValidateLocalBlocklistName this deliberately rejects IP literals: the allowlist
 // exempts a name from the *name-based* blocklist step and matches the name plus
 // every name beneath it, so an address is not something it could ever match.
 func ValidateDnsblAllowlistName(name string) error {

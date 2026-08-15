@@ -24,8 +24,6 @@ export const arEGOverrides = {
   'archive.filename_hint': 'الاسم الأساسي للملف الذي يتم تحميله. تُضاف امتداد الأرشيف تلقائيًا.',
   'archive.stop_service_download': 'إيقاف الخدمة أثناء التحميل',
   'archive.download_btn': 'تحميل',
-  'dns.bl.rbl_description':
-    'مناطق قائمة الثقب الأسود اللحظية التي يُستعلَم عنها عند الطلب بعنوان IP معكوس (مثال: zen.spamhaus.org). لا يتم تحميل أو تخزين أي شيء.',
   'dns.bl.dnsbl_description':
     'مناطق قائمة حظر النطاقات التي يُستعلَم عنها عند الطلب باسم النطاق (مثال: dbl.spamhaus.org). تكون لها الأولوية على الإجابات الخارجية؛ لا يتم تحميل أو تخزين أي شيء.',
   'progress.downloading_vm_image': 'جارٍ تحميل صورة الجهاز الافتراضي...',

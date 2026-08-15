@@ -10,7 +10,7 @@ import AllowListsTab from '@/routes/dns/AllowListsTab.jsx'
 import ServicesTab from '@/routes/dns/ServicesTab.jsx'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Card, CardContent } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -32,6 +32,9 @@ import {
 } from '@/components/ui/select'
 import { Plus, Trash2 } from 'lucide-react'
 
+// Every type the server can hand back. It has to be every one: an unmapped
+// number renders as `undefined` in the records table, which is what the DDR
+// SVCB designations did when this stopped at ANAME.
 const RECORD_TYPES = {
   0: 'A',
   1: 'AAAA',
@@ -46,6 +49,17 @@ const RECORD_TYPES = {
   10: 'SSHFP',
   11: 'DNAME',
   12: 'ANAME',
+  13: 'ZONEMD',
+  14: 'TLSA',
+  15: 'DNSKEY',
+  16: 'DS',
+  17: 'RRSIG',
+  18: 'NSEC',
+  19: 'NSEC3',
+  20: 'NSEC3PARAM',
+  21: 'CERT',
+  22: 'SVCB',
+  23: 'HTTPS',
 }
 
 const RECORD_TYPE_BY_NAME = Object.fromEntries(
@@ -269,6 +283,37 @@ export default function DNSManagement() {
                 {t('dns.status_records', { count: status.record_count ?? 0, s: (status.record_count ?? 0) === 1 ? '' : 's' })}
               </span>
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* How to reach this resolver privately.
+          Read-only on purpose: the endpoints are derived from the TLD and the
+          ingress, so there is nothing here to set — what an operator needs is
+          to be able to SEE them, which is exactly what was missing while the box
+          served DoH, DoT and DoQ that nobody could find. */}
+      {status?.enabled && status?.encrypted && (
+        <Card>
+          <CardHeader>
+            <CardTitle>{t('dns.encrypted_title')}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-muted-foreground">{t('dns.encrypted_description')}</p>
+            <dl className="grid gap-2 text-sm sm:grid-cols-[max-content_1fr]">
+              <dt className="text-muted-foreground">{t('dns.encrypted_doh')}</dt>
+              <dd className="font-mono break-all">{status.encrypted.doh_url}</dd>
+              <dt className="text-muted-foreground">{t('dns.encrypted_dot')}</dt>
+              <dd className="font-mono break-all">
+                {status.encrypted.dot_name}:{status.encrypted.dot_port}
+              </dd>
+              <dt className="text-muted-foreground">{t('dns.encrypted_doq')}</dt>
+              <dd className="font-mono break-all">
+                {status.encrypted.doq_name}:{status.encrypted.doq_port}
+              </dd>
+              <dt className="text-muted-foreground">{t('dns.encrypted_discovery')}</dt>
+              <dd className="font-mono break-all">{status.encrypted.discovery}</dd>
+            </dl>
+            <p className="text-xs text-muted-foreground">{t('dns.encrypted_discovery_hint')}</p>
           </CardContent>
         </Card>
       )}

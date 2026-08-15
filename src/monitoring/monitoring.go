@@ -135,4 +135,19 @@ type MonitoringStatus struct {
 	// query. Empty when discovery failed; the dashboard falls back to a
 	// sentinel regex that matches nothing.
 	DiskDevices []string `json:"disk_devices,omitempty"`
+	// ScrapeTargets is Prometheus's own view of every job it scrapes, with the
+	// error for each one that is failing. Nothing else on the box reports this:
+	// a scrape job that has never worked leaves every unit active and every
+	// panel empty, which reads as an idle service rather than a broken one.
+	// Empty when Prometheus is not running or could not be reached, in which
+	// case ScrapeTargetsError says why.
+	ScrapeTargets []ScrapeTarget `json:"scrape_targets,omitempty"`
+	// DownJobs is the job names with at least one failing target — the same
+	// information as ScrapeTargets, reduced to what a status banner says.
+	DownJobs []string `json:"down_jobs,omitempty"`
+	// ScrapeTargetsError explains an empty ScrapeTargets on a box where
+	// Prometheus is up. It is reported rather than logged because "we could not
+	// ask" and "nothing is wrong" are the two answers this endpoint must never
+	// conflate — that conflation is the bug class this field exists for.
+	ScrapeTargetsError string `json:"scrape_targets_error,omitempty"`
 }

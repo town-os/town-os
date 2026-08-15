@@ -34,20 +34,16 @@ type MockClient struct {
 	ScopeTldForwarders map[string][]string // scopeName + "\x00" + tld -> forwarders
 	ScopeTldListeners  map[string]string   // scopeName + "\x00" + tld -> listen IP
 
-	// RBL / DNSBL state.
-	RblEnabled      bool
-	RblProviders    []*upstream.RblConfig
-	DnsblEnabled    bool
-	DnsblProviders  []*upstream.DnsblConfig
-	LocalRblEntries []*upstream.LocalRblEntry
+	// DNSBL state.
+	DnsblEnabled          bool
+	DnsblProviders        []*upstream.DnsblConfig
+	LocalBlocklistEntries []*upstream.LocalBlocklistEntry
 
 	// Refusal handling: how long a provider that refused a query stays out of
 	// the lookup rotation, and which providers are currently out. The cooldowns
 	// are recorded from the Set calls; the rotated-out lists are set by the test
 	// (a mock has no lookup path to refuse anything).
-	RblRefusalCooldownSecs   uint32
 	DnsblRefusalCooldownSecs uint32
-	RblRotatedOut            []*upstream.RotatedProvider
 	DnsblRotatedOut          []*upstream.RotatedProvider
 
 	DnsblAllowlistEntries []*upstream.DnsblAllowlistEntry
@@ -62,13 +58,22 @@ type MockClient struct {
 	RemoveAuthZoneErr error
 	ListAuthZonesErr  error
 
-	SetRblConfigErr        error
-	GetRblConfigErr        error
-	SetDnsblConfigErr      error
-	GetDnsblConfigErr      error
-	AddLocalRblEntryErr    error
-	RemoveLocalRblEntryErr error
-	ListLocalRblEntriesErr error
+	// Forwarders and ResolutionMode are the live upstream settings this fake
+	// server holds. They exist as state rather than as a call log because
+	// Town OS reprograms them after every rolodex restart, so what tests
+	// assert on is what the server ended up holding.
+	Forwarders     []string
+	ResolutionMode string
+
+	SetForwardersErr     error
+	SetResolutionModeErr error
+	GetResolutionModeErr error
+
+	SetDnsblConfigErr            error
+	GetDnsblConfigErr            error
+	AddLocalBlocklistEntryErr    error
+	RemoveLocalBlocklistEntryErr error
+	ListLocalBlocklistEntriesErr error
 
 	AddDnsblAllowlistEntryErr    error
 	RemoveDnsblAllowlistEntryErr error
@@ -105,6 +110,26 @@ func (m *MockClient) GetCalls() []MockCall {
 	return out
 }
 
+// CallCount reports how many times the named method was called. Tests of the
+// reprogramming path assert on counts rather than on "was it called", because
+// the bug being guarded against is re-pushing the same settings on every tick.
+func (m *MockClient) CallCount(method string) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	n := 0
+	for _, c := range m.Calls {
+		if c.Method == method {
+			n++
+		}
+	}
+	return n
+}
+
+// Called reports whether the named method was called at least once.
+func (m *MockClient) Called(method string) bool {
+	return m.CallCount(method) > 0
+}
+
 func (m *MockClient) record(method string, args ...any) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -130,13 +155,40 @@ func (m *MockClient) RemoveRecord(_ context.Context, name string, opts *upstream
 	return m.removeRecordLocked(name, opts), nil
 }
 
+// removeRecordLocked models what the SERVER does with a RemoveRecordRequest,
+// which is not what RemoveRecordOptions' documentation says.
+//
+// `record_type` is a plain proto3 enum field, so "unset" and "A" are the same
+// byte on the wire, and rolodex reads it back with `RecordKind::from_proto_i32`
+// — where 0 is A, not "every type". A caller that passes nil options therefore
+// removes A records and nothing else, and gets `success: true, removed: 0` when
+// the name holds only records of another type: silent, and indistinguishable
+// from a removal that worked.
+//
+// The mock used to read nil as "remove everything at this name", which is the
+// friendlier reading and the reason a real rolodex stacked a second copy of the
+// DDR designation on every rebuild while every unit test stayed green. A fake
+// that is more forgiving than the server is a fake that hides the bug it exists
+// to catch, so this matches the wire.
 func (m *MockClient) removeRecordLocked(name string, opts *upstream.RemoveRecordOptions) uint32 {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	// The zero value is A, exactly as the server decodes an absent field.
+	wantType := upstream.RecordTypeA
+	var wantValue string
+	if opts != nil {
+		if opts.RecordType != nil {
+			wantType = *opts.RecordType
+		}
+		wantValue = opts.Value
+	}
+
 	var kept []*upstream.DnsRecord
 	var removed uint32
 	for _, r := range m.Records {
-		if r.Name == name && (opts == nil || opts.RecordType == nil || *opts.RecordType == r.RecordType) {
+		// An empty Value is "any value", the same as on the server.
+		if r.Name == name && wantType == r.RecordType && (wantValue == "" || wantValue == r.Value) {
 			removed++
 		} else {
 			kept = append(kept, r)
@@ -208,32 +260,36 @@ func (m *MockClient) FlushDnsCache(_ context.Context) error {
 	return m.FlushCacheErr
 }
 
-func (m *MockClient) SetRblConfig(_ context.Context, enabled bool, providers []*upstream.RblConfig, refusalCooldownSecs uint32) error {
-	m.record("SetRblConfig", enabled, providers, refusalCooldownSecs)
-	if m.SetRblConfigErr != nil {
-		return m.SetRblConfigErr
+func (m *MockClient) SetForwarders(_ context.Context, forwarders []string) error {
+	m.record("SetForwarders", forwarders)
+	if m.SetForwardersErr != nil {
+		return m.SetForwardersErr
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.RblEnabled = enabled
-	m.RblProviders = slices.Clone(providers)
-	m.RblRefusalCooldownSecs = refusalCooldownSecs
+	m.Forwarders = slices.Clone(forwarders)
 	return nil
 }
 
-func (m *MockClient) GetRblConfig(_ context.Context) (*upstream.RblStatus, error) {
-	m.record("GetRblConfig")
-	if m.GetRblConfigErr != nil {
-		return nil, m.GetRblConfigErr
+func (m *MockClient) SetResolutionMode(_ context.Context, mode string) error {
+	m.record("SetResolutionMode", mode)
+	if m.SetResolutionModeErr != nil {
+		return m.SetResolutionModeErr
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return &upstream.RblStatus{
-		Enabled:             m.RblEnabled,
-		Providers:           slices.Clone(m.RblProviders),
-		RefusalCooldownSecs: m.RblRefusalCooldownSecs,
-		RotatedOut:          slices.Clone(m.RblRotatedOut),
-	}, nil
+	m.ResolutionMode = mode
+	return nil
+}
+
+func (m *MockClient) GetResolutionMode(_ context.Context) (string, error) {
+	m.record("GetResolutionMode")
+	if m.GetResolutionModeErr != nil {
+		return "", m.GetResolutionModeErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.ResolutionMode, nil
 }
 
 func (m *MockClient) SetDnsblConfig(_ context.Context, enabled bool, providers []*upstream.DnsblConfig, refusalCooldownSecs uint32) error {
@@ -264,51 +320,51 @@ func (m *MockClient) GetDnsblConfig(_ context.Context) (*upstream.DnsblStatus, e
 	}, nil
 }
 
-func (m *MockClient) AddLocalRblEntry(_ context.Context, entry *upstream.LocalRblEntry) error {
-	m.record("AddLocalRblEntry", entry)
-	if m.AddLocalRblEntryErr != nil {
-		return m.AddLocalRblEntryErr
+func (m *MockClient) AddLocalBlocklistEntry(_ context.Context, entry *upstream.LocalBlocklistEntry) error {
+	m.record("AddLocalBlocklistEntry", entry)
+	if m.AddLocalBlocklistEntryErr != nil {
+		return m.AddLocalBlocklistEntryErr
 	}
 	if entry == nil {
 		return nil
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	for _, e := range m.LocalRblEntries {
+	for _, e := range m.LocalBlocklistEntries {
 		if e.Name == entry.Name {
 			e.Reason = entry.Reason
 			return nil
 		}
 	}
-	m.LocalRblEntries = append(m.LocalRblEntries, entry)
+	m.LocalBlocklistEntries = append(m.LocalBlocklistEntries, entry)
 	return nil
 }
 
-func (m *MockClient) RemoveLocalRblEntry(_ context.Context, name string) error {
-	m.record("RemoveLocalRblEntry", name)
-	if m.RemoveLocalRblEntryErr != nil {
-		return m.RemoveLocalRblEntryErr
+func (m *MockClient) RemoveLocalBlocklistEntry(_ context.Context, name string) error {
+	m.record("RemoveLocalBlocklistEntry", name)
+	if m.RemoveLocalBlocklistEntryErr != nil {
+		return m.RemoveLocalBlocklistEntryErr
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	for i, e := range m.LocalRblEntries {
+	for i, e := range m.LocalBlocklistEntries {
 		if e.Name == name {
-			m.LocalRblEntries = append(m.LocalRblEntries[:i], m.LocalRblEntries[i+1:]...)
+			m.LocalBlocklistEntries = append(m.LocalBlocklistEntries[:i], m.LocalBlocklistEntries[i+1:]...)
 			return nil
 		}
 	}
 	return nil
 }
 
-func (m *MockClient) ListLocalRblEntries(_ context.Context) ([]*upstream.LocalRblEntry, error) {
-	m.record("ListLocalRblEntries")
-	if m.ListLocalRblEntriesErr != nil {
-		return nil, m.ListLocalRblEntriesErr
+func (m *MockClient) ListLocalBlocklistEntries(_ context.Context) ([]*upstream.LocalBlocklistEntry, error) {
+	m.record("ListLocalBlocklistEntries")
+	if m.ListLocalBlocklistEntriesErr != nil {
+		return nil, m.ListLocalBlocklistEntriesErr
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	out := make([]*upstream.LocalRblEntry, len(m.LocalRblEntries))
-	copy(out, m.LocalRblEntries)
+	out := make([]*upstream.LocalBlocklistEntry, len(m.LocalBlocklistEntries))
+	copy(out, m.LocalBlocklistEntries)
 	return out, nil
 }
 

@@ -1384,9 +1384,10 @@ func TestReconcileDNS(t *testing.T) {
 	if addAuthZoneCalls != 1 {
 		t.Fatalf("expected 1 AddAuthoritativeZone call (first-time zone setup), got %d", addAuthZoneCalls)
 	}
-	// SOA + NS + A(ns1) + A(nginx.repo-a.lan.) + A(www.nginx.repo-a.lan.) + A(redis.repo-a.lan.) = 6
-	if addRecordCalls != 6 {
-		t.Fatalf("expected 6 AddRecord calls, got %d", addRecordCalls)
+	// SOA + NS + A(ns1) + A(nginx.repo-a.lan.) + A(www.nginx.repo-a.lan.) +
+	// A(redis.repo-a.lan.) + A(dns.lan., the DoH endpoint) = 7
+	if addRecordCalls != 7 {
+		t.Fatalf("expected 7 AddRecord calls, got %d", addRecordCalls)
 	}
 }
 
@@ -1421,7 +1422,7 @@ func TestReconcileDNSPublishesAAAA(t *testing.T) {
 	}
 
 	// Count AAAA AddRecord calls and confirm each carries the host v6. Expect
-	// ns1 + nginx + www.nginx + redis = 4.
+	// ns1 + nginx + www.nginx + redis + dns (the DoH endpoint) = 5.
 	var aaaa int
 	for _, c := range mock.GetCalls() {
 		if c.Method != "AddRecord" {
@@ -1439,8 +1440,8 @@ func TestReconcileDNSPublishesAAAA(t *testing.T) {
 			t.Errorf("AAAA %s value = %q, want 2001:db8::50", rec.Name, rec.Value)
 		}
 	}
-	if aaaa != 4 {
-		t.Fatalf("expected 4 AAAA AddRecord calls (ns1 + 3 package FQDNs), got %d", aaaa)
+	if aaaa != 5 {
+		t.Fatalf("expected 5 AAAA AddRecord calls (ns1 + 3 package FQDNs + the DoH endpoint), got %d", aaaa)
 	}
 
 	// Second run must be a no-op: every A and AAAA already exists, nothing is
@@ -1575,9 +1576,10 @@ func TestRebuildDNS(t *testing.T) {
 	if addAuth != 1 {
 		t.Errorf("expected 1 AddAuthoritativeZone, got %d", addAuth)
 	}
-	// SOA + NS + A(ns1) + A(nginx) + A(www.nginx) + A(redis) = 6
-	if addRecord != 6 {
-		t.Errorf("expected 6 AddRecord, got %d", addRecord)
+	// SOA + NS + A(ns1) + A(nginx) + A(www.nginx) + A(redis) + A(dns, the DoH
+	// endpoint) + 3 SVCB (the DDR designation, one per transport) = 10
+	if addRecord != 10 {
+		t.Errorf("expected 10 AddRecord, got %d", addRecord)
 	}
 }
 
@@ -1609,12 +1611,18 @@ func TestRebuildDNSRunTwiceKeepsRecordCountStable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListRecords: %v", err)
 	}
-	// SOA + NS + A(ns1) + A(nginx.repo-a.lan.) = 4
-	if len(records) != 4 {
+	// SOA + NS + A(ns1) + A(nginx.repo-a.lan.) + A(dns.lan., the DoH endpoint)
+	// + 3 SVCB (the DDR designation) = 8.
+	//
+	// The designation is the one that could drift: it lives at
+	// `_dns.resolver.arpa.`, outside any zone this box owns, so TeardownTLD
+	// never clears it and publishDDRDesignation has to remove before it adds.
+	// A count of 11 here means that removal stopped happening.
+	if len(records) != 8 {
 		for _, r := range records {
 			t.Logf("record: name=%s type=%v value=%s", r.Name, r.RecordType, r.Value)
 		}
-		t.Fatalf("expected 4 records after two rebuilds, got %d", len(records))
+		t.Fatalf("expected 8 records after two rebuilds, got %d", len(records))
 	}
 }
 
@@ -1752,12 +1760,13 @@ func TestReconcileDNSIdempotent(t *testing.T) {
 		t.Fatalf("ListRecords: %v", err)
 	}
 
-	// Expected: SOA + NS + A(ns1) + A(nginx.repo-a.lan.) = 4 records
-	if len(records) != 4 {
+	// Expected: SOA + NS + A(ns1) + A(nginx.repo-a.lan.) + A(dns.lan., the DoH
+	// endpoint) = 5 records
+	if len(records) != 5 {
 		for _, r := range records {
 			t.Logf("  record: name=%s type=%v value=%s", r.Name, r.RecordType, r.Value)
 		}
-		t.Fatalf("expected 4 records after 2 reconcile runs (no duplicates), got %d", len(records))
+		t.Fatalf("expected 5 records after 2 reconcile runs (no duplicates), got %d", len(records))
 	}
 }
 

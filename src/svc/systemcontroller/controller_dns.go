@@ -28,6 +28,56 @@ type DNSStatusResponse struct {
 	RecordCount     int      `json:"record_count"`
 	LocalForwarders bool     `json:"local_forwarders"`
 	Forwarders      []string `json:"forwarders"`
+
+	// Encrypted is how a client reaches this resolver privately. Reported here
+	// because it was reachable and undiscoverable: the box has served DoH, DoT
+	// and DoQ for some time, and nothing told anybody where — so encrypted DNS
+	// had to be typed into each device by hand, if the operator knew it existed
+	// at all. DDR (`_dns.resolver.arpa.`) is the automatic half of that answer;
+	// this is the half a person can read.
+	Encrypted *EncryptedDNSView `json:"encrypted,omitempty"`
+}
+
+// EncryptedDNSView describes the box's encrypted DNS endpoints as a CLIENT sees
+// them, not as they are bound internally.
+//
+// The DoH URL is the ingress's `:443`, never rolodex's own loopback `:4443` —
+// that listener is reachable from nowhere and holds a self-signed certificate,
+// so publishing it would hand out an endpoint that fails twice over.
+type EncryptedDNSView struct {
+	// DohURL is the full URL a DoH client is configured with, e.g.
+	// "https://dns.home/dns-query". Empty when there is no TLD to name it after.
+	DohURL string `json:"doh_url,omitempty"`
+	// DotName and DoqName are the authentication names a DoT/DoQ client checks
+	// the certificate against — not addresses, because that is what those
+	// clients are configured with.
+	DotName string `json:"dot_name,omitempty"`
+	DoqName string `json:"doq_name,omitempty"`
+	DotPort int    `json:"dot_port"`
+	DoqPort int    `json:"doq_port"`
+	// Discovery is the name a DDR-aware client resolves to find all of the
+	// above without being told any of it (RFC 9462).
+	Discovery string `json:"discovery"`
+}
+
+// encryptedDNSView builds the client-facing endpoint description for a TLD.
+// Returns nil when there is no TLD, which is the same rule the DoH vhost and
+// the DDR designation follow — there is no name to reach anything by.
+func encryptedDNSView(tld string) *EncryptedDNSView {
+	hostname := dohIngressHostname(tld)
+	if hostname == "" {
+		return nil
+	}
+	return &EncryptedDNSView{
+		// The path without the `{?dns}` template: this field is for pasting into
+		// a client, and every DoH client appends its own query.
+		DohURL:    "https://" + hostname + "/dns-query",
+		DotName:   hostname,
+		DoqName:   hostname,
+		DotPort:   DoTPort,
+		DoqPort:   DoQPort,
+		Discovery: DDRDesignationName,
+	}
 }
 
 // SetTLDRequest is the request body for POST /dns/tld.
@@ -93,6 +143,7 @@ func (s *SystemControllerHandlers) dnsStatus(c *echo.Context) error {
 		RecordCount:     recordCount,
 		LocalForwarders: mgr.LocalForwarders(),
 		Forwarders:      mgr.Forwarders(),
+		Encrypted:       encryptedDNSView(tld),
 	})
 }
 
@@ -268,6 +319,24 @@ func (s *SystemControllerHandlers) setDNSTLD(c *echo.Context) error {
 	// Page content directories are keyed by the served FQDN, which for internal
 	// pages embeds the TLD — rename them so served content follows the new TLD.
 	s.migratePageDirsForTLD(c.Request().Context(), oldTLD, req.TLD)
+
+	// Encrypted DNS is named after the TLD in four places at once, and
+	// ChangeTLD moves none of them: the DoH endpoint's address records, the DDR
+	// designation that advertises it, the SANs on the certificate DoT and DoQ
+	// serve, and the DANE pins for that certificate. Without this the box goes
+	// on advertising `dns.<old>` — and a DANE-aware client that reaches the new
+	// name and finds no pin REFUSES the connection, so encrypted DNS breaks
+	// rather than merely going unverified, and stays broken until the next
+	// boot's RebuildDNS notices. The old TLD's pins went down with its zone in
+	// ChangeTLD above; retireEncryptedDNS is the belt for a rename that leaves
+	// a zone standing.
+	retireEncryptedDNS(ctx, rc, s.Controller.GetBtrfsBasePath(), oldTLD)
+	publishEncryptedDNS(ctx, rc, s.Controller.GetTLSCA(), s.Controller.GetBtrfsBasePath(), req.TLD, ipv4, ipv6)
+
+	// And the vhosts, which are named after the TLD too — the DoH endpoint's
+	// among them. The ingress is programmed from the current TLD on every
+	// rebuild, so this is what stops it serving the old names until a restart.
+	s.reprogramIngress(ctx)
 
 	// Update systemd-resolved routing for the new TLD so inter-package
 	// DNS resolution uses rolodex for the new domain.

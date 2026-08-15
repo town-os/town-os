@@ -8,30 +8,6 @@ import (
 	upstream "gitea.com/town-os/rolodex-dns/go"
 )
 
-func TestMockClientRblConfig(t *testing.T) {
-	m := &MockClient{}
-	ctx := context.Background()
-
-	providers := []*upstream.RblConfig{
-		{Zone: "zen.spamhaus.org", Enabled: true},
-		{Zone: "bl.spamcop.net", Enabled: false},
-	}
-	if err := m.SetRblConfig(ctx, true, providers, 0); err != nil {
-		t.Fatalf("SetRblConfig: %v", err)
-	}
-
-	status, err := m.GetRblConfig(ctx)
-	if err != nil {
-		t.Fatalf("GetRblConfig: %v", err)
-	}
-	if !status.Enabled {
-		t.Fatal("expected RBL enabled")
-	}
-	if len(status.Providers) != 2 || status.Providers[0].Zone != "zen.spamhaus.org" {
-		t.Fatalf("unexpected providers: %+v", status.Providers)
-	}
-}
-
 func TestMockClientDnsblConfig(t *testing.T) {
 	m := &MockClient{}
 	ctx := context.Background()
@@ -50,35 +26,35 @@ func TestMockClientDnsblConfig(t *testing.T) {
 	}
 }
 
-func TestMockClientLocalRblEntries(t *testing.T) {
+func TestMockClientLocalBlocklistEntries(t *testing.T) {
 	m := &MockClient{}
 	ctx := context.Background()
 
-	if err := m.AddLocalRblEntry(ctx, &upstream.LocalRblEntry{Name: "ads.example.com", Reason: "ads"}); err != nil {
-		t.Fatalf("AddLocalRblEntry: %v", err)
+	if err := m.AddLocalBlocklistEntry(ctx, &upstream.LocalBlocklistEntry{Name: "ads.example.com", Reason: "ads"}); err != nil {
+		t.Fatalf("AddLocalBlocklistEntry: %v", err)
 	}
-	if err := m.AddLocalRblEntry(ctx, &upstream.LocalRblEntry{Name: "tracker.example.net", Reason: "tracker"}); err != nil {
-		t.Fatalf("AddLocalRblEntry: %v", err)
+	if err := m.AddLocalBlocklistEntry(ctx, &upstream.LocalBlocklistEntry{Name: "tracker.example.net", Reason: "tracker"}); err != nil {
+		t.Fatalf("AddLocalBlocklistEntry: %v", err)
 	}
 	// Re-adding the same name updates the reason rather than duplicating.
-	if err := m.AddLocalRblEntry(ctx, &upstream.LocalRblEntry{Name: "ads.example.com", Reason: "updated"}); err != nil {
-		t.Fatalf("AddLocalRblEntry (update): %v", err)
+	if err := m.AddLocalBlocklistEntry(ctx, &upstream.LocalBlocklistEntry{Name: "ads.example.com", Reason: "updated"}); err != nil {
+		t.Fatalf("AddLocalBlocklistEntry (update): %v", err)
 	}
 
-	entries, err := m.ListLocalRblEntries(ctx)
+	entries, err := m.ListLocalBlocklistEntries(ctx)
 	if err != nil {
-		t.Fatalf("ListLocalRblEntries: %v", err)
+		t.Fatalf("ListLocalBlocklistEntries: %v", err)
 	}
 	if len(entries) != 2 {
 		t.Fatalf("expected 2 entries, got %d", len(entries))
 	}
 
-	if err := m.RemoveLocalRblEntry(ctx, "ads.example.com"); err != nil {
-		t.Fatalf("RemoveLocalRblEntry: %v", err)
+	if err := m.RemoveLocalBlocklistEntry(ctx, "ads.example.com"); err != nil {
+		t.Fatalf("RemoveLocalBlocklistEntry: %v", err)
 	}
-	entries, err = m.ListLocalRblEntries(ctx)
+	entries, err = m.ListLocalBlocklistEntries(ctx)
 	if err != nil {
-		t.Fatalf("ListLocalRblEntries: %v", err)
+		t.Fatalf("ListLocalBlocklistEntries: %v", err)
 	}
 	if len(entries) != 1 || entries[0].Name != "tracker.example.net" {
 		t.Fatalf("unexpected entries after remove: %+v", entries)
@@ -126,12 +102,12 @@ func TestMockClientDnsblAllowlistEntries(t *testing.T) {
 
 // The allowlist and the local blocklist are separate stores: an entry in one
 // must never appear in, or be removable through, the other.
-func TestMockClientDnsblAllowlistIsSeparateFromLocalRbl(t *testing.T) {
+func TestMockClientDnsblAllowlistIsSeparateFromTheLocalList(t *testing.T) {
 	m := &MockClient{}
 	ctx := context.Background()
 
-	if err := m.AddLocalRblEntry(ctx, &upstream.LocalRblEntry{Name: "shared.example.com", Reason: "blocked"}); err != nil {
-		t.Fatalf("AddLocalRblEntry: %v", err)
+	if err := m.AddLocalBlocklistEntry(ctx, &upstream.LocalBlocklistEntry{Name: "shared.example.com", Reason: "blocked"}); err != nil {
+		t.Fatalf("AddLocalBlocklistEntry: %v", err)
 	}
 	if err := m.AddDnsblAllowlistEntry(ctx, &upstream.DnsblAllowlistEntry{Name: "shared.example.com", Reason: "allowed"}); err != nil {
 		t.Fatalf("AddDnsblAllowlistEntry: %v", err)
@@ -141,9 +117,9 @@ func TestMockClientDnsblAllowlistIsSeparateFromLocalRbl(t *testing.T) {
 		t.Fatalf("RemoveDnsblAllowlistEntry: %v", err)
 	}
 
-	blocked, err := m.ListLocalRblEntries(ctx)
+	blocked, err := m.ListLocalBlocklistEntries(ctx)
 	if err != nil {
-		t.Fatalf("ListLocalRblEntries: %v", err)
+		t.Fatalf("ListLocalBlocklistEntries: %v", err)
 	}
 	if len(blocked) != 1 {
 		t.Fatalf("removing the allowlist entry must not touch the blocklist, got %+v", blocked)

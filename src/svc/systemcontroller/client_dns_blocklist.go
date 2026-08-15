@@ -9,40 +9,8 @@ import (
 	"net/http"
 )
 
-// GetRblConfig returns the current RBL (reverse-IP blocklist) configuration.
-func (c *SystemdClient) GetRblConfig(ctx context.Context) (_ *RblConfigResponse, err error) {
-	resp, err := c.getClient(ctx, "dns/rbl")
-	if err != nil {
-		return nil, fmt.Errorf("%w: GetRblConfig: %w", ErrHTTPRequest, err)
-	}
-	defer func() { err = errors.Join(err, resp.Body.Close()) }()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, readProblemDetail(resp, "GET", "dns/rbl")
-	}
-
-	var result RblConfigResponse
-	return &result, json.NewDecoder(resp.Body).Decode(&result)
-}
-
-// SetRblConfig replaces the RBL configuration (enabled flag, provider zones and
-// their refusal-code handling).
-//
-// refusalCooldownSecs is the default number of seconds a provider that refuses
-// a query is taken out of the lookup rotation, for providers that set none of
-// their own; 0 uses rolodex's built-in default.
-func (c *SystemdClient) SetRblConfig(ctx context.Context, enabled bool, providers []RblProviderDTO, refusalCooldownSecs uint32) error {
-	pr, pw := io.Pipe()
-	go pipeEncode(pw, RblConfigRequest{
-		Enabled:             enabled,
-		Providers:           providers,
-		RefusalCooldownSecs: refusalCooldownSecs,
-	})
-	return c.postClient(ctx, "dns/rbl", pr)
-}
-
 // GetDnsblConfig returns the current DNSBL (domain blocklist) configuration.
-func (c *SystemdClient) GetDnsblConfig(ctx context.Context) (_ *RblConfigResponse, err error) {
+func (c *SystemdClient) GetDnsblConfig(ctx context.Context) (_ *BlocklistConfigResponse, err error) {
 	resp, err := c.getClient(ctx, "dns/dnsbl")
 	if err != nil {
 		return nil, fmt.Errorf("%w: GetDnsblConfig: %w", ErrHTTPRequest, err)
@@ -53,15 +21,15 @@ func (c *SystemdClient) GetDnsblConfig(ctx context.Context) (_ *RblConfigRespons
 		return nil, readProblemDetail(resp, "GET", "dns/dnsbl")
 	}
 
-	var result RblConfigResponse
+	var result BlocklistConfigResponse
 	return &result, json.NewDecoder(resp.Body).Decode(&result)
 }
 
 // SetDnsblConfig replaces the DNSBL configuration (enabled flag, provider zones
-// and their refusal-code handling). The cooldown is independent of the RBL one.
-func (c *SystemdClient) SetDnsblConfig(ctx context.Context, enabled bool, providers []RblProviderDTO, refusalCooldownSecs uint32) error {
+// and their refusal-code handling).
+func (c *SystemdClient) SetDnsblConfig(ctx context.Context, enabled bool, providers []BlocklistProviderDTO, refusalCooldownSecs uint32) error {
 	pr, pw := io.Pipe()
-	go pipeEncode(pw, RblConfigRequest{
+	go pipeEncode(pw, BlocklistConfigRequest{
 		Enabled:             enabled,
 		Providers:           providers,
 		RefusalCooldownSecs: refusalCooldownSecs,
@@ -69,11 +37,11 @@ func (c *SystemdClient) SetDnsblConfig(ctx context.Context, enabled bool, provid
 	return c.postClient(ctx, "dns/dnsbl", pr)
 }
 
-// ListLocalRblEntries returns the local RBL blocklist entries.
-func (c *SystemdClient) ListLocalRblEntries(ctx context.Context) (_ []LocalRblEntryDTO, err error) {
+// ListLocalBlocklistEntries returns the local blocklist entries.
+func (c *SystemdClient) ListLocalBlocklistEntries(ctx context.Context) (_ []LocalBlocklistEntryDTO, err error) {
 	resp, err := c.getClient(ctx, "dns/rbl/local")
 	if err != nil {
-		return nil, fmt.Errorf("%w: ListLocalRblEntries: %w", ErrHTTPRequest, err)
+		return nil, fmt.Errorf("%w: ListLocalBlocklistEntries: %w", ErrHTTPRequest, err)
 	}
 	defer func() { err = errors.Join(err, resp.Body.Close()) }()
 
@@ -81,21 +49,21 @@ func (c *SystemdClient) ListLocalRblEntries(ctx context.Context) (_ []LocalRblEn
 		return nil, readProblemDetail(resp, "GET", "dns/rbl/local")
 	}
 
-	var entries []LocalRblEntryDTO
+	var entries []LocalBlocklistEntryDTO
 	return entries, json.NewDecoder(resp.Body).Decode(&entries)
 }
 
-// AddLocalRblEntry adds a name or IP to the local RBL blocklist.
-func (c *SystemdClient) AddLocalRblEntry(ctx context.Context, name, reason string) error {
+// AddLocalBlocklistEntry adds a name or IP to the local blocklist.
+func (c *SystemdClient) AddLocalBlocklistEntry(ctx context.Context, name, reason string) error {
 	pr, pw := io.Pipe()
-	go pipeEncode(pw, AddLocalRblEntryRequest{Name: name, Reason: reason})
+	go pipeEncode(pw, AddLocalBlocklistEntryRequest{Name: name, Reason: reason})
 	return c.postClient(ctx, "dns/rbl/local/add", pr)
 }
 
-// RemoveLocalRblEntry removes a name or IP from the local RBL blocklist.
-func (c *SystemdClient) RemoveLocalRblEntry(ctx context.Context, name string) error {
+// RemoveLocalBlocklistEntry removes a name or IP from the local blocklist.
+func (c *SystemdClient) RemoveLocalBlocklistEntry(ctx context.Context, name string) error {
 	pr, pw := io.Pipe()
-	go pipeEncode(pw, RemoveLocalRblEntryRequest{Name: name})
+	go pipeEncode(pw, RemoveLocalBlocklistEntryRequest{Name: name})
 	return c.postClient(ctx, "dns/rbl/local/remove", pr)
 }
 

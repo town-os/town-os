@@ -14,6 +14,24 @@ import (
 	ingresspb "gitea.com/town-os/town-os/src/ingress/proto"
 )
 
+const (
+	// DefaultAdminPort is the port caddy's admin API binds when no override is
+	// given, and caddy's own default. Production keeps it: the ingress container
+	// has its own network namespace and publishes nothing but :443, :80 and the
+	// loopback metrics port, so the admin API is reachable from inside that
+	// container and nowhere else.
+	//
+	// Anything running caddy in the HOST namespace must override it —
+	// see renderCaddyfileTally.
+	DefaultAdminPort = 2019
+
+	// adminHost is the interface the admin API binds. Loopback, and never
+	// anything else: the admin API can rewrite the entire running config, so a
+	// caddy that answered it on the LAN would let anyone who can reach the box
+	// re-point every hostname it serves.
+	adminHost = "127.0.0.1"
+)
+
 // renderCaddyfileTally renders the shared ingress Caddyfile for the given
 // routes, along with a tally of what it refused to emit.
 // Each route gets an `https://<hostname>` vhost terminating TLS with the route's
@@ -31,23 +49,40 @@ import (
 // changed. A route with no issued leaf yet (non-ACME, empty cert dir) is skipped
 // for HTTPS so a half-provisioned entry never makes caddy reject the whole
 // config; a ServeHttp page still gets its :80 vhost (no cert needed). Globals:
-// auto_https off (we manage certs) and h1 h2 only (the ingress publishes TCP
-// only, so H3/QUIC over UDP is unreachable). The admin API is left enabled (the
-// default localhost:2019, container-local and unpublished) — the supervisor
-// programs new routes with `caddy reload`, which talks to that endpoint, so
-// `admin off` would break every route update after the first boot.
+// auto_https off (we manage certs), h1 h2 only (the ingress publishes TCP only,
+// so H3/QUIC over UDP is unreachable), and the admin endpoint. The admin API
+// stays enabled — the supervisor programs new routes with `caddy reload`, which
+// talks to that endpoint, so `admin off` would break every route update after
+// the first boot.
 //
 // httpsPort/httpPort are the TCP ports the vhosts bind. Production uses 443/80
 // (rendered as bare `https://host`/`http://host`); tests pass ephemeral ports
 // (rendered as `host:PORT`) so make test-full never collides on a privileged
 // port.
+//
+// adminPort is the same arrangement for the admin API, and it is written out
+// rather than left to caddy's default for the reason the other two are: caddy
+// defaults it to localhost:2019, which is fine for the production ingress
+// (its own container, its own netns, nothing published) and is NOT fine for a
+// test, which runs caddy in the host namespace — `go test ./src/...` runs on the
+// host outright, and the integration container is `--net host`. Two concurrent
+// `make test-full` runs would put two caddy children on the one :2019: the
+// second fails to bind and exits, and before it does, either run's `caddy
+// reload` can land on the other's admin API and program it with the wrong
+// Caddyfile. Rendering the address here is also what points `caddy reload` at
+// it, since that command reads the admin address out of the config it is
+// adapting.
 // The tally it returns counts what it refused to emit, by kind and reason. That
 // exists because every drop below is a silent one from the caller's side: the
 // route was accepted over gRPC, logged as dropped here, and then simply never
 // served. A log line is the wrong instrument for that — nobody reads the
 // ingress's journal until something is already known to be broken — so the
 // counts are exported (townos_ingress_dropped_total) and can be alerted on.
-func renderCaddyfileTally(routes []*ingresspb.Route, httpsPort, httpPort int, defaultBackend string) ([]byte, renderTally) {
+//
+// defaultBackendTLS marks that fallback as speaking HTTPS, so it is reached
+// through writeReverseProxy like every other hop rather than being the one
+// place in this renderer that could only send plaintext.
+func renderCaddyfileTally(routes []*ingresspb.Route, httpsPort, httpPort, adminPort int, defaultBackend string, defaultBackendTLS bool) ([]byte, renderTally) {
 	var tally renderTally
 	sorted := append([]*ingresspb.Route(nil), routes...)
 	sort.Slice(sorted, func(i, j int) bool {
@@ -55,7 +90,9 @@ func renderCaddyfileTally(routes []*ingresspb.Route, httpsPort, httpPort int, de
 	})
 
 	var b strings.Builder
-	b.WriteString("{\n\tauto_https off\n\tservers {\n\t\tprotocols h1 h2\n\t}\n}\n")
+	b.WriteString("{\n\tauto_https off\n")
+	fmt.Fprintf(&b, "\tadmin %s\n", adminAddr(adminPort))
+	b.WriteString("\tservers {\n\t\tprotocols h1 h2\n\t}\n}\n")
 	for _, r := range sorted {
 		host := r.GetHostname()
 		if host == "" || r.GetBackend() == "" {
@@ -124,7 +161,12 @@ func renderCaddyfileTally(routes []*ingresspb.Route, httpsPort, httpPort int, de
 	// matched by a route above. Rendered last; its content is host-independent
 	// so it never breaks deterministic ordering.
 	if defaultBackend != "" {
-		fmt.Fprintf(&b, "\n:%d {\n\treverse_proxy %s\n}\n", httpPortOrDefault(httpPort), defaultBackend)
+		fmt.Fprintf(&b, "\n:%d {\n", httpPortOrDefault(httpPort))
+		// Through writeReverseProxy like every other hop, so a fallback backend
+		// that terminates its own TLS is reachable too. This was the last place
+		// in the renderer that could only speak plaintext.
+		writeReverseProxy(&b, "\t", defaultBackend, defaultBackendTLS)
+		b.WriteString("}\n")
 	}
 	return []byte(b.String()), tally
 }
@@ -133,9 +175,31 @@ func renderCaddyfileTally(routes []*ingresspb.Route, httpsPort, httpPort int, de
 // refused. The server uses renderCaddyfileTally, because a dropped route is
 // exactly the kind of failure that should be a number an alert can watch; this
 // plain form is for the render tests, which assert on the emitted bytes.
-func renderCaddyfile(routes []*ingresspb.Route, httpsPort, httpPort int, defaultBackend string) []byte {
-	content, _ := renderCaddyfileTally(routes, httpsPort, httpPort, defaultBackend)
+//
+// The admin port is the default here, not a parameter, because no render test
+// cares which one is emitted and threading it through every one of them would
+// only obscure the port they DO assert on. The tests that need a real one are
+// the ones that start a real caddy, and those go through NewServer.
+func renderCaddyfile(routes []*ingresspb.Route, httpsPort, httpPort int, defaultBackend string, defaultBackendTLS bool) []byte {
+	content, _ := renderCaddyfileTally(routes, httpsPort, httpPort, DefaultAdminPort, defaultBackend, defaultBackendTLS)
 	return content
+}
+
+// adminAddr is the address caddy's admin API binds, and the one `caddy reload`
+// dials to reach it.
+//
+// 127.0.0.1 rather than the localhost spelling caddy defaults to: localhost
+// resolves to ::1 first on a dual-stack box, and caddy binds only one of the
+// two, which is why a reload against a still-starting child logs
+// `dial tcp [::1]:2019: connect: connection refused` rather than naming the
+// address it actually tried. A literal leaves nothing to resolve. Caddy's
+// default origin check accepts it: for a loopback listen address the allowed
+// origins are localhost, ::1 and 127.0.0.1 at that same port.
+func adminAddr(port int) string {
+	if port == 0 {
+		port = DefaultAdminPort
+	}
+	return net.JoinHostPort(adminHost, strconv.Itoa(port))
 }
 
 // Drop kinds and reasons, the two label values of townos_ingress_dropped_total.
@@ -188,12 +252,15 @@ func writeRouteBody(b *strings.Builder, r *ingresspb.Route, paths []*ingresspb.P
 	}
 	for _, p := range paths {
 		fmt.Fprintf(b, "\thandle %s {\n", p.GetPath())
-		// A path backend has no backend_tls of its own, so it is proxied over
-		// plain HTTP. That is not an omission: the flag describes the service a
-		// route is *for*, and the one thing this field exists to reach — the
-		// pages container serving the object-storage index — speaks HTTP on :80
-		// like every other page.
-		writeReverseProxy(b, "\t\t", p.GetBackend(), false)
+		// Each path backend carries its own scheme. This used to be hardcoded
+		// to plain HTTP on the reasoning that the only path backend Town OS
+		// programmed — the pages container serving the object-storage index —
+		// speaks :80 like every other page. That stopped being true the moment
+		// a path had to reach something that terminates its own TLS (rolodex's
+		// DoH listener), and a hardcoded scheme fails in the worst way: the
+		// proxy sends plaintext at a TLS socket and the client gets a 502 with
+		// nothing to say the config was the problem.
+		writeReverseProxy(b, "\t\t", p.GetBackend(), p.GetBackendTls())
 		b.WriteString("\t}\n")
 	}
 	b.WriteString("\thandle {\n")

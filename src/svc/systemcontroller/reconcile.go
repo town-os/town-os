@@ -818,6 +818,11 @@ type ReconcileDNSConfig struct {
 	// state -- gfeh contributes hostnames rather than registering them. nil
 	// means object storage is not configured and contributes nothing.
 	Gfeh GfehRegistry
+	// TLSCA is the box's own CA, used here for one leaf: the certificate
+	// rolodex's DoT and DoQ listeners present. nil leaves them on the generated
+	// self-signed certificate they start with — encrypted DNS still works, it is
+	// just unverifiable and never hot-reloaded.
+	TLSCA *townostls.CA
 }
 
 // RebuildDNS tears the authoritative zone down and rebuilds it from
@@ -884,6 +889,13 @@ func RebuildDNS(ctx context.Context, cfg ReconcileDNSConfig) error {
 			}
 		}
 	}
+
+	// Encrypted DNS: the DoH endpoint's address records, the DDR designation
+	// that advertises them, the DoT/DoQ leaf and its DANE pins. One call
+	// because all four are named after the same `dns.<tld>` and a caller that
+	// updates some of them publishes a resolver clients cannot verify — see
+	// publishEncryptedDNS.
+	publishEncryptedDNS(ctx, cfg.Client, cfg.TLSCA, cfg.BtrfsBasePath, tld, cfg.InternalIP, cfg.InternalIPv6)
 
 	// Object storage on the default network shares this zone. Its names come
 	// from the partition itself (GET /v1/names) rather than from anything
@@ -1210,6 +1222,13 @@ func ReconcileDNS(ctx context.Context, cfg ReconcileDNSConfig) error {
 	// deletes them as orphans an hour later.
 	for _, site := range collectGfehSites(ctx, cfg.Gfeh, cfg.NetworkMgr, tld, "") {
 		addDesired(site.FQDN + ".")
+	}
+	// The DoH endpoint, which RebuildDNS publishes. It has to be in the desired
+	// set for the same reason object storage does, and the consequence is worse
+	// here: this pass would delete it as an orphan an hour after boot, leaving a
+	// vhost and a leaf for a name that stopped resolving.
+	if name := dohRecordName(tld); name != "" {
+		addDesired(name)
 	}
 
 	// List current records and index only the A/AAAA records we own.

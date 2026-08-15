@@ -551,7 +551,7 @@ func (s *SystemControllerHandlers) auditMiddleware(next echo.HandlerFunc) echo.H
 		}
 
 		// Exclude read-only endpoints that share a path with write endpoints.
-		if c.Request().Method == http.MethodGet && (path == "/dns/tld" || path == "/dns/rbl" || path == "/dns/dnsbl") {
+		if c.Request().Method == http.MethodGet && (path == "/dns/tld" || path == "/dns/dnsbl") {
 			return next(c)
 		}
 

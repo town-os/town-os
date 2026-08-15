@@ -114,57 +114,62 @@ func TestSystemServicesBindHarnessAssignedPorts(t *testing.T) {
 	}
 }
 
-// TestRolodexConfigUsesHarnessAssignedDNSPort asserts rolodex.yml was rendered
-// for the harness port rather than :53. Two rolodex daemons on 127.0.0.2:53
-// is the single most disruptive collision between a test box and a dev box:
-// the loser cannot serve DNS at all, so every package name stops resolving.
-func TestRolodexConfigUsesHarnessAssignedDNSPort(t *testing.T) {
+// TestRolodexDNSPortOverrideReachesTheBootPath asserts the boot saw
+// TOWN_OS_DNS_PORT and took the branch that goes with it.
+//
+// It used to read the bind out of `/town-os/rolodex/rolodex.yml`. That file no
+// longer exists on a booted box that Town OS put up: rolodex.yml belongs to the
+// install image, Town OS writes no config at all, and in this container nothing
+// stands in for the install image — so the assertion was against a file whose
+// absence is now correct.
+//
+// What is left to observe is the other half of the override, and it is the half
+// that can silently break DNS. systemd-resolved can only route a domain to a
+// resolver on :53, because a per-domain DNS server address carries no port. So
+// a relocated rolodex must NOT get a resolved drop-in: one written anyway would
+// point resolved at 127.0.0.2:53, where this box has deliberately bound nothing,
+// and every query for the TLD would be blackholed rather than falling through to
+// the normal resolver path. The drop-in's absence is therefore the boot path
+// reading the variable — and the harness's own IRON RULE check (no town-os.conf
+// on the host after a run) is the same assertion from the outside.
+func TestRolodexDNSPortOverrideReachesTheBootPath(t *testing.T) {
 	t.Parallel()
 
 	port := requireHarnessPort(t, envDNSPort)
-	raw, err := os.ReadFile("/town-os/rolodex/rolodex.yml")
-	if err != nil {
-		t.Fatalf("read rolodex.yml: %v", err)
+	if port == rolodex.DefaultDNSPort {
+		t.Fatalf("%s=%s is the default port; the harness must relocate rolodex off :53 (IRON RULE)",
+			envDNSPort, port)
 	}
-	got := string(raw)
-	// The closing quote matters: rolodex.yml renders the bind as
-	// "127.0.0.2:<port>", and a bare "127.0.0.2:53" check would match an
-	// assigned port of 53421 and report a passing config as broken.
-	if !strings.Contains(got, rolodex.DNSLoopback+":"+port+`"`) {
-		t.Errorf("rolodex.yml does not bind %s:%s:\n%s", rolodex.DNSLoopback, port, got)
-	}
-	if strings.Contains(got, rolodex.DNSLoopback+":"+rolodex.DefaultDNSPort+`"`) {
-		t.Errorf("rolodex.yml still binds the default DNS port:\n%s", got)
+
+	// The container has its own /etc, so this is the controller's own drop-in
+	// and never a `make dev` box's.
+	raw, err := os.ReadFile(rolodex.ResolvedDropInPath)
+	if err == nil {
+		t.Errorf("boot wrote %s while rolodex serves DNS on %s rather than %s; resolved would send every query for the TLD to %s:%s, where nothing is listening:\n%s",
+			rolodex.ResolvedDropInPath, port, rolodex.DefaultDNSPort,
+			rolodex.DNSLoopback, rolodex.DefaultDNSPort, raw)
+	} else if !os.IsNotExist(err) {
+		t.Fatalf("stat %s: %v", rolodex.ResolvedDropInPath, err)
 	}
 }
 
-// TestRolodexConfigUsesHarnessAssignedMetricsPort is the same guard for the
-// Prometheus endpoint, which is a second listener in the same host namespace as
-// the DNS one. It also proves the boot path threads the variable through at
-// all: the unit tests can show rolodex.Manager honours a MetricsPort, not that
-// main.go reads the environment and hands it over.
+// TestRolodexMetricsPortOverrideReachesTheScrapeConfig is the same guard for
+// the Prometheus endpoint, which is a second listener in the same host
+// namespace as the DNS one. It proves the boot path threads the variable
+// through at all: the unit tests can show rolodex.Manager honours a
+// MetricsPort, not that main.go reads the environment and hands it over.
 //
-// The generated prometheus.yml is checked against the same port in the same
-// test on purpose. A relocated listener that Prometheus still scrapes at 9153
-// is not a collision — it is a rolodex that silently reads as down — and the
-// only way to catch that is to assert both ends agree.
-func TestRolodexConfigUsesHarnessAssignedMetricsPort(t *testing.T) {
+// The half that asserted the bind in rolodex.yml is gone with the file — that
+// config belongs to the install image now, and Town OS writes none — so what is
+// checked here is the end Town OS still owns and still gets wrong on its own:
+// the scrape target it generates. A relocated listener that Prometheus still
+// scrapes at 9153 is not a collision, it is a rolodex that silently reads as
+// down, and prometheus.yml is where that shows.
+func TestRolodexMetricsPortOverrideReachesTheScrapeConfig(t *testing.T) {
 	t.Parallel()
 
 	port := requireHarnessPort(t, envRolodexMetrics)
-
-	raw, err := os.ReadFile("/town-os/rolodex/rolodex.yml")
-	if err != nil {
-		t.Fatalf("read rolodex.yml: %v", err)
-	}
-	got := string(raw)
 	addr := rolodex.DNSLoopback + ":" + port
-	if !strings.Contains(got, "bind: \""+addr+"\"") {
-		t.Errorf("rolodex.yml does not bind the metrics endpoint on %s:\n%s", addr, got)
-	}
-	if strings.Contains(got, rolodex.DNSLoopback+":"+rolodex.DefaultMetricsPort+`"`) {
-		t.Errorf("rolodex.yml still binds the default metrics port:\n%s", got)
-	}
 
 	promRaw, err := os.ReadFile("/town-os/monitoring/prometheus-config/prometheus.yml")
 	if err != nil {

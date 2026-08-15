@@ -20,9 +20,9 @@ import { toast } from 'sonner'
 import { Plus, Trash2, ShieldAlert, SlidersHorizontal } from 'lucide-react'
 
 // Rolodex's built-in refusal codes, mirrored from DEFAULT_REFUSAL_CODES in its
-// src/rbl.rs. This copy is used for ONE thing: deciding whether a provider's
-// resolved codes are the untouched built-in set, so the settings dialog opens on
-// the right choice. It is never sent — "use the built-ins" is expressed by
+// src/dnsbl.rs (named src/rbl.rs before the RBL half was retired). This copy is
+// used for ONE thing: deciding whether a provider's resolved codes are the
+// untouched built-in set, so the settings dialog opens on the right choice. It is never sent — "use the built-ins" is expressed by
 // sending no codes at all, precisely so the box tracks rolodex as it adds codes
 // rather than freezing today's list into every stored config.
 //
@@ -79,21 +79,18 @@ function formatRemaining(secs) {
 
 // Well-known DNSBL (domain) blocklist zones. This is the side that affects
 // ordinary browsing: a listing here answers a forward name lookup.
+//
+// There is no second list. The RBL (reverse-IP) half is retired upstream — the
+// provider lookup, its config RPCs and the `/dns/rbl` endpoints are all gone —
+// so a quick-add list of `zen.spamhaus.org` and friends would offer zones
+// nothing can query. What survives is the LOCAL blocklist below, which still
+// takes an address.
 const DNSBL_SUGGESTIONS = [
   { zone: 'dbl.spamhaus.org', label: 'Spamhaus DBL' },
   { zone: 'multi.surbl.org', label: 'SURBL' },
   { zone: 'black.uribl.com', label: 'URIBL' },
   { zone: 'dbl.nordspam.com', label: 'NordSpam DBL' },
   { zone: 'uribl.spameatingmonkey.net', label: 'Spam Eating Monkey' },
-]
-
-// Well-known RBL (IP) blocklist zones. These are only consulted for IPs found in
-// reverse DNS queries, which ordinary browsing barely generates — they matter far
-// less here than the domain zones above.
-const RBL_SUGGESTIONS = [
-  { zone: 'zen.spamhaus.org', label: 'Spamhaus ZEN' },
-  { zone: 'bl.spamcop.net', label: 'SpamCop' },
-  { zone: 'psbl.surriel.com', label: 'PSBL' },
 ]
 
 // RefusalDialog edits one provider's answer to "what does a refusal look like
@@ -240,7 +237,7 @@ function RotatedOut({ entries }) {
   )
 }
 
-// BlocklistProviders renders an RBL or DNSBL provider section: a global enable
+// BlocklistProviders renders the DNSBL provider section: a global enable
 // switch, the configured provider zones, a quick-add list of well-known zones,
 // and a custom-zone form. Zones are queried on demand by rolodex — nothing is
 // fetched or cached. Mutations save the full config immediately and refresh.
@@ -470,12 +467,6 @@ export default function BlocklistsTab({ isAdmin }) {
     [refreshKey],
     60000,
   )
-  const [rbl] = usePolling(
-    () => getClient().getRBLConfig().catch(() => null),
-    null,
-    [refreshKey],
-    60000,
-  )
   const [localEntries] = usePolling(
     () => getClient().listLocalRBL().catch(() => []),
     [],
@@ -533,17 +524,6 @@ export default function BlocklistsTab({ isAdmin }) {
         isAdmin={isAdmin}
         onSave={async (enabled, providers, refusalCooldownSecs) => {
           await getClient().setDNSBLConfig(enabled, providers, refusalCooldownSecs)
-          doRefresh()
-        }}
-      />
-      <BlocklistProviders
-        title={t('dns.bl.rbl_title')}
-        description={t('dns.bl.rbl_description')}
-        config={rbl}
-        suggestions={RBL_SUGGESTIONS}
-        isAdmin={isAdmin}
-        onSave={async (enabled, providers, refusalCooldownSecs) => {
-          await getClient().setRBLConfig(enabled, providers, refusalCooldownSecs)
           doRefresh()
         }}
       />

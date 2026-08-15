@@ -61,6 +61,13 @@ func buildIngressRoutes(ctx context.Context, pagesMgr account.PagesManager, nm a
 
 	routes = append(routes, gfehIngressRoutes(ctx, nm, gfehReg, ca, btrfsBase, tld, internalIP)...)
 
+	// The DoH resolver. Programmed here rather than alongside the DNS records
+	// because it is an HTTP vhost like every other route on this box — the only
+	// thing that makes it DNS is what is behind it.
+	if doh := dohIngressRoute(ca, btrfsBase, tld, internalIP); doh != nil {
+		routes = append(routes, doh)
+	}
+
 	if pagesMgr == nil {
 		return dedupeIngressRoutes(routes)
 	}

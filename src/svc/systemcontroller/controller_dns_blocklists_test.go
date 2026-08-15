@@ -14,20 +14,20 @@ func testBlocklistSettings() *mockSettingsManager {
 
 func TestStoredBlocklistRoundtrip(t *testing.T) {
 	mgr := testBlocklistSettings()
-	want := RblConfigRequest{
+	want := BlocklistConfigRequest{
 		Enabled:             true,
 		RefusalCooldownSecs: 900,
-		Providers: []RblProviderDTO{
+		Providers: []BlocklistProviderDTO{
 			{Zone: "zen.spamhaus.org", Enabled: true, RefusalCodes: []string{"127.255.255.0/24"}, RefusalCooldownSecs: 1800},
 			{Zone: "bl.spamcop.net", Enabled: false},
 		},
 	}
 
-	if err := saveStoredBlocklist(t.Context(), mgr, settingDNSRblConfig, want); err != nil {
+	if err := saveStoredBlocklist(t.Context(), mgr, want); err != nil {
 		t.Fatalf("saveStoredBlocklist: %v", err)
 	}
 
-	got, ok := loadStoredBlocklist(t.Context(), mgr, settingDNSRblConfig)
+	got, ok := loadStoredBlocklist(t.Context(), mgr)
 	if !ok {
 		t.Fatal("expected the saved config to load")
 	}
@@ -47,17 +47,17 @@ func TestStoredBlocklistRoundtrip(t *testing.T) {
 func TestLoadStoredBlocklistDistinguishesUnsetFromEmpty(t *testing.T) {
 	mgr := testBlocklistSettings()
 
-	if _, ok := loadStoredBlocklist(t.Context(), mgr, settingDNSRblConfig); ok {
+	if _, ok := loadStoredBlocklist(t.Context(), mgr); ok {
 		t.Fatal("an unwritten setting must not report as configured")
 	}
-	if _, ok := loadStoredBlocklist(t.Context(), nil, settingDNSRblConfig); ok {
+	if _, ok := loadStoredBlocklist(t.Context(), nil); ok {
 		t.Fatal("a nil settings manager must not report as configured")
 	}
 
-	if err := saveStoredBlocklist(t.Context(), mgr, settingDNSRblConfig, RblConfigRequest{}); err != nil {
+	if err := saveStoredBlocklist(t.Context(), mgr, BlocklistConfigRequest{}); err != nil {
 		t.Fatalf("saveStoredBlocklist: %v", err)
 	}
-	cfg, ok := loadStoredBlocklist(t.Context(), mgr, settingDNSRblConfig)
+	cfg, ok := loadStoredBlocklist(t.Context(), mgr)
 	if !ok {
 		t.Fatal("an explicitly stored empty config must report as configured")
 	}
@@ -71,23 +71,23 @@ func TestLoadStoredBlocklistIgnoresGarbage(t *testing.T) {
 	if err := mgr.Set(t.Context(), settingDNSDnsblConfig, "{not json"); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
-	if _, ok := loadStoredBlocklist(t.Context(), mgr, settingDNSDnsblConfig); ok {
+	if _, ok := loadStoredBlocklist(t.Context(), mgr); ok {
 		t.Fatal("unparseable stored config must not report as configured")
 	}
 }
 
 func TestBlocklistDrifted(t *testing.T) {
-	base := RblConfigRequest{
+	base := BlocklistConfigRequest{
 		Enabled:   true,
-		Providers: []RblProviderDTO{{Zone: "zen.spamhaus.org", Enabled: true}},
+		Providers: []BlocklistProviderDTO{{Zone: "dbl.spamhaus.org", Enabled: true}},
 	}
 	builtins := []string{"127.255.255.0/24", "127.0.1.255"}
 
 	for _, tc := range []struct {
 		name         string
-		stored       RblConfigRequest
+		stored       BlocklistConfigRequest
 		liveEnabled  bool
-		live         []RblProviderDTO
+		live         []BlocklistProviderDTO
 		liveCooldown uint32
 		want         bool
 	}{
@@ -99,7 +99,7 @@ func TestBlocklistDrifted(t *testing.T) {
 			name:         "resolved defaults are not drift",
 			stored:       base,
 			liveEnabled:  true,
-			live:         []RblProviderDTO{{Zone: "zen.spamhaus.org", Enabled: true, RefusalCodes: builtins}},
+			live:         []BlocklistProviderDTO{{Zone: "dbl.spamhaus.org", Enabled: true, RefusalCodes: builtins}},
 			liveCooldown: 3600,
 			want:         false,
 		},
@@ -109,7 +109,7 @@ func TestBlocklistDrifted(t *testing.T) {
 			name:        "global toggle switched off underneath us",
 			stored:      base,
 			liveEnabled: false,
-			live:        []RblProviderDTO{{Zone: "zen.spamhaus.org", Enabled: true, RefusalCodes: builtins}},
+			live:        []BlocklistProviderDTO{{Zone: "dbl.spamhaus.org", Enabled: true, RefusalCodes: builtins}},
 			want:        true,
 		},
 		{
@@ -123,36 +123,36 @@ func TestBlocklistDrifted(t *testing.T) {
 			name:        "per-provider toggle switched off",
 			stored:      base,
 			liveEnabled: true,
-			live:        []RblProviderDTO{{Zone: "zen.spamhaus.org", Enabled: false, RefusalCodes: builtins}},
+			live:        []BlocklistProviderDTO{{Zone: "zen.spamhaus.org", Enabled: false, RefusalCodes: builtins}},
 			want:        true,
 		},
 		{
 			name:        "different zone",
 			stored:      base,
 			liveEnabled: true,
-			live:        []RblProviderDTO{{Zone: "bl.spamcop.net", Enabled: true, RefusalCodes: builtins}},
+			live:        []BlocklistProviderDTO{{Zone: "bl.spamcop.net", Enabled: true, RefusalCodes: builtins}},
 			want:        true,
 		},
 		{
 			name:        "named refusal codes differ",
-			stored:      RblConfigRequest{Enabled: true, Providers: []RblProviderDTO{{Zone: "private.rbl", Enabled: true, RefusalCodes: []string{"none"}}}},
+			stored:      BlocklistConfigRequest{Enabled: true, Providers: []BlocklistProviderDTO{{Zone: "private.example", Enabled: true, RefusalCodes: []string{"none"}}}},
 			liveEnabled: true,
-			live:        []RblProviderDTO{{Zone: "private.rbl", Enabled: true, RefusalCodes: builtins}},
+			live:        []BlocklistProviderDTO{{Zone: "private.example", Enabled: true, RefusalCodes: builtins}},
 			want:        true,
 		},
 		{
 			name:         "named list cooldown differs",
-			stored:       RblConfigRequest{Enabled: true, RefusalCooldownSecs: 900, Providers: base.Providers},
+			stored:       BlocklistConfigRequest{Enabled: true, RefusalCooldownSecs: 900, Providers: base.Providers},
 			liveEnabled:  true,
-			live:         []RblProviderDTO{{Zone: "zen.spamhaus.org", Enabled: true, RefusalCodes: builtins}},
+			live:         []BlocklistProviderDTO{{Zone: "dbl.spamhaus.org", Enabled: true, RefusalCodes: builtins}},
 			liveCooldown: 3600,
 			want:         true,
 		},
 		{
 			name:        "per-provider cooldown differs",
-			stored:      RblConfigRequest{Enabled: true, Providers: []RblProviderDTO{{Zone: "zen.spamhaus.org", Enabled: true, RefusalCooldownSecs: 1800}}},
+			stored:      BlocklistConfigRequest{Enabled: true, Providers: []BlocklistProviderDTO{{Zone: "dbl.spamhaus.org", Enabled: true, RefusalCooldownSecs: 1800}}},
 			liveEnabled: true,
-			live:        []RblProviderDTO{{Zone: "zen.spamhaus.org", Enabled: true, RefusalCodes: builtins}},
+			live:        []BlocklistProviderDTO{{Zone: "dbl.spamhaus.org", Enabled: true, RefusalCodes: builtins}},
 			want:        true,
 		},
 	} {
@@ -168,18 +168,11 @@ func TestBlocklistDrifted(t *testing.T) {
 // reprogrammed from the persisted configuration.
 func TestReconcileBlocklistsRestoresWipedConfig(t *testing.T) {
 	mgr := testBlocklistSettings()
-	stored := RblConfigRequest{
+	dnsblStored := BlocklistConfigRequest{
 		Enabled:   true,
-		Providers: []RblProviderDTO{{Zone: "zen.spamhaus.org", Enabled: true}},
+		Providers: []BlocklistProviderDTO{{Zone: "dbl.spamhaus.org", Enabled: true}},
 	}
-	dnsblStored := RblConfigRequest{
-		Enabled:   true,
-		Providers: []RblProviderDTO{{Zone: "dbl.spamhaus.org", Enabled: true}},
-	}
-	if err := saveStoredBlocklist(t.Context(), mgr, settingDNSRblConfig, stored); err != nil {
-		t.Fatalf("save rbl: %v", err)
-	}
-	if err := saveStoredBlocklist(t.Context(), mgr, settingDNSDnsblConfig, dnsblStored); err != nil {
+	if err := saveStoredBlocklist(t.Context(), mgr, dnsblStored); err != nil {
 		t.Fatalf("save dnsbl: %v", err)
 	}
 
@@ -188,14 +181,6 @@ func TestReconcileBlocklistsRestoresWipedConfig(t *testing.T) {
 
 	if err := ReconcileBlocklists(context.Background(), client, mgr); err != nil {
 		t.Fatalf("ReconcileBlocklists: %v", err)
-	}
-
-	rbl, err := client.GetRblConfig(context.Background())
-	if err != nil {
-		t.Fatalf("GetRblConfig: %v", err)
-	}
-	if !rbl.Enabled || len(rbl.Providers) != 1 || rbl.Providers[0].Zone != "zen.spamhaus.org" {
-		t.Fatalf("RBL not restored: %+v", rbl)
 	}
 
 	dnsbl, err := client.GetDnsblConfig(context.Background())
@@ -211,14 +196,14 @@ func TestReconcileBlocklistsRestoresWipedConfig(t *testing.T) {
 // not free, because the DNSBL one flushes rolodex's DNS response cache.
 func TestReconcileBlocklistsNoOpWhenInSync(t *testing.T) {
 	mgr := testBlocklistSettings()
-	stored := RblConfigRequest{Enabled: true, Providers: []RblProviderDTO{{Zone: "zen.spamhaus.org", Enabled: true}}}
-	if err := saveStoredBlocklist(t.Context(), mgr, settingDNSRblConfig, stored); err != nil {
-		t.Fatalf("save rbl: %v", err)
+	stored := BlocklistConfigRequest{Enabled: true, Providers: []BlocklistProviderDTO{{Zone: "dbl.spamhaus.org", Enabled: true}}}
+	if err := saveStoredBlocklist(t.Context(), mgr, stored); err != nil {
+		t.Fatalf("save dnsbl: %v", err)
 	}
 
 	client := &rolodex.MockClient{
-		RblEnabled:   true,
-		RblProviders: []*upstream.RblConfig{{Zone: "zen.spamhaus.org", Enabled: true}},
+		DnsblEnabled:   true,
+		DnsblProviders: []*upstream.DnsblConfig{{Zone: "dbl.spamhaus.org", Enabled: true}},
 	}
 
 	if err := ReconcileBlocklists(context.Background(), client, mgr); err != nil {
@@ -226,7 +211,7 @@ func TestReconcileBlocklistsNoOpWhenInSync(t *testing.T) {
 	}
 
 	for _, call := range client.GetCalls() {
-		if call.Method == "SetRblConfig" || call.Method == "SetDnsblConfig" {
+		if call.Method == "SetDnsblConfig" {
 			t.Fatalf("an in-sync blocklist must not be re-pushed, got %s", call.Method)
 		}
 	}
@@ -236,9 +221,6 @@ func TestReconcileBlocklistsNoOpWhenInSync(t *testing.T) {
 // config would be Town OS asserting an instruction it was never given.
 func TestReconcileBlocklistsSkipsUnconfiguredLists(t *testing.T) {
 	mgr := testBlocklistSettings()
-	if err := saveStoredBlocklist(t.Context(), mgr, settingDNSRblConfig, RblConfigRequest{Enabled: true, Providers: []RblProviderDTO{{Zone: "zen.spamhaus.org", Enabled: true}}}); err != nil {
-		t.Fatalf("save rbl: %v", err)
-	}
 
 	client := &rolodex.MockClient{}
 	if err := ReconcileBlocklists(context.Background(), client, mgr); err != nil {
@@ -264,23 +246,20 @@ func TestReconcileBlocklistsToleratesMissingDependencies(t *testing.T) {
 	}
 }
 
-// StoredBlocklists is what seeds rolodex.yml at boot, before any gRPC call has
+// StoredBlocklist is what seeds rolodex.yml at boot, before any gRPC call has
 // been made — so it is the mechanism that closes the window where rolodex is up
-// with no blocklists at all.
-func TestStoredBlocklistsSeedsRolodexConfig(t *testing.T) {
+// with no blocklist at all.
+func TestStoredBlocklistSeedsRolodexConfig(t *testing.T) {
 	mgr := testBlocklistSettings()
-	if err := saveStoredBlocklist(t.Context(), mgr, settingDNSDnsblConfig, RblConfigRequest{
+	if err := saveStoredBlocklist(t.Context(), mgr, BlocklistConfigRequest{
 		Enabled:             true,
 		RefusalCooldownSecs: 900,
-		Providers:           []RblProviderDTO{{Zone: "dbl.spamhaus.org", Enabled: true, RefusalCodes: []string{"none"}}},
+		Providers:           []BlocklistProviderDTO{{Zone: "dbl.spamhaus.org", Enabled: true, RefusalCodes: []string{"none"}}},
 	}); err != nil {
 		t.Fatalf("save dnsbl: %v", err)
 	}
 
-	rbl, dnsbl := StoredBlocklists(t.Context(), mgr)
-	if rbl.Enabled || len(rbl.Providers) != 0 {
-		t.Fatalf("an unconfigured list must seed as the zero value: %+v", rbl)
-	}
+	dnsbl := StoredBlocklist(t.Context(), mgr)
 	if !dnsbl.Enabled || dnsbl.RefusalCooldownSecs != 900 || len(dnsbl.Providers) != 1 {
 		t.Fatalf("unexpected DNSBL seed: %+v", dnsbl)
 	}
@@ -288,8 +267,8 @@ func TestStoredBlocklistsSeedsRolodexConfig(t *testing.T) {
 		t.Fatalf("unexpected DNSBL provider: %+v", dnsbl.Providers[0])
 	}
 
-	rblNil, dnsblNil := StoredBlocklists(t.Context(), nil)
-	if rblNil.Enabled || dnsblNil.Enabled || len(rblNil.Providers) != 0 || len(dnsblNil.Providers) != 0 {
-		t.Fatal("a nil settings manager must seed empty lists")
+	nilMgr := StoredBlocklist(t.Context(), nil)
+	if nilMgr.Enabled || len(nilMgr.Providers) != 0 {
+		t.Fatal("a nil settings manager must seed an empty list")
 	}
 }

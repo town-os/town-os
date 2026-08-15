@@ -144,3 +144,47 @@ func TestServerConcurrentMutations(t *testing.T) {
 		t.Fatal("expected at least one reload under concurrency")
 	}
 }
+
+// TestCaddyAdminPortMovesBothEnds asserts the option relocates the admin API in
+// the rendered config AND the metrics passthrough that fetches from it.
+//
+// One port, two consumers, and they are written in different files: the
+// Caddyfile global option (which is also what `caddy reload` dials) and the
+// scrape URL. Moving one without the other is the failure this guards — an
+// ingress whose caddy is on an ephemeral port while its own /metrics keeps
+// fetching 2019, which in a shared host namespace does not fail, it silently
+// reports some other run's caddy as this one's child.
+func TestCaddyAdminPortMovesBothEnds(t *testing.T) {
+	const relocated = 41919
+
+	sup := &stubSupervisor{}
+	srv := NewServer(sup, 443, 80, "", WithCaddyAdminPort(relocated))
+	if err := srv.Bootstrap(); err != nil {
+		t.Fatalf("Bootstrap: %v", err)
+	}
+
+	if want := "admin 127.0.0.1:41919"; !strings.Contains(sup.last(), want) {
+		t.Errorf("rendered Caddyfile missing %q:\n%s", want, sup.last())
+	}
+	if want := "http://127.0.0.1:41919/metrics"; srv.caddyMetricsURL != want {
+		t.Errorf("caddyMetricsURL = %q, want %q", srv.caddyMetricsURL, want)
+	}
+}
+
+// Without the option both ends stay on caddy's default, which is what the
+// production ingress runs: its own container, its own network namespace, and an
+// admin API nothing outside it can reach.
+func TestCaddyAdminPortDefaults(t *testing.T) {
+	sup := &stubSupervisor{}
+	srv := NewServer(sup, 443, 80, "")
+	if err := srv.Bootstrap(); err != nil {
+		t.Fatalf("Bootstrap: %v", err)
+	}
+
+	if want := "admin 127.0.0.1:2019"; !strings.Contains(sup.last(), want) {
+		t.Errorf("rendered Caddyfile missing %q:\n%s", want, sup.last())
+	}
+	if want := "http://127.0.0.1:2019/metrics"; srv.caddyMetricsURL != want {
+		t.Errorf("caddyMetricsURL = %q, want %q", srv.caddyMetricsURL, want)
+	}
+}

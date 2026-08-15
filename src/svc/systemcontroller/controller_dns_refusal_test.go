@@ -155,7 +155,7 @@ func TestValidateRefusalCodesAcceptsSpamhausErrorRange(t *testing.T) {
 // zone-only validator they were bolted onto happily returned a provider with
 // its refusal handling silently reset.
 func TestValidateProviderDTOsCarriesRefusalSettings(t *testing.T) {
-	cleaned, err := validateProviderDTOs([]RblProviderDTO{
+	cleaned, err := validateProviderDTOs([]BlocklistProviderDTO{
 		{
 			Zone:                "  ZEN.Spamhaus.ORG ",
 			Enabled:             true,
@@ -188,7 +188,7 @@ func TestValidateProviderDTOsCarriesRefusalSettings(t *testing.T) {
 // attributable: a list of a dozen providers rejected with only "invalid refusal
 // code" leaves the operator to guess which row they broke.
 func TestValidateProviderDTOsNamesTheZoneInRefusalErrors(t *testing.T) {
-	_, err := validateProviderDTOs([]RblProviderDTO{
+	_, err := validateProviderDTOs([]BlocklistProviderDTO{
 		{Zone: "zen.spamhaus.org", Enabled: true},
 		{Zone: "bl.spamcop.net", Enabled: true, RefusalCodes: []string{"nope"}},
 	})
@@ -197,31 +197,6 @@ func TestValidateProviderDTOsNamesTheZoneInRefusalErrors(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "bl.spamcop.net") {
 		t.Errorf("error = %v, want it to name the offending zone", err)
-	}
-}
-
-// TestRblProvidersToDTOCarriesResolvedRefusalCodes proves the codes rolodex
-// reports as actually in effect reach the client. Dropping them would leave an
-// operator reading an empty list on a provider that is in fact matching the
-// built-in set.
-func TestRblProvidersToDTOCarriesResolvedRefusalCodes(t *testing.T) {
-	got := rblProvidersToDTO([]*upstream.RblConfig{
-		{
-			Zone:                "zen.spamhaus.org",
-			Enabled:             true,
-			RefusalCodes:        []string{"127.255.255.0/24", "127.0.0.1"},
-			RefusalCooldownSecs: 1800,
-		},
-		nil, // rolodex is allowed to hand back a nil entry; it must be skipped
-	})
-	if len(got) != 1 {
-		t.Fatalf("got %d providers, want 1", len(got))
-	}
-	if !slices.Equal(got[0].RefusalCodes, []string{"127.255.255.0/24", "127.0.0.1"}) {
-		t.Errorf("refusal codes = %v", got[0].RefusalCodes)
-	}
-	if got[0].RefusalCooldownSecs != 1800 {
-		t.Errorf("cooldown = %d, want 1800", got[0].RefusalCooldownSecs)
 	}
 }
 

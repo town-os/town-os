@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestValidateRblZoneValid(t *testing.T) {
+func TestValidateBlocklistZoneValid(t *testing.T) {
 	valid := []string{
 		"zen.spamhaus.org",
 		"dbl.spamhaus.org",
@@ -16,13 +16,13 @@ func TestValidateRblZoneValid(t *testing.T) {
 		"a.b", // minimal two-label
 	}
 	for _, z := range valid {
-		if err := ValidateRblZone(z); err != nil {
-			t.Errorf("ValidateRblZone(%q) = %v, want nil", z, err)
+		if err := ValidateBlocklistZone(z); err != nil {
+			t.Errorf("ValidateBlocklistZone(%q) = %v, want nil", z, err)
 		}
 	}
 }
 
-func TestValidateRblZoneInvalid(t *testing.T) {
+func TestValidateBlocklistZoneInvalid(t *testing.T) {
 	cases := []struct {
 		zone string
 		want string
@@ -36,34 +36,34 @@ func TestValidateRblZoneInvalid(t *testing.T) {
 		{strings.Repeat("a", 64) + ".com", "at most 63"},
 	}
 	for _, tc := range cases {
-		err := ValidateRblZone(tc.zone)
+		err := ValidateBlocklistZone(tc.zone)
 		if err == nil {
-			t.Errorf("ValidateRblZone(%q) = nil, want error containing %q", tc.zone, tc.want)
+			t.Errorf("ValidateBlocklistZone(%q) = nil, want error containing %q", tc.zone, tc.want)
 			continue
 		}
 		if !strings.Contains(err.Error(), tc.want) {
-			t.Errorf("ValidateRblZone(%q) = %v, want error containing %q", tc.zone, err, tc.want)
+			t.Errorf("ValidateBlocklistZone(%q) = %v, want error containing %q", tc.zone, err, tc.want)
 		}
 	}
 }
 
-func TestValidateLocalRblNameValid(t *testing.T) {
+func TestValidateLocalBlocklistNameValid(t *testing.T) {
 	valid := []string{
 		"tracker.example.com",
 		"ads.doubleclick.net",
-		"192.0.2.10",          // IPv4
-		"2001:db8::1",         // IPv6
-		"a.b",                 // minimal domain
+		"192.0.2.10",            // IPv4
+		"2001:db8::1",           // IPv6
+		"a.b",                   // minimal domain
 		"trailing.example.com.", // trailing dot tolerated
 	}
 	for _, n := range valid {
-		if err := ValidateLocalRblName(n); err != nil {
-			t.Errorf("ValidateLocalRblName(%q) = %v, want nil", n, err)
+		if err := ValidateLocalBlocklistName(n); err != nil {
+			t.Errorf("ValidateLocalBlocklistName(%q) = %v, want nil", n, err)
 		}
 	}
 }
 
-func TestValidateLocalRblNameInvalid(t *testing.T) {
+func TestValidateLocalBlocklistNameInvalid(t *testing.T) {
 	cases := []struct {
 		name string
 		want string
@@ -74,13 +74,13 @@ func TestValidateLocalRblNameInvalid(t *testing.T) {
 		{"*.wildcard.com", "invalid"},
 	}
 	for _, tc := range cases {
-		err := ValidateLocalRblName(tc.name)
+		err := ValidateLocalBlocklistName(tc.name)
 		if err == nil {
-			t.Errorf("ValidateLocalRblName(%q) = nil, want error containing %q", tc.name, tc.want)
+			t.Errorf("ValidateLocalBlocklistName(%q) = nil, want error containing %q", tc.name, tc.want)
 			continue
 		}
 		if !strings.Contains(err.Error(), tc.want) {
-			t.Errorf("ValidateLocalRblName(%q) = %v, want error containing %q", tc.name, err, tc.want)
+			t.Errorf("ValidateLocalBlocklistName(%q) = %v, want error containing %q", tc.name, err, tc.want)
 		}
 	}
 }
@@ -100,7 +100,7 @@ func TestValidateDnsblAllowlistNameValid(t *testing.T) {
 }
 
 // An IP literal is the one case where the allowlist deliberately diverges from
-// ValidateLocalRblName: the allowlist exempts a name from the *name-based*
+// ValidateLocalBlocklistName: the allowlist exempts a name from the *name-based*
 // blocklist step and matches every name beneath it, so an address is not
 // something it could ever match. Accepting one would store an entry that
 // silently never fires.

@@ -135,3 +135,25 @@ func TestDNSPortIsDefault(t *testing.T) {
 		}
 	}
 }
+
+// TestResolvedConfiguratorFollowsTheDNSPort covers the second consumer of that
+// decision, which is the one that got it wrong: the controller keeps the
+// configurator for the life of the process and calls it whenever the TLD
+// changes, so a boot that skipped resolved routing for a relocated rolodex and
+// then handed the real function to the controller anyway was one /dns/tld away
+// from writing the drop-in it had just declined to write.
+func TestResolvedConfiguratorFollowsTheDNSPort(t *testing.T) {
+	for _, port := range []string{"", rolodex.DefaultDNSPort} {
+		b := &boot{dnsPort: port}
+		if b.resolvedConfigurator() == nil {
+			t.Errorf("resolvedConfigurator() = nil with DNS on %q; the box would never route its TLD to rolodex", port)
+		}
+	}
+	for _, port := range []string{"35353", "5353", "1053"} {
+		b := &boot{dnsPort: port}
+		if b.resolvedConfigurator() != nil {
+			t.Errorf("resolvedConfigurator() is non-nil with DNS on %q; a TLD change would point resolved at %s:%s, where nothing is listening",
+				port, rolodex.DNSLoopback, rolodex.DefaultDNSPort)
+		}
+	}
+}

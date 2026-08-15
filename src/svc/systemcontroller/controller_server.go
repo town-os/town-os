@@ -67,6 +67,20 @@ const (
 	// when the set of answering partitions actually moved.
 	defaultPollerGfehInterval = 5 * time.Minute
 
+	// rolodex reprogramming tick.
+	//
+	// Seconds rather than minutes because of what is missing in the gap:
+	// rolodex keeps forwarders, resolution mode and both blocklists in memory
+	// only, so from the instant it restarts until this tick notices, the box
+	// is resolving with rolodex's defaults and blocking nothing. Five minutes
+	// of an unfiltered, differently-forwarded resolver is a long time on a
+	// household network.
+	//
+	// Affordable at this cadence because the common case is one stat() of the
+	// gRPC socket and nothing else — see reconcileRolodexProgramming. RPCs are
+	// made only when that socket belongs to a run Town OS has not programmed.
+	defaultPollerRolodexInterval = 15 * time.Second
+
 	// externalIPFetchTimeout bounds a single ipinfo.io request (DNS + TCP
 	// connect + TLS handshake + body read). 30s is deliberately generous:
 	// a DNS-degraded box routinely spent >10s here pre-fix, and a silent
@@ -115,6 +129,7 @@ type serverBase struct {
 	pollerStableTicks        int
 	pollerDNSInterval        time.Duration
 	pollerGfehInterval       time.Duration
+	pollerRolodexInterval    time.Duration
 	pollerInternalDiscoverer   func() string
 	pollerInternalV6Discoverer func() string
 	pollerReconcileDNS         func(ctx context.Context, oldIP, newIP string) error
@@ -122,6 +137,12 @@ type serverBase struct {
 	// via rolodex); tests inject a fake to observe invocations without
 	// wiring up a full rolodex.
 	pollerDNSReconciler func(ctx context.Context) error
+
+	// rolodexGeneration stores the rolodex run (string, from
+	// rolodex.Manager.Generation) that was last programmed successfully. A
+	// different value means rolodex restarted and lost every runtime setting
+	// Town OS had pushed into it. See reconcileRolodexProgramming.
+	rolodexGeneration atomic.Value
 
 	// gfehLastReady is the set of object-storage partitions that were answering
 	// at the last tick, sorted. The tick republishes on a difference against
@@ -198,6 +219,10 @@ func (s *serverBase) GetSwapCapability() monitoring.SwapCapability {
 }
 func (s *serverBase) GetMonitoringPorts() monitoring.Ports  { return s.MonitoringPorts }
 
+// GetScrapeTargetsFunc returns the scrape-health query, or nil for the real one
+// against the loopback Prometheus.
+func (s *serverBase) GetScrapeTargetsFunc() ScrapeTargetsFunc { return s.ScrapeTargetsFunc }
+
 // RefreshMonitoringBackend switches the monitoring UI to the given backend
 // by regenerating and restarting the monitoring-ui system service. The
 // MonitoringBackend field is updated so subsequent reads reflect the change.
@@ -258,17 +283,16 @@ func (s *serverBase) RefreshMonitoringBackend(ctx context.Context, backend strin
 // fetching its image and has not swapped the unit yet.
 func (s *serverBase) MonitoringUIPending() bool { return s.monUIPending.Load() }
 
-// RefreshDNSResolutionMode switches rolodex between resolving unmatched names
-// iteratively from the root servers ("recursive") and forwarding them to the
-// upstream resolvers already written into rolodex.yml ("forward"). It rewrites
-// the config and restarts the rolodex unit so the change takes effect without a
-// reboot.
+// RefreshDNSResolutionMode switches how rolodex resolves unmatched names —
+// "auto", "recursive" or "forward" — on the running server, over the management
+// API.
 //
-// RewriteConfig names the intent; it is the same reconcile WriteConfig does.
-// The two used to differ — WriteConfig refused to overwrite a rolodex.yml newer
-// than the systemcontroller binary, and the file written at the last boot always
-// is, so it no-opped here and the setting never reached rolodex. That guard is
-// gone (see "The config that froze" in DESIGN.md).
+// It used to rewrite rolodex.yml and restart the rolodex unit, which cost the
+// whole box its DNS for the length of a container restart every time an
+// operator changed a dropdown. The mode is a runtime setting on the server now
+// (SetResolutionMode), so the switch is one RPC and no interruption. rolodex
+// keeps it in memory only, which is what reconcileRolodexProgramming exists to
+// re-assert after a restart.
 func (s *serverBase) RefreshDNSResolutionMode(ctx context.Context, mode string) error {
 	if s.Rolodex == nil {
 		return nil
@@ -281,59 +305,46 @@ func (s *serverBase) RefreshDNSResolutionMode(ctx context.Context, mode string) 
 	}
 
 	s.Rolodex.SetResolutionMode(mode)
-	written, err := s.Rolodex.RewriteConfig()
-	if err != nil {
-		return fmt.Errorf("write rolodex config: %w", err)
-	}
-	if !written {
-		return nil
-	}
 
-	sd := s.GetSystemdManager()
-	if sd == nil {
+	client := s.GetRolodexClient() //nolint:contextcheck // GetRolodexClient uses its own short-lived dial context; see onInternalIPChange.
+	if client == nil {
+		// rolodex is not reachable right now. The mode is held on the manager
+		// and in the settings DB, and the reprogramming tick pushes it as soon
+		// as rolodex is up, so this is a deferral rather than a loss.
 		return nil
 	}
-	if err := sd.SetStatus(ctx, s.Rolodex.UnitName(), "restart"); err != nil {
-		return fmt.Errorf("restart rolodex: %w", err)
+	if err := client.SetResolutionMode(ctx, mode); err != nil {
+		return fmt.Errorf("set rolodex resolution mode: %w", err)
 	}
 	return nil
 }
 
 // RefreshDNSLocalForwarders switches rolodex's forwarder list between the
 // public defaults and the resolvers this box's own network handed it — the
-// addresses that keep answering on a network that blocks external DNS. It
-// rewrites the config and restarts the rolodex unit so the change takes effect
-// without a reboot.
+// addresses that keep answering on a network that blocks external DNS. Like
+// the resolution mode it is programmed on the running server, so it costs no
+// restart and no DNS interruption.
 //
 // Unlike RefreshDNSResolutionMode it does not short-circuit when the flag is
 // unchanged: with the flag already on, the discovered addresses themselves can
-// have moved (a new DHCP lease, a different network), and re-rendering is how
-// that reaches rolodex. RewriteConfig reports whether the bytes actually
-// changed, so an identical render still costs no restart.
-//
-// RewriteConfig for the same reason as the resolution mode: it names the
-// intent, and it is the same reconcile WriteConfig does now that the mtime
-// guard that used to separate them is gone.
+// have moved (a new DHCP lease, a different network), and re-resolving the list
+// is how that reaches rolodex. Pushing an identical list is free — rolodex's
+// setter is a plain store.
 func (s *serverBase) RefreshDNSLocalForwarders(ctx context.Context, enabled bool) error {
 	if s.Rolodex == nil {
 		return nil
 	}
 
 	s.Rolodex.SetLocalForwarders(enabled)
-	written, err := s.Rolodex.RewriteConfig()
-	if err != nil {
-		return fmt.Errorf("write rolodex config: %w", err)
-	}
-	if !written {
-		return nil
-	}
 
-	sd := s.GetSystemdManager()
-	if sd == nil {
+	client := s.GetRolodexClient() //nolint:contextcheck // GetRolodexClient uses its own short-lived dial context; see onInternalIPChange.
+	if client == nil {
+		// Deferred, not lost: the flag is on the manager and in the settings
+		// DB, and the reprogramming tick pushes the list once rolodex is up.
 		return nil
 	}
-	if err := sd.SetStatus(ctx, s.Rolodex.UnitName(), "restart"); err != nil {
-		return fmt.Errorf("restart rolodex: %w", err)
+	if err := client.SetForwarders(ctx, s.Rolodex.Forwarders()); err != nil {
+		return fmt.Errorf("set rolodex forwarders: %w", err)
 	}
 	return nil
 }
@@ -512,6 +523,13 @@ func (s *serverBase) pollerGfehIntervalValue() time.Duration {
 		return s.pollerGfehInterval
 	}
 	return defaultPollerGfehInterval
+}
+
+func (s *serverBase) pollerRolodexIntervalValue() time.Duration {
+	if s.pollerRolodexInterval > 0 {
+		return s.pollerRolodexInterval
+	}
+	return defaultPollerRolodexInterval
 }
 
 // tickGfehPoll runs one iteration of the object-storage convergence loop: it
@@ -726,6 +744,10 @@ func (s *serverBase) onInternalIPChange(ctx context.Context, oldIP, newIP string
 		NetworkStatePath: s.NetworkStatePath,
 		BtrfsBasePath:    s.BtrfsBasePath,
 		Gfeh:             s.GetGfehRegistry(),
+		// The DoT/DoQ leaf carries the box's addresses as SANs, so an address
+		// change makes it stale: a client dialling the new address would fail
+		// the name check against a certificate naming the old one.
+		TLSCA: s.GetTLSCA(),
 	}); err != nil {
 		slog.Error("rebuild DNS after internal IP change", "old", oldIP, "new", newIP, "error", err)
 		return
@@ -935,6 +957,22 @@ func (s *serverBase) startNetworkPoller(ctx context.Context) {
 				return
 			case <-ticker.C:
 				s.tickDNSPoll(ctx)
+			}
+		}
+	}()
+
+	// rolodex reprogramming tick. Own goroutine for the same reason as the
+	// others, and because this is the fastest of them: it must not queue
+	// behind an hourly DNS reconcile that is mid-round-trip.
+	go func() {
+		ticker := time.NewTicker(s.pollerRolodexIntervalValue())
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				s.reconcileRolodexProgramming(ctx)
 			}
 		}
 	}()

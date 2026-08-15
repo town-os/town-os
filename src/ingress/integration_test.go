@@ -57,7 +57,7 @@ func TestIngressRoutesTLSToBackend(t *testing.T) {
 
 	port := freePort(t)
 	sup := caddysup.NewSupervisor(caddyBin, filepath.Join(t.TempDir(), "Caddyfile"))
-	srv := NewServer(sup, port, freePort(t), "")
+	srv := NewServer(sup, port, freePort(t), "", WithCaddyAdminPort(freePort(t)))
 	if err := srv.Bootstrap(); err != nil {
 		t.Fatalf("bootstrap caddy: %v", err)
 	}
@@ -150,7 +150,7 @@ func TestIngressHTTPPortRouting(t *testing.T) {
 	httpsPort := freePort(t)
 	httpPort := freePort(t)
 	sup := caddysup.NewSupervisor(caddyBin, filepath.Join(t.TempDir(), "Caddyfile"))
-	srv := NewServer(sup, httpsPort, httpPort, uiBackend)
+	srv := NewServer(sup, httpsPort, httpPort, uiBackend, WithCaddyAdminPort(freePort(t)))
 	if err := srv.Bootstrap(); err != nil {
 		t.Fatalf("bootstrap caddy: %v", err)
 	}
@@ -338,4 +338,177 @@ func poll(t *testing.T, cond func() bool) bool {
 		time.Sleep(100 * time.Millisecond)
 	}
 	return false
+}
+
+// TestIngressProxiesToAnHTTPSBackend is the end-to-end proof that every hop can
+// be HTTPS: a route whose backend terminates its own TLS, and a path backend on
+// the same vhost doing the same, both served through real caddy.
+//
+// This is what fronting rolodex's DoH listener depends on. That listener speaks
+// TLS with a self-signed certificate, and the ingress reaches it over https with
+// verification skipped on the internal hop while the client still validates the
+// ingress's own leaf. Until PathBackend carried its own scheme, a path backend
+// was proxied as plaintext no matter what stood behind it — a 502 whose cause is
+// invisible from either end.
+func TestIngressProxiesToAnHTTPSBackend(t *testing.T) {
+	caddyBin := findCaddy(t)
+
+	tlsDir := t.TempDir()
+	ca, err := townostls.EnsureCA(tlsDir)
+	if err != nil {
+		t.Fatalf("EnsureCA: %v", err)
+	}
+	leafDir := filepath.Join(tlsDir, "leaf")
+	if err := os.MkdirAll(leafDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := ca.IssueLeaf(leafDir, []string{"dns.local"}); err != nil {
+		t.Fatalf("IssueLeaf: %v", err)
+	}
+
+	// Two TLS backends with certificates the ingress has no reason to trust —
+	// exactly rolodex's self-signed DoH listener, which is why the proxy hop
+	// must skip verification rather than fail closed.
+	const rootBody = "root over tls"
+	const queryBody = "dns-query over tls"
+	rootBackend := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(rootBody))
+	}))
+	defer rootBackend.Close()
+	queryBackend := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// The path must arrive unstripped: rolodex serves /dns-query and 404s
+		// everything else, so a handle_path here would break every query.
+		if r.URL.Path != "/dns-query" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		_, _ = w.Write([]byte(queryBody))
+	}))
+	defer queryBackend.Close()
+
+	port := freePort(t)
+	sup := caddysup.NewSupervisor(caddyBin, filepath.Join(t.TempDir(), "Caddyfile"))
+	srv := NewServer(sup, port, freePort(t), "", WithCaddyAdminPort(freePort(t)))
+	if err := srv.Bootstrap(); err != nil {
+		t.Fatalf("bootstrap caddy: %v", err)
+	}
+	defer func() { _ = sup.Shutdown() }()
+
+	ctx := context.Background()
+	if _, err := srv.SetRoutes(ctx, &ingresspb.SetRoutesRequest{Routes: []*ingresspb.Route{{
+		Hostname:   "dns.local",
+		Backend:    strings.TrimPrefix(rootBackend.URL, "https://"),
+		CertDir:    leafDir,
+		BackendTls: true,
+		PathBackends: []*ingresspb.PathBackend{{
+			Path:       "/dns-query",
+			Backend:    strings.TrimPrefix(queryBackend.URL, "https://"),
+			BackendTls: true,
+		}},
+	}}}); err != nil {
+		t.Fatalf("SetRoutes: %v", err)
+	}
+
+	client := caClient(t, filepath.Join(tlsDir, "ca.crt"), port)
+
+	// The path backend: an HTTPS hop reached through a handle block.
+	if !poll(t, func() bool {
+		resp, err := httpGet(t, client, "https://dns.local/dns-query")
+		if err != nil {
+			return false
+		}
+		defer func() { _ = resp.Body.Close() }()
+		b, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode == http.StatusOK && string(b) == queryBody
+	}) {
+		t.Fatal("ingress did not proxy the path backend over https")
+	}
+
+	// The route's own backend: the catch-all handle, also HTTPS.
+	resp, err := httpGet(t, client, "https://dns.local/")
+	if err != nil {
+		t.Fatalf("GET /: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK || string(body) != rootBody {
+		t.Fatalf("route backend over https = %d %q, want 200 %q", resp.StatusCode, body, rootBody)
+	}
+}
+
+// TestIngressDefaultBackendOverHTTPS covers the :80 fallback vhost — the last
+// hop in the renderer that could only speak plaintext, and the only one with no
+// test of any kind before this.
+//
+// The fallback is what a host with no route of its own lands on (the Town OS UI,
+// so bare-IP login keeps working). It was rendered with a bare `reverse_proxy`
+// rather than through writeReverseProxy, so a backend that terminates its own
+// TLS got plaintext sent at a TLS socket. That fails as a 502 with nothing in it
+// to name the cause — the same failure PathBackend had, in the one place the
+// route-level flag could not reach.
+//
+// Both arms run, because the bug is a scheme mismatch and only asserting the
+// HTTPS one would pass just as well if the flag were ignored and every fallback
+// were proxied over https.
+func TestIngressDefaultBackendOverHTTPS(t *testing.T) {
+	caddyBin := findCaddy(t)
+
+	for _, tc := range []struct {
+		name       string
+		backendTLS bool
+		body       string
+	}{
+		{name: "https-fallback", backendTLS: true, body: "fallback over tls"},
+		{name: "plain-fallback", backendTLS: false, body: "fallback over plaintext"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// A backend whose certificate the ingress has no reason to trust,
+			// exactly like rolodex's self-signed DoH listener: the internal hop
+			// skips verification, so this must still be reached.
+			var backend *httptest.Server
+			handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte(tc.body))
+			})
+			if tc.backendTLS {
+				backend = httptest.NewTLSServer(handler)
+			} else {
+				backend = httptest.NewServer(handler)
+			}
+			defer backend.Close()
+
+			addr := backend.URL
+			for _, scheme := range []string{"https://", "http://"} {
+				addr = strings.TrimPrefix(addr, scheme)
+			}
+
+			httpPort := freePort(t)
+			sup := caddysup.NewSupervisor(caddyBin, filepath.Join(t.TempDir(), "Caddyfile"))
+			srv := NewServer(sup, freePort(t), httpPort, addr,
+				WithDefaultBackendTLS(tc.backendTLS), WithCaddyAdminPort(freePort(t)))
+			if err := srv.Bootstrap(); err != nil {
+				t.Fatalf("bootstrap caddy: %v", err)
+			}
+			defer func() { _ = sup.Shutdown() }()
+
+			// No routes at all: every host falls through to the bare :80 block,
+			// which is the vhost under test.
+			client := plainClientNoRedirect(t, httpPort)
+			var got string
+			if !poll(t, func() bool {
+				resp, err := httpGet(t, client, "http://unrouted.invalid/")
+				if err != nil {
+					return false
+				}
+				defer func() { _ = resp.Body.Close() }()
+				b, readErr := io.ReadAll(resp.Body)
+				if readErr != nil {
+					return false
+				}
+				got = string(b)
+				return resp.StatusCode == http.StatusOK && got == tc.body
+			}) {
+				t.Fatalf("default backend (backend_tls=%v) never served its body; last response %q", tc.backendTLS, got)
+			}
+		})
+	}
 }

@@ -6,7 +6,6 @@ package integration_test
 import (
 	"context"
 	"net"
-	"os"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -358,13 +357,22 @@ func TestDNSRealQueries(t *testing.T) {
 }
 
 // --- Resolved routing tests ---
-
-func TestResolvedRoutingNonFatal(t *testing.T) {
-	t.Parallel()
-	// ConfigureResolvedRouting must never panic or crash, even if
-	// resolvectl is not available (e.g., inside the test container).
-	rolodex.ConfigureResolvedRouting(context.Background(), "home", rolodex.DNSLoopback)
-}
+//
+// Two tests that used to live here — one asserting ConfigureResolvedRouting is
+// non-fatal, one asserting the drop-in it writes has the right content — called
+// the real function, and so wrote the real /etc/systemd/resolved.conf.d/town-os.conf
+// and SIGHUPed the real systemd-resolved. Inside this container that is its own
+// /etc, but it is still a test run creating the one file the harness treats as
+// proof that a run leaked onto the host's resolver, and it broke
+// TestRolodexDNSPortOverrideReachesTheBootPath, whose whole assertion is that no
+// such file exists on a box where rolodex was relocated off :53.
+//
+// Their coverage moved to src/rolodex/resolved_test.go, which exercises the
+// write through writeResolvedDropIn against a temp directory: same content
+// assertion, same error path, no system file and no signal. What is left here is
+// the half that is genuinely about the controller — whether the configurator is
+// called at all — and every one of those uses a recorder in place of the real
+// function.
 
 func TestResolvedRoutingCalledOnTLDChange(t *testing.T) {
 	t.Parallel()
@@ -449,30 +457,5 @@ func TestResolvedRoutingNotCalledWhenNil(t *testing.T) {
 	// Should not panic when ResolvedConfigurator is nil.
 	if err := c.SetDNSTLD(context.TODO(), "local"); err != nil {
 		t.Fatalf("SetDNSTLD: %v", err)
-	}
-}
-
-func TestResolvedRoutingConfiguredOnBoot(t *testing.T) {
-	t.Parallel()
-
-	// ConfigureResolvedRouting writes a drop-in config file and restarts
-	// systemd-resolved. In the integration test container, the write may
-	// fail (no /etc/systemd/resolved.conf.d/ or no resolved). The function
-	// must be non-fatal regardless.
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	rolodex.ConfigureResolvedRouting(ctx, "home", rolodex.DNSLoopback)
-
-	// If the drop-in dir exists, verify the file was written correctly.
-	dropInPath := "/etc/systemd/resolved.conf.d/town-os.conf"
-	content, err := os.ReadFile(dropInPath)
-	if err != nil {
-		t.Skipf("resolved drop-in not written (expected in containers without resolved): %v", err)
-	}
-
-	expected := "[Resolve]\nDNS=" + rolodex.DNSLoopback + "\nDomains=~home\n"
-	if string(content) != expected {
-		t.Fatalf("drop-in content mismatch:\ngot:  %q\nwant: %q", string(content), expected)
 	}
 }

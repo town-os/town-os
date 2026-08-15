@@ -5,6 +5,7 @@ package integration_test
 
 import (
 	"context"
+	"fmt"
 	"math/rand/v2"
 	"net"
 	"os"
@@ -63,6 +64,63 @@ func rolodexTempDir(t *testing.T, pattern string) string {
 	return dir
 }
 
+// writeRolodexBootstrapConfig writes the config file the INSTALL IMAGE writes
+// on a real box (scripts/rolodex-config.sh in ../install), which is the only
+// config rolodex ever reads from disk: the DNS binds, the metrics listener, and
+// the two boot defaults (mode and forwarders) that give the window before the
+// controller's first push a defined state. The ports are parameterised only
+// because tests relocate them; on a real box every value here is a constant.
+//
+// Town OS deliberately writes no config file — forwarders, resolution mode and
+// both blocklists are programmed into the running server over gRPC — so a test
+// that starts a real rolodex has to stand in for the install image here. It is
+// spelled out rather than generated so it keeps matching what that script
+// actually emits; if the two drift, a test rolodex stops resembling a real one.
+//
+// One stanza is deliberately NOT in the install script: `address_family: off`.
+// rolodex defaults that to `auto`, which TCP-connects to 1.1.1.1:443 and
+// [2606:4700:4700::1111]:443 to decide whether the host can route each family,
+// and then filters A or AAAA answers out of every response for the family it
+// could not reach. On a real box that is exactly right. In the harness it makes
+// the answer depend on the build machine's internet — a container with no v6
+// route serves NODATA for every AAAA this suite publishes, so a test asserting
+// the record it just wrote fails on the network rather than on the code — and it
+// puts a recurring outbound probe to a hardcoded public address inside every
+// test rolodex, on captive networks included. `off` answers both families and
+// probes nothing.
+func writeRolodexBootstrapConfig(t *testing.T, dataDir, dnsPort, metricsPort string) {
+	t.Helper()
+
+	if metricsPort == "" {
+		metricsPort = rolodex.DefaultMetricsPort
+	}
+	config := fmt.Sprintf(`database_path: /data/rolodex.db
+dns:
+  bind:
+    - udp: "%s:%s"
+    - tcp: "%s:%s"
+grpc:
+  tcp_bind: ""
+  unix_socket: /data/rolodex.sock
+  shared_secret: ""
+forwarders:
+  - "8.8.8.8:53"
+  - "8.8.4.4:53"
+resolution:
+  mode: auto
+address_family:
+  mode: "off"
+metrics:
+  bind: "%s:%s"
+`,
+		rolodex.DNSLoopback, dnsPort, rolodex.DNSLoopback, dnsPort,
+		rolodex.DNSLoopback, metricsPort,
+	)
+	if err := os.WriteFile(filepath.Join(dataDir, "rolodex.yml"), []byte(config), 0o644); err != nil {
+		t.Fatalf("write bootstrap rolodex.yml: %v", err)
+	}
+}
+
 func initSystemControllerRolodexTest(t *testing.T) (*systemcontroller.SystemdClient, *systemd.MockManager) {
 	t.Helper()
 
@@ -110,13 +168,13 @@ func initRolodexRealTest(t *testing.T) (rolodex.Client, string) {
 // local stub DNS server so they work without internet access.
 func initRolodexRealTestForwarders(t *testing.T, forwarders []string) (rolodex.Client, string) {
 	t.Helper()
-	return initRolodexRealTestWith(t, forwarders, rolodex.Blocklist{}, rolodex.Blocklist{})
+	return initRolodexRealTestWith(t, forwarders, rolodex.Blocklist{})
 }
 
 // initRolodexRealTestWith is initRolodexRealTestForwarders with blocklist
 // provider lists rendered into rolodex.yml, so a test can prove what a rolodex
 // starting from that file alone comes up holding.
-func initRolodexRealTestWith(t *testing.T, forwarders []string, rbl, dnsbl rolodex.Blocklist) (rolodex.Client, string) {
+func initRolodexRealTestWith(t *testing.T, forwarders []string, dnsbl rolodex.Blocklist) (rolodex.Client, string) {
 	t.Helper()
 
 	dataDir := rolodexTempDir(t, "rolodex-data-*")
@@ -137,13 +195,10 @@ func initRolodexRealTestWith(t *testing.T, forwarders []string, rbl, dnsbl rolod
 		// upstream; rolodex's default is recursive-from-roots, so opt into
 		// forward mode here.
 		ResolutionMode: rolodex.ResolutionModeForward,
-		RBL:            rbl,
 		DNSBL:          dnsbl,
 	})
 
-	if _, err := mgr.WriteConfig(); err != nil {
-		t.Fatalf("WriteConfig: %v", err)
-	}
+	writeRolodexBootstrapConfig(t, dataDir, dnsPort, "")
 
 	ctx := context.Background()
 	if dl, ok := t.Deadline(); ok {
@@ -200,6 +255,14 @@ func initRolodexRealTestWith(t *testing.T, forwarders []string, rbl, dnsbl rolod
 			t.Errorf("Close: %v", err)
 		}
 	})
+
+	// Program the settings that do not live in the config file, exactly as a
+	// real box does once rolodex is up. Without this a test rolodex holds
+	// rolodex's defaults — public forwarders, auto mode, no blocklists — no
+	// matter what the caller put in the manager.
+	if err := systemcontroller.ProgramRolodex(ctx, client, mgr, nil); err != nil {
+		t.Fatalf("ProgramRolodex: %v", err)
+	}
 
 	return client, dnsPort
 }
@@ -261,9 +324,7 @@ func TestRolodexRealContainerStart(t *testing.T) {
 		Key:            key,
 	})
 
-	if _, err := mgr.WriteConfig(); err != nil {
-		t.Fatalf("WriteConfig: %v", err)
-	}
+	writeRolodexBootstrapConfig(t, dataDir, dnsPort, "")
 
 	ctx := context.Background()
 
@@ -685,96 +746,4 @@ func rolodexUnitFatal(ctx context.Context, unitName string) string {
 	}
 
 	return ""
-}
-
-func TestRolodexWriteConfigIdempotent(t *testing.T) {
-	t.Parallel()
-	dataDir := rolodexTempDir(t, "rolodex-idempotent-*")
-	mgr := rolodex.NewManager(rolodex.Config{
-		Systemd:        systemd.InitMockManager(),
-		DataDir:        dataDir,
-		Image:          rolodexTestImage(),
-		UnixSocketPath: filepath.Join(dataDir, "rolodex.sock"),
-	})
-
-	// First call should write.
-	written, err := mgr.WriteConfig()
-	if err != nil {
-		t.Fatalf("first WriteConfig: %v", err)
-	}
-	if !written {
-		t.Fatal("expected first WriteConfig to write")
-	}
-
-	// Record mtime.
-	configPath := filepath.Join(dataDir, "rolodex.yml")
-	fi1, err := os.Stat(configPath)
-	if err != nil {
-		t.Fatalf("stat after first write: %v", err)
-	}
-
-	// Second call should skip: the rendered bytes are identical.
-	written, err = mgr.WriteConfig()
-	if err != nil {
-		t.Fatalf("second WriteConfig: %v", err)
-	}
-	if written {
-		t.Fatal("expected second WriteConfig to skip (content unchanged)")
-	}
-
-	// File should not have been rewritten.
-	fi2, err := os.Stat(configPath)
-	if err != nil {
-		t.Fatalf("stat after second write: %v", err)
-	}
-	if !fi1.ModTime().Equal(fi2.ModTime()) {
-		t.Fatal("file mtime changed even though content was identical")
-	}
-}
-
-// TestRolodexWriteConfigReconcilesNewerFile: a rolodex.yml newer than the
-// binary is the normal state, not a hand edit — every boot leaves one behind —
-// and skipping it froze the file for the life of the box. See "The config that
-// froze" in DESIGN.md.
-func TestRolodexWriteConfigReconcilesNewerFile(t *testing.T) {
-	t.Parallel()
-	dataDir := rolodexTempDir(t, "rolodex-newer-*")
-	configPath := filepath.Join(dataDir, "rolodex.yml")
-
-	// Write custom content with a future mtime.
-	customContent := "# left behind by an older controller\n"
-	if err := os.WriteFile(configPath, []byte(customContent), 0644); err != nil {
-		t.Fatalf("pre-write: %v", err)
-	}
-	future := time.Now().Add(24 * time.Hour)
-	if err := os.Chtimes(configPath, future, future); err != nil {
-		t.Fatalf("chtimes: %v", err)
-	}
-
-	mgr := rolodex.NewManager(rolodex.Config{
-		Systemd:        systemd.InitMockManager(),
-		DataDir:        dataDir,
-		Image:          rolodexTestImage(),
-		UnixSocketPath: filepath.Join(dataDir, "rolodex.sock"),
-	})
-
-	written, err := mgr.WriteConfig()
-	if err != nil {
-		t.Fatalf("WriteConfig: %v", err)
-	}
-	if !written {
-		t.Fatal("expected WriteConfig to replace a file newer than the binary")
-	}
-
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		t.Fatalf("read: %v", err)
-	}
-	if string(data) == customContent {
-		t.Fatalf("config was left frozen at:\n%s", data)
-	}
-	// The metrics section is the one that went missing on a real box.
-	if want := "metrics:\n  bind: \"" + mgr.MetricsAddr() + "\"\n"; !strings.Contains(string(data), want) {
-		t.Errorf("reconciled config missing %q:\n%s", want, data)
-	}
 }

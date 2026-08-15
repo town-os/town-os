@@ -14,52 +14,68 @@ import (
 	"gitea.com/town-os/town-os/src/rolodex"
 )
 
-// Settings keys holding the two blocklist provider lists.
+// Settings key holding the blocklist provider list. There is one list — the
+// DNSBL one — since the RBL half was retired.
 //
-// Rolodex keeps the lists in memory ONLY: it seeds them from rolodex.yml at
-// startup, and SetRblConfig/SetDnsblConfig mutate that in-memory state and
-// persist nothing. So without these, every configured blocklist silently
-// switched itself off the next time rolodex restarted — a crash under
-// Restart=always, a system-services refresh, the unit restart a
-// resolution-mode change performs, or simply rebooting the box. The operator
-// saw their toggles come back off with nothing in any log to say why.
+// Rolodex keeps the list in memory ONLY: it seeds it from rolodex.yml at
+// startup, and SetDnsblConfig mutates that in-memory state and persists
+// nothing. So without this, every configured blocklist silently switched itself
+// off the next time rolodex restarted — a crash under Restart=always, a
+// system-services refresh, the unit restart a resolution-mode change performs,
+// or simply rebooting the box. The operator saw their toggles come back off
+// with nothing in any log to say why.
 //
-// Town OS is the source of truth. What is stored here is pushed back two ways:
-// rendered into rolodex.yml, so a rolodex that restarts on its own comes back
-// configured, and re-asserted over gRPC by ReconcileBlocklists whenever the
-// live server has drifted.
+// Town OS is the source of truth, and gRPC is the only way it gets there:
+// ReconcileBlocklists re-asserts this list whenever the live server has
+// drifted. It is NOT rendered into rolodex.yml — that file is the install
+// image's bootstrap config, written by ../install's scripts/rolodex-config.sh,
+// and it carries no blocklist section at all.
 const (
-	settingDNSRblConfig   = "dns_rbl_config"
 	settingDNSDnsblConfig = "dns_dnsbl_config"
+	// Written by builds that still had the RBL provider list. Nothing reads it
+	// any more; it is named here so the key is not reused for something else
+	// and so a reader of this file knows a stale row may exist in the settings
+	// table of an upgraded box.
+	settingDNSRblConfigRetired = "dns_rbl_config"
 )
 
-// loadStoredBlocklist reads one persisted provider list.
+var _ = settingDNSRblConfigRetired
+
+// loadStoredBlocklist reads the persisted provider list.
 //
 // ok is false when the setting has never been written or cannot be parsed, and
 // the distinction from an empty config matters: "nothing has ever been
 // configured" must not push an empty list over whatever the live server holds,
 // while an operator who genuinely turned everything off has a stored
 // {enabled:false, providers:[]} that MUST be pushed.
-func loadStoredBlocklist(ctx context.Context, mgr account.SettingsManager, key string) (RblConfigRequest, bool) {
-	var cfg RblConfigRequest
+//
+// The setting key is not a parameter. There is exactly one list now that the
+// RBL half is retired (settingDNSRblConfigRetired), so a key argument would be
+// a knob with one setting that every call site had to spell out identically —
+// and the one thing it could express, reading one list and writing the other,
+// is precisely the bug it would be there to allow.
+func loadStoredBlocklist(ctx context.Context, mgr account.SettingsManager) (BlocklistConfigRequest, bool) {
+	var cfg BlocklistConfigRequest
 	if mgr == nil {
 		return cfg, false
 	}
-	val, err := mgr.Get(ctx, key)
+	val, err := mgr.Get(ctx, settingDNSDnsblConfig)
 	if err != nil || strings.TrimSpace(val) == "" {
 		return cfg, false
 	}
 	if err := json.Unmarshal([]byte(val), &cfg); err != nil {
-		slog.Debug("parse stored blocklist config", "key", key, "error", err)
-		return RblConfigRequest{}, false
+		slog.Debug("parse stored blocklist config", "key", settingDNSDnsblConfig, "error", err)
+		return BlocklistConfigRequest{}, false
 	}
 	return cfg, true
 }
 
-// saveStoredBlocklist persists one provider list. The value stored is the
+// saveStoredBlocklist persists the provider list. The value stored is the
 // validated, normalized config — the same bytes that were pushed to rolodex —
 // so a restore cannot reintroduce input the validator would now reject.
-func saveStoredBlocklist(ctx context.Context, mgr account.SettingsManager, key string, cfg RblConfigRequest) error {
+//
+// Keyless for the same reason as loadStoredBlocklist.
+func saveStoredBlocklist(ctx context.Context, mgr account.SettingsManager, cfg BlocklistConfigRequest) error {
 	if mgr == nil {
 		return errors.New("settings manager not available")
 	}
@@ -67,27 +83,24 @@ func saveStoredBlocklist(ctx context.Context, mgr account.SettingsManager, key s
 	if err != nil {
 		return fmt.Errorf("marshal blocklist config: %w", err)
 	}
-	return mgr.Set(ctx, key, string(data))
+	return mgr.Set(ctx, settingDNSDnsblConfig, string(data))
 }
 
-// StoredBlocklists returns the persisted RBL and DNSBL lists in the shape the
-// rolodex manager renders into rolodex.yml. Boot uses it to seed the manager
-// before rolodex.yml is written, so rolodex starts with the operator's
-// blocklists already configured rather than waiting for the gRPC re-assert
-// further down the boot sequence.
+// StoredBlocklist returns the persisted DNSBL provider list in the shape the
+// rolodex manager holds. Boot uses it to seed the manager before rolodex is
+// programmed, so the list the operator configured is what gets pushed rather
+// than an empty one.
 //
-// A list that has never been configured yields the zero Blocklist, which
-// renders exactly the "disabled, no providers" section rolodex.yml has always
-// carried.
-func StoredBlocklists(ctx context.Context, mgr account.SettingsManager) (rbl, dnsbl rolodex.Blocklist) {
-	storedRBL, _ := loadStoredBlocklist(ctx, mgr, settingDNSRblConfig)
-	storedDNSBL, _ := loadStoredBlocklist(ctx, mgr, settingDNSDnsblConfig)
-	return blocklistToRolodex(storedRBL), blocklistToRolodex(storedDNSBL)
+// A list that has never been configured yields the zero Blocklist — disabled,
+// no providers — which is what an unconfigured box has always had.
+func StoredBlocklist(ctx context.Context, mgr account.SettingsManager) rolodex.Blocklist {
+	stored, _ := loadStoredBlocklist(ctx, mgr)
+	return blocklistToRolodex(stored)
 }
 
 // blocklistToRolodex converts a stored list into the shape the rolodex manager
-// renders into rolodex.yml.
-func blocklistToRolodex(cfg RblConfigRequest) rolodex.Blocklist {
+// holds and ProgramRolodex pushes to the running server.
+func blocklistToRolodex(cfg BlocklistConfigRequest) rolodex.Blocklist {
 	providers := make([]rolodex.BlocklistProvider, 0, len(cfg.Providers))
 	for _, p := range cfg.Providers {
 		providers = append(providers, rolodex.BlocklistProvider{
@@ -121,7 +134,7 @@ func blocklistToRolodex(cfg RblConfigRequest) rolodex.Blocklist {
 // because this config has exactly one writer: a live value the operator did
 // not ask for can only have come from an earlier stored value, and the moment
 // they change it the stored side stops being a wildcard.
-func blocklistDrifted(stored RblConfigRequest, liveEnabled bool, live []RblProviderDTO, liveCooldown uint32) bool {
+func blocklistDrifted(stored BlocklistConfigRequest, liveEnabled bool, live []BlocklistProviderDTO, liveCooldown uint32) bool {
 	if stored.Enabled != liveEnabled {
 		return true
 	}
@@ -143,15 +156,17 @@ func blocklistDrifted(stored RblConfigRequest, liveEnabled bool, live []RblProvi
 	return false
 }
 
-// ReconcileBlocklists re-asserts the persisted RBL and DNSBL provider lists in
-// rolodex when the live server has drifted from them.
+// ReconcileBlocklists re-asserts the persisted DNSBL provider list in rolodex
+// when the live server has drifted from it. One list, not two — the RBL half is
+// retired (settingDNSRblConfigRetired).
 //
-// This is the repair half of blocklist persistence: rolodex.yml covers a
-// rolodex that restarts on its own, and this covers everything else — a push
-// that failed at the time, a rolodex whose config file was hand-edited, a
-// rolodex re-initialized underneath us. It runs from RebuildDNS at boot and
-// from the hourly ReconcileDNS drift pass, and costs two reads and no
-// mutations at steady state.
+// This is the whole of blocklist persistence, not half of it: rolodex.yml no
+// longer carries a blocklist section, so nothing restores the list on a rolodex
+// that restarts on its own except this. It covers a push that failed at the
+// time, a rolodex re-initialized underneath us, and every restart — including
+// the one scripts/rolodex-reload.sh performs on a lease change. It runs from
+// RebuildDNS at boot and from the hourly ReconcileDNS drift pass, and costs one
+// read and no mutations at steady state.
 //
 // A list that has never been configured is left entirely alone rather than
 // pushed as empty: an unwritten setting is not an instruction.
@@ -160,12 +175,7 @@ func ReconcileBlocklists(ctx context.Context, client rolodex.Client, mgr account
 		return nil
 	}
 	var errs []error
-	if stored, ok := loadStoredBlocklist(ctx, mgr, settingDNSRblConfig); ok {
-		if err := reconcileRblProviders(ctx, client, stored); err != nil {
-			errs = append(errs, fmt.Errorf("rbl: %w", err))
-		}
-	}
-	if stored, ok := loadStoredBlocklist(ctx, mgr, settingDNSDnsblConfig); ok {
+	if stored, ok := loadStoredBlocklist(ctx, mgr); ok {
 		if err := reconcileDnsblProviders(ctx, client, stored); err != nil {
 			errs = append(errs, fmt.Errorf("dnsbl: %w", err))
 		}
@@ -173,33 +183,9 @@ func ReconcileBlocklists(ctx context.Context, client rolodex.Client, mgr account
 	return errors.Join(errs...)
 }
 
-// reconcileRblProviders pushes the stored RBL list when the live one differs.
-func reconcileRblProviders(ctx context.Context, client rolodex.Client, stored RblConfigRequest) error {
-	status, err := client.GetRblConfig(ctx)
-	if err != nil {
-		return fmt.Errorf("get config: %w", err)
-	}
-	if status != nil && !blocklistDrifted(stored, status.Enabled, rblProvidersToDTO(status.Providers), status.RefusalCooldownSecs) {
-		return nil
-	}
-	providers := make([]*upstream.RblConfig, 0, len(stored.Providers))
-	for _, p := range stored.Providers {
-		providers = append(providers, &upstream.RblConfig{
-			Zone:                p.Zone,
-			Enabled:             p.Enabled,
-			RefusalCodes:        slices.Clone(p.RefusalCodes),
-			RefusalCooldownSecs: p.RefusalCooldownSecs,
-		})
-	}
-	slog.Info("restoring RBL blocklist configuration in rolodex", "enabled", stored.Enabled, "providers", len(providers))
-	return client.SetRblConfig(ctx, stored.Enabled, providers, stored.RefusalCooldownSecs)
-}
-
 // reconcileDnsblProviders pushes the stored DNSBL list when the live one
-// differs. Separate from the RBL twin rather than generic over both: the
-// upstream provider types are distinct structs on distinct RPCs, so folding
-// them together would cost more conversion than it saves.
-func reconcileDnsblProviders(ctx context.Context, client rolodex.Client, stored RblConfigRequest) error {
+// differs.
+func reconcileDnsblProviders(ctx context.Context, client rolodex.Client, stored BlocklistConfigRequest) error {
 	status, err := client.GetDnsblConfig(ctx)
 	if err != nil {
 		return fmt.Errorf("get config: %w", err)
@@ -220,32 +206,29 @@ func reconcileDnsblProviders(ctx context.Context, client rolodex.Client, stored 
 	return client.SetDnsblConfig(ctx, stored.Enabled, providers, stored.RefusalCooldownSecs)
 }
 
-// syncRolodexBlocklistConfig re-renders rolodex.yml from the persisted lists,
-// so a rolodex that restarts without the systemcontroller's involvement comes
-// back with the operator's blocklists rather than none.
+// syncRolodexBlocklistConfig copies the persisted lists onto the rolodex
+// manager, so that whatever reprograms the live server next — the boot pass,
+// the reprogramming tick after a restart — pushes the operator's current
+// lists rather than the ones this process started with.
 //
-// It deliberately does NOT restart rolodex: the live server has already been
-// programmed over gRPC by the caller, so bouncing DNS to apply a change that
-// has already taken effect would drop every in-flight resolution for nothing.
+// It writes no file and restarts nothing. rolodex.yml is the install image's
+// bootstrap config now; the live server was already programmed over gRPC by
+// the caller, and bouncing DNS to apply a change that has already taken effect
+// would drop every in-flight resolution for nothing.
 //
-// The file matters beyond a restart window. Rolodex only spawns its ":53 is
-// reachable" probe when a blocklist is enabled *in the config file*, and that
-// probe is what stops blocklist lookups sitting and timing out on a network
-// that filters outbound :53 — so a list enabled purely over gRPC works but
-// degrades badly on exactly the networks the probe exists for.
-//
-// Best-effort: the persisted settings are the source of truth, and
-// ReconcileBlocklists converges the live server regardless.
+// That gap used to be paired with one in rolodex, now fixed there: it only
+// spawned its ":53 is reachable" probe when the blocklist was enabled *in its
+// config file*, so with the list no longer written to that file the probe never
+// started and a blocklist configured here degraded on exactly the networks the
+// probe exists for. rolodex now spawns `DnsblChecker::resolver_availability_loop`
+// unconditionally and gates it on its own runtime enabled flag, so a list turned
+// on over gRPC from here gets the probe within seconds.
 func (s *SystemControllerHandlers) syncRolodexBlocklistConfig(ctx context.Context) {
 	rolMgr := s.Controller.GetRolodex()
 	mgr := s.Controller.GetSettingsManager()
 	if rolMgr == nil || mgr == nil {
 		return
 	}
-	rbl, _ := loadStoredBlocklist(ctx, mgr, settingDNSRblConfig)
-	dnsbl, _ := loadStoredBlocklist(ctx, mgr, settingDNSDnsblConfig)
-	rolMgr.SetBlocklists(blocklistToRolodex(rbl), blocklistToRolodex(dnsbl))
-	if _, err := rolMgr.RewriteConfig(); err != nil {
-		slog.Warn("write rolodex config after blocklist change", "error", err)
-	}
+	dnsbl, _ := loadStoredBlocklist(ctx, mgr)
+	rolMgr.SetBlocklist(blocklistToRolodex(dnsbl))
 }

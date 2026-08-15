@@ -21,12 +21,12 @@ type localForwardersEnv struct {
 	client  *systemcontroller.SystemdClient
 	systemd *systemd.MockManager
 	rolodex *rolodex.Manager
-	dataDir string
+	rolCli  *rolodex.MockClient
 }
 
-// initLocalForwardersTest wires a real rolodex.Manager (writing into a temp data
-// dir) behind the real HTTP settings API, with a mock systemd so we can see the
-// restart it asks for.
+// initLocalForwardersTest wires a real rolodex.Manager behind the real HTTP
+// settings API, with a fake rolodex server so a test can see what the handler
+// programs, and a mock systemd so it can see that it asks for no restart.
 //
 // Discovery is pointed at a fixture rather than the machine's own resolv.conf:
 // the addresses a test asserts on must be a property of the test, not of
@@ -57,17 +57,15 @@ func initLocalForwardersTest(t *testing.T) localForwardersEnv {
 		ResolvConfPaths: []string{resolvPath},
 	})
 
-	// Lay down the config the way boot does, so the test starts from the same
-	// on-disk state a running box has.
-	if _, err := rolMgr.RewriteConfig(); err != nil {
-		t.Fatalf("RewriteConfig: %v", err)
-	}
+	// No config file: rolodex.yml holds the install image's binds and metrics
+	// listener, and the forwarder list is programmed into the running server.
+	rolClient := &rolodex.MockClient{ResolutionMode: rolodex.ResolutionModeAuto}
 
 	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{
 		Storage:       storage.InitBtrFSMock(),
 		Systemd:       sd,
 		Rolodex:       rolMgr,
-		RolodexClient: &rolodex.MockClient{},
+		RolodexClient: rolClient,
 		SettingsMgr:   settings,
 	})
 	t.Cleanup(func() { ts.Server.Close() })
@@ -77,39 +75,30 @@ func initLocalForwardersTest(t *testing.T) localForwardersEnv {
 		t.Fatalf("could not create client: %v", err)
 	}
 
-	return localForwardersEnv{client: c, systemd: sd, rolodex: rolMgr, dataDir: dataDir}
+	return localForwardersEnv{client: c, systemd: sd, rolodex: rolMgr, rolCli: rolClient}
 }
 
-// TestIntegrationSetDNSLocalForwardersRewritesConfigAndRestartsRolodex drives
+// TestIntegrationSetDNSLocalForwardersProgramsRolodexWithoutRestarting drives
 // the real settings endpoint and asserts the operator-visible contract:
-// switching to the local resolvers must (a) replace the forwarder list in
-// rolodex.yml on disk and (b) restart rolodex, so a household stuck behind a
-// network that blocks external DNS is resolving again NOW rather than after a
-// reboot they have no reason to think would help.
-//
-// The on-disk assertion is the load-bearing one. WriteConfig used to skip any
-// rolodex.yml newer than the systemcontroller binary, and the file written at
-// the previous boot always is — so a handler on that path returned 200 and
-// changed nothing. Both entry points reconcile now, and this is what holds
-// them to it.
-func TestIntegrationSetDNSLocalForwardersRewritesConfigAndRestartsRolodex(t *testing.T) {
+// switching to the local resolvers must replace the forwarder list on the
+// RUNNING rolodex — so a household stuck behind a network that blocks external
+// DNS is resolving again NOW rather than after a reboot they have no reason to
+// think would help — and must not restart it to do so.
+func TestIntegrationSetDNSLocalForwardersProgramsRolodexWithoutRestarting(t *testing.T) {
 	t.Parallel()
 
 	env := initLocalForwardersTest(t)
-	c, sd, rolMgr, dataDir := env.client, env.systemd, env.rolodex, env.dataDir
+	c, sd, rolMgr, rolCli := env.client, env.systemd, env.rolodex, env.rolCli
 	ctx := context.Background()
-
-	assertRolodexForwarder(t, dataDir, rolodex.DefaultForwarders[0])
 
 	if err := c.SetSetting(ctx, "dns_local_forwarders", "true"); err != nil {
 		t.Fatalf("SetSetting: %v", err)
 	}
 
-	assertRolodexForwarder(t, dataDir, "192.168.77.1:53")
-	assertRolodexLacksForwarder(t, dataDir, rolodex.DefaultForwarders[0])
+	assertProgrammedForwarders(t, rolCli, []string{"192.168.77.1:53"})
 
-	if !rolodexRestartRequested(sd, rolMgr.UnitName()) {
-		t.Fatalf("rolodex was not restarted; systemd calls: %+v", sd.Calls)
+	if rolodexRestartRequested(sd, rolMgr.UnitName()) {
+		t.Fatalf("rolodex was restarted to apply a runtime setting; systemd calls: %+v", sd.Calls)
 	}
 
 	// And back again — an operator who has left that network must be able to
@@ -117,8 +106,7 @@ func TestIntegrationSetDNSLocalForwardersRewritesConfigAndRestartsRolodex(t *tes
 	if err := c.SetSetting(ctx, "dns_local_forwarders", "false"); err != nil {
 		t.Fatalf("SetSetting back to false: %v", err)
 	}
-	assertRolodexForwarder(t, dataDir, rolodex.DefaultForwarders[0])
-	assertRolodexLacksForwarder(t, dataDir, "192.168.77.1:53")
+	assertProgrammedForwarders(t, rolCli, rolodex.DefaultForwarders)
 }
 
 // The mode decides whether the local tier is consulted; the forwarder list only
@@ -129,14 +117,16 @@ func TestIntegrationSetDNSLocalForwardersLeavesTheResolutionModeAlone(t *testing
 	t.Parallel()
 
 	env := initLocalForwardersTest(t)
-	c, dataDir := env.client, env.dataDir
+	c, rolCli := env.client, env.rolCli
 	ctx := context.Background()
 
 	if err := c.SetSetting(ctx, "dns_local_forwarders", "true"); err != nil {
 		t.Fatalf("SetSetting: %v", err)
 	}
 
-	assertRolodexMode(t, dataDir, rolodex.ResolutionModeAuto)
+	if rolCli.Called("SetResolutionMode") {
+		t.Fatal("enabling local forwarders changed the resolution mode")
+	}
 }
 
 // A value that will not parse is read as off everywhere it is consumed, so
@@ -145,19 +135,21 @@ func TestIntegrationSetDNSLocalForwardersRejectsGarbage(t *testing.T) {
 	t.Parallel()
 
 	env := initLocalForwardersTest(t)
-	c, dataDir := env.client, env.dataDir
+	c, rolCli := env.client, env.rolCli
 	ctx := context.Background()
 
 	if err := c.SetSetting(ctx, "dns_local_forwarders", "sometimes"); err == nil {
 		t.Fatal("expected an unparseable local-forwarders value to be rejected")
 	}
 
-	// The config on disk must be untouched — no half-applied change.
-	assertRolodexForwarder(t, dataDir, rolodex.DefaultForwarders[0])
+	// No half-applied change: nothing was pushed to the running server.
+	if rolCli.Called("SetForwarders") {
+		t.Fatal("an unparseable value still reached rolodex")
+	}
 }
 
-// GET /dns/status is what the settings screen renders, and it must report what
-// rolodex.yml actually holds rather than echoing the setting back: the two
+// GET /dns/status is what the settings screen renders, and it must report the
+// list that is actually programmed rather than echoing the setting back: the two
 // disagree whenever discovery found nothing usable, which is the one case where
 // the switch reads as on and nothing changed.
 func TestIntegrationDNSStatusReportsTheEffectiveForwarders(t *testing.T) {
@@ -193,30 +185,10 @@ func TestIntegrationDNSStatusReportsTheEffectiveForwarders(t *testing.T) {
 	}
 }
 
-func assertRolodexForwarder(t *testing.T, dataDir, want string) {
+func assertProgrammedForwarders(t *testing.T, client *rolodex.MockClient, want []string) {
 	t.Helper()
 
-	config := readRolodexYAML(t, dataDir)
-	if !strings.Contains(config, `- "`+want+`"`) {
-		t.Fatalf("rolodex.yml does not forward to %q:\n%s", want, config)
+	if got := strings.Join(client.Forwarders, ","); got != strings.Join(want, ",") {
+		t.Fatalf("rolodex is holding forwarders %v, want %v", client.Forwarders, want)
 	}
-}
-
-func assertRolodexLacksForwarder(t *testing.T, dataDir, unwanted string) {
-	t.Helper()
-
-	config := readRolodexYAML(t, dataDir)
-	if strings.Contains(config, `- "`+unwanted+`"`) {
-		t.Fatalf("rolodex.yml still forwards to %q:\n%s", unwanted, config)
-	}
-}
-
-func readRolodexYAML(t *testing.T, dataDir string) string {
-	t.Helper()
-
-	data, err := os.ReadFile(filepath.Join(dataDir, "rolodex.yml"))
-	if err != nil {
-		t.Fatalf("read rolodex.yml: %v", err)
-	}
-	return string(data)
 }

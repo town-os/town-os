@@ -259,6 +259,8 @@ export const ptPTOverrides = {
   'dns.loading': 'A carregar...',
   'dns.add_record_btn': 'Adicionar Registo',
   'dns.status_records': '{count} registo{s}',
+  'dns.encrypted_title': 'DNS cifrado',
+  'dns.encrypted_description': 'Aponta um dispositivo para um destes pontos de acesso para manter as suas consultas privadas na rede local. Os três são servidos por esta máquina.',
   'dns.add_dialog_title': 'Adicionar Registo DNS',
   'dns.add_dialog_description': 'Crie um novo registo DNS.',
   'dns.add_submit': 'Adicionar Registo',
@@ -269,8 +271,6 @@ export const ptPTOverrides = {
   'dns.toast_record_added': 'Registo DNS adicionado',
   'dns.toast_record_removed': 'Registo DNS removido',
   'dns.tab_records': 'Registos',
-  'dns.bl.rbl_description':
-    'Zonas de Realtime Blackhole List consultadas a pedido com um IP invertido (ex.: zen.spamhaus.org). Nada é transferido ou armazenado em cache.',
   'dns.bl.dnsbl_description':
     'Zonas de lista de bloqueio de domínio consultadas a pedido pelo nome do domínio (ex.: dbl.spamhaus.org). Têm precedência sobre as respostas upstream; nada é transferido ou armazenado em cache.',
 

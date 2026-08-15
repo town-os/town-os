@@ -39,6 +39,8 @@ func run() error {
 	caddyCfg := flag.String("caddy-config", caddysup.DefaultCaddyConfigPath, "path to the rendered Caddyfile")
 	metricsPort := flag.Int("metrics-port", ingress.DefaultMetricsPort,
 		"TCP port to serve the Prometheus endpoint on (0 disables it)")
+	adminPort := flag.Int("caddy-admin-port", ingress.DefaultAdminPort,
+		"TCP port for caddy's loopback admin API, which `caddy reload` and the metrics passthrough use (2019 in production, where the ingress has its own netns; ephemeral when caddy shares a namespace with another caddy)")
 	flag.Parse()
 
 	// Ensure the socket directory exists and clear a stale socket from a
@@ -58,7 +60,8 @@ func run() error {
 	}
 
 	sup := caddysup.NewSupervisor(*caddyBin, *caddyCfg)
-	srv := ingress.NewServer(sup, *port, *httpPort, *defaultBackend)
+	srv := ingress.NewServer(sup, *port, *httpPort, *defaultBackend,
+		ingress.WithCaddyAdminPort(*adminPort))
 	// Start caddy with the initial (empty) config so the supervisor is live
 	// before the first route arrives.
 	if err := srv.Bootstrap(); err != nil {

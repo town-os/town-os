@@ -5,7 +5,6 @@ package integration_test
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -17,22 +16,12 @@ import (
 )
 
 // blocklistPersistEnv is everything a blocklist-persistence test needs to look
-// at: the API client, the fake rolodex behind it, the settings the controller
-// persists into, and the rolodex.yml a restarting rolodex would read.
+// at: the API client, the fake rolodex behind it, and the settings the
+// controller persists into.
 type blocklistPersistEnv struct {
 	client   *systemcontroller.SystemdClient
 	rolodex  *rolodex.MockClient
 	settings *mockSettingsManager
-	dataDir  string
-}
-
-func (e blocklistPersistEnv) configFile(t *testing.T) string {
-	t.Helper()
-	data, err := os.ReadFile(filepath.Join(e.dataDir, "rolodex.yml"))
-	if err != nil {
-		t.Fatalf("read rolodex.yml: %v", err)
-	}
-	return string(data)
 }
 
 func initBlocklistPersistTest(t *testing.T) blocklistPersistEnv {
@@ -65,47 +54,73 @@ func initBlocklistPersistTest(t *testing.T) blocklistPersistEnv {
 		t.Fatalf("could not create client: %v", err)
 	}
 
-	return blocklistPersistEnv{client: c, rolodex: rc, settings: settings, dataDir: dataDir}
+	return blocklistPersistEnv{client: c, rolodex: rc, settings: settings}
 }
 
-// Saving a blocklist must persist it and render it into rolodex.yml, not just
-// push it into rolodex's memory. Rolodex keeps the provider lists in memory
-// only — it seeds them from this file and persists nothing a gRPC call
-// changes — so before this, every toggle an operator turned on turned itself
-// back off at the next rolodex restart.
-func TestDNSBlocklistConfigIsPersistedAndRendered(t *testing.T) {
+// Saving a blocklist must persist it to SETTINGS, not just push it into
+// rolodex's memory. Rolodex holds the provider lists in memory only and
+// persists nothing a gRPC call changes, so the stored copy is the entire reason
+// a toggle an operator turned on is still on after the next rolodex restart —
+// ReconcileBlocklists (the test below) has nothing to restore from without it.
+//
+// This used to assert the same config rendered into rolodex.yml as well. Town OS
+// no longer writes that file at all — it belongs to the install image, which
+// renders only what cannot be programmed at runtime — so the rendering half was
+// asserting behaviour that has been deliberately removed. What replaces it is
+// the push itself: the config the operator saved is what the running server is
+// holding when the call returns.
+func TestDNSBlocklistConfigIsPersistedAndProgrammed(t *testing.T) {
 	t.Parallel()
 	env := initBlocklistPersistTest(t)
 	ctx := context.Background()
 
-	if err := env.client.SetDnsblConfig(ctx, true, []systemcontroller.RblProviderDTO{
+	if err := env.client.SetDnsblConfig(ctx, true, []systemcontroller.BlocklistProviderDTO{
 		{Zone: "dbl.spamhaus.org", Enabled: true},
 		{Zone: "multi.surbl.org", Enabled: false},
 	}, 900); err != nil {
 		t.Fatalf("SetDnsblConfig: %v", err)
 	}
-	if err := env.client.SetRblConfig(ctx, true, []systemcontroller.RblProviderDTO{
-		{Zone: "zen.spamhaus.org", Enabled: true},
-	}, 0); err != nil {
-		t.Fatalf("SetRblConfig: %v", err)
+
+	// Persisted: what a restart is repaired from.
+	stored := env.settings.values["dns_dnsbl_config"]
+	for _, want := range []string{"dbl.spamhaus.org", "multi.surbl.org", "900"} {
+		if !strings.Contains(stored, want) {
+			t.Fatalf("DNSBL config not persisted to settings (missing %q): %q", want, stored)
+		}
 	}
 
-	if v := env.settings.values["dns_dnsbl_config"]; !strings.Contains(v, "dbl.spamhaus.org") {
-		t.Fatalf("DNSBL config not persisted to settings: %q", v)
+	// Programmed: what the box is filtering on right now.
+	got, err := env.client.GetDnsblConfig(ctx)
+	if err != nil {
+		t.Fatalf("GetDnsblConfig: %v", err)
 	}
-	if v := env.settings.values["dns_rbl_config"]; !strings.Contains(v, "zen.spamhaus.org") {
-		t.Fatalf("RBL config not persisted to settings: %q", v)
+	if !got.Enabled {
+		t.Errorf("DNSBL reads back disabled: %+v", got)
 	}
-
-	cfg := env.configFile(t)
-	for _, want := range []string{
-		"dnsbl:\n  enabled: true\n  refusal_cooldown_secs: 900\n",
-		"    - zone: \"dbl.spamhaus.org\"\n      enabled: true\n",
-		"    - zone: \"multi.surbl.org\"\n      enabled: false\n",
-		"rbl:\n  enabled: true\n  providers:\n    - zone: \"zen.spamhaus.org\"\n      enabled: true\n",
-	} {
-		if !strings.Contains(cfg, want) {
-			t.Fatalf("rolodex.yml missing %q:\n%s", want, cfg)
+	if got.RefusalCooldownSecs != 900 {
+		t.Errorf("refusal cooldown = %d, want 900", got.RefusalCooldownSecs)
+	}
+	if len(got.Providers) != 2 {
+		t.Fatalf("providers = %d, want the two that were saved: %+v", len(got.Providers), got.Providers)
+	}
+	// The disabled one is programmed too, and programmed as disabled: a provider
+	// dropped on the way out would come back on at the next reconcile.
+	for _, want := range []struct {
+		zone    string
+		enabled bool
+	}{{"dbl.spamhaus.org", true}, {"multi.surbl.org", false}} {
+		var found bool
+		for _, p := range got.Providers {
+			if p.Zone != want.zone {
+				continue
+			}
+			found = true
+			if p.Enabled != want.enabled {
+				t.Errorf("provider %s enabled = %v, want %v", want.zone, p.Enabled, want.enabled)
+			}
+		}
+		if !found {
+			t.Errorf("provider %s was not programmed: %+v", want.zone, got.Providers)
 		}
 	}
 }
@@ -117,22 +132,16 @@ func TestDNSBlocklistRestoredAfterRolodexLosesConfig(t *testing.T) {
 	env := initBlocklistPersistTest(t)
 	ctx := context.Background()
 
-	if err := env.client.SetDnsblConfig(ctx, true, []systemcontroller.RblProviderDTO{
+	if err := env.client.SetDnsblConfig(ctx, true, []systemcontroller.BlocklistProviderDTO{
 		{Zone: "dbl.spamhaus.org", Enabled: true},
 	}, 0); err != nil {
 		t.Fatalf("SetDnsblConfig: %v", err)
 	}
-	if err := env.client.SetRblConfig(ctx, true, []systemcontroller.RblProviderDTO{
-		{Zone: "zen.spamhaus.org", Enabled: true},
-	}, 0); err != nil {
-		t.Fatalf("SetRblConfig: %v", err)
-	}
-
 	// Rolodex restarts: the in-memory lists are gone.
 	if err := env.rolodex.SetDnsblConfig(ctx, false, nil, 0); err != nil {
 		t.Fatalf("wipe DNSBL: %v", err)
 	}
-	if err := env.rolodex.SetRblConfig(ctx, false, nil, 0); err != nil {
+	if err := env.rolodex.SetDnsblConfig(ctx, false, nil, 0); err != nil {
 		t.Fatalf("wipe RBL: %v", err)
 	}
 	if got, err := env.client.GetDnsblConfig(ctx); err != nil {
@@ -152,14 +161,6 @@ func TestDNSBlocklistRestoredAfterRolodexLosesConfig(t *testing.T) {
 	if !dnsbl.Enabled || len(dnsbl.Providers) != 1 || dnsbl.Providers[0].Zone != "dbl.spamhaus.org" {
 		t.Fatalf("DNSBL not restored: %+v", dnsbl)
 	}
-
-	rbl, err := env.client.GetRblConfig(ctx)
-	if err != nil {
-		t.Fatalf("GetRblConfig: %v", err)
-	}
-	if !rbl.Enabled || len(rbl.Providers) != 1 || rbl.Providers[0].Zone != "zen.spamhaus.org" {
-		t.Fatalf("RBL not restored: %+v", rbl)
-	}
 }
 
 // Turning a blocklist off is just as much an instruction as turning it on: the
@@ -169,29 +170,18 @@ func TestDNSBlocklistDisabledStateSurvivesReconcile(t *testing.T) {
 	env := initBlocklistPersistTest(t)
 	ctx := context.Background()
 
-	if err := env.client.SetRblConfig(ctx, true, []systemcontroller.RblProviderDTO{
-		{Zone: "zen.spamhaus.org", Enabled: true},
+	if err := env.client.SetDnsblConfig(ctx, true, []systemcontroller.BlocklistProviderDTO{
+		{Zone: "dbl.spamhaus.org", Enabled: true},
 	}, 0); err != nil {
-		t.Fatalf("SetRblConfig (on): %v", err)
+		t.Fatalf("SetDnsblConfig (on): %v", err)
 	}
-	if err := env.client.SetRblConfig(ctx, false, []systemcontroller.RblProviderDTO{
-		{Zone: "zen.spamhaus.org", Enabled: true},
+	if err := env.client.SetDnsblConfig(ctx, false, []systemcontroller.BlocklistProviderDTO{
+		{Zone: "dbl.spamhaus.org", Enabled: true},
 	}, 0); err != nil {
-		t.Fatalf("SetRblConfig (off): %v", err)
+		t.Fatalf("SetDnsblConfig (off): %v", err)
 	}
 
 	if err := systemcontroller.ReconcileBlocklists(ctx, env.rolodex, env.settings); err != nil {
 		t.Fatalf("ReconcileBlocklists: %v", err)
-	}
-
-	rbl, err := env.client.GetRblConfig(ctx)
-	if err != nil {
-		t.Fatalf("GetRblConfig: %v", err)
-	}
-	if rbl.Enabled {
-		t.Fatal("a blocklist the operator turned off must stay off")
-	}
-	if cfg := env.configFile(t); !strings.Contains(cfg, "rbl:\n  enabled: false\n") {
-		t.Fatalf("rolodex.yml must render the disabled state:\n%s", cfg)
 	}
 }

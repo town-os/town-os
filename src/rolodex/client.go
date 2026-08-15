@@ -17,7 +17,19 @@ type Client interface {
 	ListAuthoritativeZones(ctx context.Context) ([]string, error)
 	FlushDnsCache(ctx context.Context) error
 
-	// RBL (Realtime Blackhole List, reverse-IP) provider configuration.
+	// Upstream resolution settings, programmed on the running server rather
+	// than written into rolodex.yml. Changing one this way costs no restart,
+	// and a restart of the box's only resolver is a DNS outage for everything
+	// on it. rolodex holds both in memory only — it seeds them from its config
+	// file at startup and persists nothing set over gRPC — which is why Town
+	// OS re-pushes them after every rolodex start rather than setting them
+	// once. See Manager.Program.
+	SetForwarders(ctx context.Context, forwarders []string) error
+	SetResolutionMode(ctx context.Context, mode string) error
+	// GetResolutionMode reports the mode in effect on the running server, not
+	// the one its config file names.
+	GetResolutionMode(ctx context.Context) (string, error)
+
 	//
 	// refusalCooldownSecs is how long a provider that answers with a refusal
 	// code — "you queried via a public resolver", "you are over your query
@@ -25,23 +37,20 @@ type Client interface {
 	// value of their own; 0 uses rolodex's built-in default. A refusal is not a
 	// listing, and believing one NXDOMAINs every name checked against that
 	// provider, so the provider is backed off rather than believed.
-	SetRblConfig(ctx context.Context, enabled bool, providers []*upstream.RblConfig, refusalCooldownSecs uint32) error
-	GetRblConfig(ctx context.Context) (*upstream.RblStatus, error)
 
 	// DNSBL (domain blocklist, forward-name) provider configuration. The
-	// refusal cooldown is independent of the RBL one.
 	SetDnsblConfig(ctx context.Context, enabled bool, providers []*upstream.DnsblConfig, refusalCooldownSecs uint32) error
 	GetDnsblConfig(ctx context.Context) (*upstream.DnsblStatus, error)
 
-	// Local RBL blocklist entries (DB-backed names/IPs, checked before
+	// Local blocklist entries (DB-backed names/IPs, checked before
 	// external providers; a name entry blocks forward domain lookups).
-	AddLocalRblEntry(ctx context.Context, entry *upstream.LocalRblEntry) error
-	RemoveLocalRblEntry(ctx context.Context, name string) error
-	ListLocalRblEntries(ctx context.Context) ([]*upstream.LocalRblEntry, error)
+	AddLocalBlocklistEntry(ctx context.Context, entry *upstream.LocalBlocklistEntry) error
+	RemoveLocalBlocklistEntry(ctx context.Context, name string) error
+	ListLocalBlocklistEntries(ctx context.Context) ([]*upstream.LocalBlocklistEntry, error)
 
 	// DNSBL allowlist entries exempt a name — and every name beneath it —
 	// from the name-based blocklist step entirely, overriding both the
-	// configured DNSBL providers and any matching local RBL entry. This is
+	// configured DNSBL providers and any matching local blocklist entry. This is
 	// the operator's escape hatch from a third-party feed's false positive:
 	// without it the only remedy is to disable the whole provider.
 	AddDnsblAllowlistEntry(ctx context.Context, entry *upstream.DnsblAllowlistEntry) error
@@ -124,12 +133,16 @@ func (c *client) FlushDnsCache(ctx context.Context) error {
 	return c.c.FlushDnsCache(ctx)
 }
 
-func (c *client) SetRblConfig(ctx context.Context, enabled bool, providers []*upstream.RblConfig, refusalCooldownSecs uint32) error {
-	return c.c.SetRblConfigWithRefusalCooldown(ctx, enabled, providers, refusalCooldownSecs)
+func (c *client) SetForwarders(ctx context.Context, forwarders []string) error {
+	return c.c.SetForwarders(ctx, forwarders)
 }
 
-func (c *client) GetRblConfig(ctx context.Context) (*upstream.RblStatus, error) {
-	return c.c.GetRblConfig(ctx)
+func (c *client) SetResolutionMode(ctx context.Context, mode string) error {
+	return c.c.SetResolutionMode(ctx, mode)
+}
+
+func (c *client) GetResolutionMode(ctx context.Context) (string, error) {
+	return c.c.GetResolutionMode(ctx)
 }
 
 func (c *client) SetDnsblConfig(ctx context.Context, enabled bool, providers []*upstream.DnsblConfig, refusalCooldownSecs uint32) error {
@@ -140,16 +153,16 @@ func (c *client) GetDnsblConfig(ctx context.Context) (*upstream.DnsblStatus, err
 	return c.c.GetDnsblConfig(ctx)
 }
 
-func (c *client) AddLocalRblEntry(ctx context.Context, entry *upstream.LocalRblEntry) error {
-	return c.c.AddLocalRblEntry(ctx, entry)
+func (c *client) AddLocalBlocklistEntry(ctx context.Context, entry *upstream.LocalBlocklistEntry) error {
+	return c.c.AddLocalBlocklistEntry(ctx, entry)
 }
 
-func (c *client) RemoveLocalRblEntry(ctx context.Context, name string) error {
-	return c.c.RemoveLocalRblEntry(ctx, name)
+func (c *client) RemoveLocalBlocklistEntry(ctx context.Context, name string) error {
+	return c.c.RemoveLocalBlocklistEntry(ctx, name)
 }
 
-func (c *client) ListLocalRblEntries(ctx context.Context) ([]*upstream.LocalRblEntry, error) {
-	return c.c.ListLocalRblEntries(ctx)
+func (c *client) ListLocalBlocklistEntries(ctx context.Context) ([]*upstream.LocalBlocklistEntry, error) {
+	return c.c.ListLocalBlocklistEntries(ctx)
 }
 
 func (c *client) AddDnsblAllowlistEntry(ctx context.Context, entry *upstream.DnsblAllowlistEntry) error {

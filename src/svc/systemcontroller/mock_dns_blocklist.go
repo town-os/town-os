@@ -2,38 +2,8 @@ package systemcontroller
 
 import "context"
 
-// GetRblConfig returns the mock RBL configuration.
-func (m *MockClient) GetRblConfig(_ context.Context) (*RblConfigResponse, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.Calls = append(m.Calls, MockCall{Method: "GetRblConfig"})
-	if m.GetRblConfigErr != nil {
-		return nil, m.GetRblConfigErr
-	}
-	if m.RblConfig != nil {
-		return m.RblConfig, nil
-	}
-	return &RblConfigResponse{}, nil
-}
-
-// SetRblConfig records the RBL configuration on the mock.
-func (m *MockClient) SetRblConfig(_ context.Context, enabled bool, providers []RblProviderDTO, refusalCooldownSecs uint32) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.Calls = append(m.Calls, MockCall{Method: "SetRblConfig", Args: []any{enabled, providers, refusalCooldownSecs}})
-	if m.SetRblConfigErr != nil {
-		return m.SetRblConfigErr
-	}
-	m.RblConfig = &RblConfigResponse{
-		Enabled:             enabled,
-		Providers:           providers,
-		RefusalCooldownSecs: refusalCooldownSecs,
-	}
-	return nil
-}
-
 // GetDnsblConfig returns the mock DNSBL configuration.
-func (m *MockClient) GetDnsblConfig(_ context.Context) (*RblConfigResponse, error) {
+func (m *MockClient) GetDnsblConfig(_ context.Context) (*BlocklistConfigResponse, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "GetDnsblConfig"})
@@ -43,18 +13,18 @@ func (m *MockClient) GetDnsblConfig(_ context.Context) (*RblConfigResponse, erro
 	if m.DnsblConfig != nil {
 		return m.DnsblConfig, nil
 	}
-	return &RblConfigResponse{}, nil
+	return &BlocklistConfigResponse{}, nil
 }
 
 // SetDnsblConfig records the DNSBL configuration on the mock.
-func (m *MockClient) SetDnsblConfig(_ context.Context, enabled bool, providers []RblProviderDTO, refusalCooldownSecs uint32) error {
+func (m *MockClient) SetDnsblConfig(_ context.Context, enabled bool, providers []BlocklistProviderDTO, refusalCooldownSecs uint32) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Method: "SetDnsblConfig", Args: []any{enabled, providers, refusalCooldownSecs}})
 	if m.SetDnsblConfigErr != nil {
 		return m.SetDnsblConfigErr
 	}
-	m.DnsblConfig = &RblConfigResponse{
+	m.DnsblConfig = &BlocklistConfigResponse{
 		Enabled:             enabled,
 		Providers:           providers,
 		RefusalCooldownSecs: refusalCooldownSecs,
@@ -62,40 +32,40 @@ func (m *MockClient) SetDnsblConfig(_ context.Context, enabled bool, providers [
 	return nil
 }
 
-// ListLocalRblEntries returns the mock local RBL entries.
-func (m *MockClient) ListLocalRblEntries(_ context.Context) ([]LocalRblEntryDTO, error) {
+// ListLocalBlocklistEntries returns the mock local blocklist entries.
+func (m *MockClient) ListLocalBlocklistEntries(_ context.Context) ([]LocalBlocklistEntryDTO, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.Calls = append(m.Calls, MockCall{Method: "ListLocalRblEntries"})
-	if m.ListLocalRblErr != nil {
-		return nil, m.ListLocalRblErr
+	m.Calls = append(m.Calls, MockCall{Method: "ListLocalBlocklistEntries"})
+	if m.ListLocalBlocklistErr != nil {
+		return nil, m.ListLocalBlocklistErr
 	}
-	return m.LocalRblEntries, nil
+	return m.LocalBlocklistEntries, nil
 }
 
-// AddLocalRblEntry adds an entry to the mock local RBL list.
-func (m *MockClient) AddLocalRblEntry(_ context.Context, name, reason string) error {
+// AddLocalBlocklistEntry adds an entry to the mock local RBL list.
+func (m *MockClient) AddLocalBlocklistEntry(_ context.Context, name, reason string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.Calls = append(m.Calls, MockCall{Method: "AddLocalRblEntry", Args: []any{name, reason}})
-	if m.AddLocalRblErr != nil {
-		return m.AddLocalRblErr
+	m.Calls = append(m.Calls, MockCall{Method: "AddLocalBlocklistEntry", Args: []any{name, reason}})
+	if m.AddLocalBlocklistErr != nil {
+		return m.AddLocalBlocklistErr
 	}
-	m.LocalRblEntries = append(m.LocalRblEntries, LocalRblEntryDTO{Name: name, Reason: reason})
+	m.LocalBlocklistEntries = append(m.LocalBlocklistEntries, LocalBlocklistEntryDTO{Name: name, Reason: reason})
 	return nil
 }
 
-// RemoveLocalRblEntry removes an entry from the mock local RBL list.
-func (m *MockClient) RemoveLocalRblEntry(_ context.Context, name string) error {
+// RemoveLocalBlocklistEntry removes an entry from the mock local RBL list.
+func (m *MockClient) RemoveLocalBlocklistEntry(_ context.Context, name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.Calls = append(m.Calls, MockCall{Method: "RemoveLocalRblEntry", Args: []any{name}})
-	if m.RemoveLocalRblErr != nil {
-		return m.RemoveLocalRblErr
+	m.Calls = append(m.Calls, MockCall{Method: "RemoveLocalBlocklistEntry", Args: []any{name}})
+	if m.RemoveLocalBlocklistErr != nil {
+		return m.RemoveLocalBlocklistErr
 	}
-	for i, e := range m.LocalRblEntries {
+	for i, e := range m.LocalBlocklistEntries {
 		if e.Name == name {
-			m.LocalRblEntries = append(m.LocalRblEntries[:i], m.LocalRblEntries[i+1:]...)
+			m.LocalBlocklistEntries = append(m.LocalBlocklistEntries[:i], m.LocalBlocklistEntries[i+1:]...)
 			break
 		}
 	}

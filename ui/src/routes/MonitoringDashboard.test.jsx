@@ -192,6 +192,76 @@ describe('MonitoringDashboard', () => {
     }
   })
 
+  // The dashboard's job here is to make a failure visible that is invisible
+  // everywhere else: with every unit active and every panel drawing an empty
+  // chart, a job Prometheus cannot scrape looks exactly like a service with
+  // nothing to report.
+  it('names the jobs Prometheus cannot scrape, and why', async () => {
+    mockMonitoringStatus.mockResolvedValue({
+      backend: 'uplot',
+      prometheus: true,
+      node_exporter: true,
+      down_jobs: ['rolodex'],
+      scrape_targets: [
+        { job: 'systemcontroller', instance: '127.0.0.1:5309', health: 'up' },
+        {
+          job: 'rolodex',
+          instance: '127.0.0.2:9153',
+          health: 'down',
+          last_error: 'connect: connection refused',
+        },
+      ],
+    })
+
+    renderAt()
+
+    await waitFor(() => {
+      expect(screen.getByText(/Prometheus cannot scrape rolodex/)).toBeTruthy()
+    })
+    // The reason, not just the fact: "down" with no message leaves the
+    // operator opening Prometheus by hand, which is the status quo this
+    // banner replaces.
+    expect(screen.getByText(/connect: connection refused/)).toBeTruthy()
+    // A healthy job must not be named as broken.
+    expect(screen.queryByText(/cannot scrape systemcontroller/)).toBeNull()
+  })
+
+  // A dashboard with no down jobs must stay quiet, or the banner becomes
+  // furniture and stops meaning anything.
+  it('says nothing about scraping when every job is up', async () => {
+    mockMonitoringStatus.mockResolvedValue({
+      backend: 'uplot',
+      prometheus: true,
+      node_exporter: true,
+      scrape_targets: [{ job: 'systemcontroller', instance: '127.0.0.1:5309', health: 'up' }],
+    })
+
+    renderAt()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('uplot-charts')).toBeTruthy()
+    })
+    expect(screen.queryByText(/Prometheus cannot scrape/)).toBeNull()
+  })
+
+  // "We could not ask" is a different answer from "nothing is wrong", and the
+  // two rendering the same is the exact conflation this endpoint exists to end.
+  it('distinguishes an unreachable Prometheus from a healthy one', async () => {
+    mockMonitoringStatus.mockResolvedValue({
+      backend: 'uplot',
+      prometheus: true,
+      node_exporter: true,
+      scrape_targets_error: 'connection refused',
+    })
+
+    renderAt()
+
+    await waitFor(() => {
+      expect(screen.getByText(/Could not read Prometheus's target list/)).toBeTruthy()
+    })
+    expect(screen.queryByText(/Prometheus cannot scrape/)).toBeNull()
+  })
+
   // An unknown tab value is a typo or a stale link, not a reason to render
   // an empty page.
   it('falls back to the system tab for an unknown ?tab= value', async () => {

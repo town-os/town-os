@@ -64,6 +64,19 @@ export default function MonitoringDashboard() {
     ? coreRunning && grafanaRunning
     : coreRunning
 
+  // A failing scrape job is invisible from everywhere else on the box: every
+  // unit is active, `systemctl --failed` is empty, and the panels that job
+  // feeds draw an EMPTY chart rather than an error — which is what an idle
+  // service looks like too. Prometheus's own target list is the only place the
+  // difference exists, so it gets said out loud here, with the reason
+  // Prometheus gave, rather than leaving the operator to guess from a flat
+  // line. Both metrics bugs this box has shipped were exactly this shape.
+  const downJobs = status?.down_jobs || []
+  const downTargets = (status?.scrape_targets || []).filter((t) => t.health === 'down')
+  // "Could not ask" is a different answer from "nothing is wrong", and
+  // collapsing the two is the bug the target list exists to end.
+  const targetsError = status?.scrape_targets_error
+
   // Port 5308 is exposed directly by the network controller — no proxy.
   const monitoringBase = getBaseURLForPort(5308)
   const tab = TABS.find((t) => t.value === activeTab) || TABS[0]
@@ -128,6 +141,39 @@ export default function MonitoringDashboard() {
             <AlertCircle className="h-4 w-4 text-yellow-600" />
             <span className="text-sm text-yellow-700">
               Some monitoring services are not running. Dashboards may be unavailable.
+            </span>
+          </CardContent>
+        </Card>
+      )}
+
+      {downJobs.length > 0 && (
+        <Card className="border-red-500/50 bg-red-50/50">
+          <CardContent className="py-3">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 text-red-600" />
+              <span className="text-sm text-red-700">
+                Prometheus cannot scrape {downJobs.join(', ')}. Charts fed by
+                {downJobs.length === 1 ? ' that job' : ' those jobs'} will be empty, not wrong.
+              </span>
+            </div>
+            <ul className="mt-2 space-y-1 pl-6 text-xs text-red-700/90">
+              {downTargets.map((t) => (
+                <li key={`${t.job}-${t.instance}`}>
+                  <span className="font-medium">{t.job}</span>
+                  {t.instance ? ` (${t.instance})` : ''}: {t.last_error || 'no reason reported'}
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
+
+      {targetsError && (
+        <Card className="border-yellow-500/50 bg-yellow-50/50">
+          <CardContent className="flex items-center gap-2 py-3">
+            <AlertCircle className="h-4 w-4 text-yellow-600" />
+            <span className="text-sm text-yellow-700">
+              Could not read Prometheus&apos;s target list: {targetsError}. Scrape failures cannot be reported until it answers.
             </span>
           </CardContent>
         </Card>

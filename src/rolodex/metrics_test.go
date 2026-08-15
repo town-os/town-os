@@ -1,126 +1,61 @@
+// IRON RULE: make test-full must always be able to run simultaneously in the
+// same repository without conflicting. Nothing else matters more than this.
+
 package rolodex
 
 import (
-	"os"
-	"path/filepath"
-	"strings"
+	"net"
 	"testing"
-
-	"gitea.com/town-os/town-os/src/systemd"
 )
 
-// TestRolodexConfigWritesMetricsSection pins the one fact Prometheus ingestion
-// depends on: rolodex's metrics endpoint is opt-in upstream and absent by
-// default, so if this section stops being written the listener simply never
-// starts and the scrape job goes permanently down.
-func TestRolodexConfigWritesMetricsSection(t *testing.T) {
+// TestManagerMetricsAddrDefaults pins the address Prometheus is pointed at.
+//
+// This is the one setting with two independent writers that can never ask each
+// other what they chose: the install image writes `metrics.bind` into
+// rolodex.yml (the listener is opened once at startup from that section, so
+// there is no runtime call that can move it), and Town OS writes the scrape
+// target from MetricsAddr. If this default ever changes on one side only, the
+// scrape target points at a closed port and every DNS panel draws an empty
+// chart rather than an error — which is exactly how it shipped once already.
+func TestManagerMetricsAddrDefaults(t *testing.T) {
 	t.Parallel()
-	cfg := rolodexConfig(rolodexConfigParams{Port: DefaultDNSPort, Forwarders: DefaultForwarders, Mode: DefaultResolutionMode, MetricsPort: DefaultMetricsPort})
-	want := "metrics:\n  bind: \"" + DNSLoopback + ":" + DefaultMetricsPort + "\"\n"
-	if !strings.Contains(cfg, want) {
-		t.Fatalf("expected metrics section %q, got:\n%s", want, cfg)
+
+	m := NewManager(Config{})
+	want := net.JoinHostPort(DNSLoopback, DefaultMetricsPort)
+	if got := m.MetricsAddr(); got != want {
+		t.Errorf("MetricsAddr() = %q, want %q", got, want)
+	}
+	if want != "127.0.0.2:9153" {
+		t.Errorf("the default metrics address moved to %q; scripts/rolodex-config.sh in ../install hardcodes 127.0.0.2:9153 and must move with it", want)
 	}
 }
 
-// TestRolodexConfigMetricsPortOverride covers the harness path: the metrics
-// listener lands in the host namespace like every other rolodex bind, so a
-// concurrent test run must be able to relocate it — IRON RULE.
-func TestRolodexConfigMetricsPortOverride(t *testing.T) {
+// TestManagerMetricsPortOverride covers the harness case: the rolodex container
+// runs --net host, so a test box and a `make dev` box on the same machine would
+// otherwise fight over 9153 and one would crash-loop under Restart=always.
+func TestManagerMetricsPortOverride(t *testing.T) {
 	t.Parallel()
-	cfg := rolodexConfig(rolodexConfigParams{Port: DefaultDNSPort, Forwarders: DefaultForwarders, Mode: DefaultResolutionMode, MetricsPort: "39153"})
-	if !strings.Contains(cfg, "\n  bind: \""+DNSLoopback+":39153\"\n") {
-		t.Fatalf("expected overridden metrics port, got:\n%s", cfg)
-	}
-	if strings.Contains(cfg, ":"+DefaultMetricsPort) {
-		t.Fatalf("config still references the default metrics port %s:\n%s", DefaultMetricsPort, cfg)
-	}
-}
 
-// TestRolodexConfigEmptyMetricsPortDefaults asserts the empty string means "use
-// the default", the same convention every other port field here follows.
-func TestRolodexConfigEmptyMetricsPortDefaults(t *testing.T) {
-	t.Parallel()
-	cfg := rolodexConfig(rolodexConfigParams{Port: DefaultDNSPort, Forwarders: DefaultForwarders, Mode: DefaultResolutionMode, MetricsPort: ""})
-	if !strings.Contains(cfg, "\n  bind: \""+DNSLoopback+":"+DefaultMetricsPort+"\"\n") {
-		t.Fatalf("expected default metrics port when unset, got:\n%s", cfg)
-	}
-}
-
-// TestManagerMetricsAddrMatchesRenderedBind is the anti-drift test. MetricsAddr
-// is what the Prometheus scrape target is built from and rolodex.yml is what the
-// listener is built from; if the two ever disagree the target is aimed at
-// nothing and rolodex reads as down while it is in fact perfectly healthy.
-func TestManagerMetricsAddrMatchesRenderedBind(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	mgr := NewManager(Config{
-		Systemd:        systemd.InitMockManager(),
-		DataDir:        dir,
-		Image:          "quay.io/town/rolodex:latest",
-		UnixSocketPath: filepath.Join(dir, DefaultGRPCSocket),
-		MetricsPort:    "41234",
-	})
-
-	if got, want := mgr.MetricsPort(), "41234"; got != want {
+	m := NewManager(Config{MetricsPort: "39153"})
+	if got, want := m.MetricsPort(), "39153"; got != want {
 		t.Errorf("MetricsPort() = %q, want %q", got, want)
 	}
-	addr := mgr.MetricsAddr()
-	if want := DNSLoopback + ":41234"; addr != want {
-		t.Errorf("MetricsAddr() = %q, want %q", addr, want)
-	}
-
-	if _, err := mgr.WriteConfig(); err != nil {
-		t.Fatalf("WriteConfig: %v", err)
-	}
-	raw, err := os.ReadFile(filepath.Join(dir, "rolodex.yml"))
-	if err != nil {
-		t.Fatalf("read rolodex.yml: %v", err)
-	}
-	if !strings.Contains(string(raw), "bind: \""+addr+"\"") {
-		t.Fatalf("rolodex.yml does not bind MetricsAddr() %q:\n%s", addr, raw)
-	}
-}
-
-// TestManagerMetricsPortDefaults covers a manager that names no port, which is
-// what a production boot with no environment override produces.
-func TestManagerMetricsPortDefaults(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	mgr := NewManager(Config{
-		Systemd:        systemd.InitMockManager(),
-		DataDir:        dir,
-		Image:          "quay.io/town/rolodex:latest",
-		UnixSocketPath: filepath.Join(dir, DefaultGRPCSocket),
-	})
-	if got, want := mgr.MetricsPort(), DefaultMetricsPort; got != want {
-		t.Errorf("MetricsPort() = %q, want %q", got, want)
-	}
-	if got, want := mgr.MetricsAddr(), DNSLoopback+":"+DefaultMetricsPort; got != want {
+	if got, want := m.MetricsAddr(), net.JoinHostPort(DNSLoopback, "39153"); got != want {
 		t.Errorf("MetricsAddr() = %q, want %q", got, want)
 	}
 }
 
-// TestRewriteConfigCarriesMetricsSection guards the runtime path. RewriteConfig
-// is what a resolution-mode change goes through, and it renders the whole file:
-// a metrics section written at boot but dropped on rewrite would silently
-// disable the endpoint the first time an operator changed an unrelated setting.
-func TestRewriteConfigCarriesMetricsSection(t *testing.T) {
+// TestManagerMetricsPortDefaults asserts an unset port falls back rather than
+// rendering an address with an empty port, which would be a scrape target that
+// can never connect.
+func TestManagerMetricsPortDefaults(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-	mgr := NewManager(Config{
-		Systemd:        systemd.InitMockManager(),
-		DataDir:        dir,
-		Image:          "quay.io/town/rolodex:latest",
-		UnixSocketPath: filepath.Join(dir, DefaultGRPCSocket),
-	})
-	if _, err := mgr.RewriteConfig(); err != nil {
-		t.Fatalf("RewriteConfig: %v", err)
+
+	m := NewManager(Config{})
+	if got, want := m.MetricsPort(), DefaultMetricsPort; got != want {
+		t.Errorf("MetricsPort() = %q, want %q", got, want)
 	}
-	raw, err := os.ReadFile(filepath.Join(dir, "rolodex.yml"))
-	if err != nil {
-		t.Fatalf("read rolodex.yml: %v", err)
-	}
-	if !strings.Contains(string(raw), "metrics:\n  bind: \""+mgr.MetricsAddr()+"\"") {
-		t.Fatalf("RewriteConfig dropped the metrics section:\n%s", raw)
+	if _, port, err := net.SplitHostPort(m.MetricsAddr()); err != nil || port == "" {
+		t.Errorf("MetricsAddr() = %q, which does not split into host and port (%v)", m.MetricsAddr(), err)
 	}
 }

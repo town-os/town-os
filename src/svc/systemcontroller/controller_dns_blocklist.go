@@ -10,8 +10,8 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
-// RblProviderDTO is the JSON shape of a single RBL/DNSBL provider.
-type RblProviderDTO struct {
+// BlocklistProviderDTO is the JSON shape of a single blocklist provider.
+type BlocklistProviderDTO struct {
 	Zone    string `json:"zone"`
 	Enabled bool   `json:"enabled"`
 	// RefusalCodes are the answers this provider gives to mean "I refused your
@@ -35,37 +35,39 @@ type RotatedProviderDTO struct {
 	SecondsRemaining uint32 `json:"seconds_remaining"`
 }
 
-// RblConfigRequest is the request body for POST /dns/rbl and POST /dns/dnsbl.
-type RblConfigRequest struct {
-	Enabled   bool             `json:"enabled"`
-	Providers []RblProviderDTO `json:"providers"`
+// BlocklistConfigRequest is the request body for POST /dns/dnsbl.
+type BlocklistConfigRequest struct {
+	Enabled   bool                   `json:"enabled"`
+	Providers []BlocklistProviderDTO `json:"providers"`
 	// RefusalCooldownSecs is the default rotate-out duration for providers that
 	// set none of their own. 0 uses rolodex's built-in default (3600).
 	RefusalCooldownSecs uint32 `json:"refusal_cooldown_secs,omitempty"`
 }
 
-// RblConfigResponse is the response for GET /dns/rbl and GET /dns/dnsbl.
-type RblConfigResponse struct {
-	Enabled             bool                 `json:"enabled"`
-	Providers           []RblProviderDTO     `json:"providers"`
-	RefusalCooldownSecs uint32               `json:"refusal_cooldown_secs,omitempty"`
-	RotatedOut          []RotatedProviderDTO `json:"rotated_out,omitempty"`
+// BlocklistConfigResponse is the response for GET /dns/dnsbl.
+type BlocklistConfigResponse struct {
+	Enabled             bool                   `json:"enabled"`
+	Providers           []BlocklistProviderDTO `json:"providers"`
+	RefusalCooldownSecs uint32                 `json:"refusal_cooldown_secs,omitempty"`
+	RotatedOut          []RotatedProviderDTO   `json:"rotated_out,omitempty"`
 }
 
-// LocalRblEntryDTO is the JSON shape of a single local RBL blocklist entry.
-type LocalRblEntryDTO struct {
+// LocalBlocklistEntryDTO is the JSON shape of a single local blocklist entry.
+type LocalBlocklistEntryDTO struct {
 	Name   string `json:"name"`
 	Reason string `json:"reason"`
 }
 
-// AddLocalRblEntryRequest is the request body for POST /dns/rbl/local/add.
-type AddLocalRblEntryRequest struct {
+// AddLocalBlocklistEntryRequest is the request body for POST /dns/rbl/local/add.
+// The path keeps its historical spelling: it is a published HTTP contract with
+// the UI, and renaming it would break every client that already speaks it.
+type AddLocalBlocklistEntryRequest struct {
 	Name   string `json:"name"`
 	Reason string `json:"reason"`
 }
 
-// RemoveLocalRblEntryRequest is the request body for POST /dns/rbl/local/remove.
-type RemoveLocalRblEntryRequest struct {
+// RemoveLocalBlocklistEntryRequest is the request body for POST /dns/rbl/local/remove.
+type RemoveLocalBlocklistEntryRequest struct {
 	Name string `json:"name"`
 }
 
@@ -89,29 +91,13 @@ type RemoveDnsblAllowlistEntryRequest struct {
 	Name string `json:"name"`
 }
 
-func rblProvidersToDTO(providers []*upstream.RblConfig) []RblProviderDTO {
-	out := make([]RblProviderDTO, 0, len(providers))
+func dnsblProvidersToDTO(providers []*upstream.DnsblConfig) []BlocklistProviderDTO {
+	out := make([]BlocklistProviderDTO, 0, len(providers))
 	for _, p := range providers {
 		if p == nil {
 			continue
 		}
-		out = append(out, RblProviderDTO{
-			Zone:                p.Zone,
-			Enabled:             p.Enabled,
-			RefusalCodes:        slices.Clone(p.RefusalCodes),
-			RefusalCooldownSecs: p.RefusalCooldownSecs,
-		})
-	}
-	return out
-}
-
-func dnsblProvidersToDTO(providers []*upstream.DnsblConfig) []RblProviderDTO {
-	out := make([]RblProviderDTO, 0, len(providers))
-	for _, p := range providers {
-		if p == nil {
-			continue
-		}
-		out = append(out, RblProviderDTO{
+		out = append(out, BlocklistProviderDTO{
 			Zone:                p.Zone,
 			Enabled:             p.Enabled,
 			RefusalCodes:        slices.Clone(p.RefusalCodes),
@@ -141,25 +127,25 @@ func rotatedOutToDTO(rotated []*upstream.RotatedProvider) []RotatedProviderDTO {
 // validateProviderDTOs validates and normalizes (trim + lowercase) a list of
 // provider zones and their refusal-code settings, returning the cleaned
 // providers.
-func validateProviderDTOs(providers []RblProviderDTO) ([]RblProviderDTO, error) {
-	cleaned := make([]RblProviderDTO, 0, len(providers))
+func validateProviderDTOs(providers []BlocklistProviderDTO) ([]BlocklistProviderDTO, error) {
+	cleaned := make([]BlocklistProviderDTO, 0, len(providers))
 	seen := make(map[string]struct{}, len(providers))
 	for _, p := range providers {
 		zone := strings.ToLower(strings.TrimSpace(p.Zone))
-		if err := ValidateRblZone(zone); err != nil {
+		if err := ValidateBlocklistZone(zone); err != nil {
 			return nil, err
 		}
 		if _, dup := seen[zone]; dup {
-			return nil, fmt.Errorf("duplicate RBL zone %q", zone)
+			return nil, fmt.Errorf("duplicate blocklist zone %q", zone)
 		}
 		seen[zone] = struct{}{}
 
 		codes, err := ValidateRefusalCodes(p.RefusalCodes)
 		if err != nil {
-			return nil, fmt.Errorf("RBL zone %q: %w", zone, err)
+			return nil, fmt.Errorf("blocklist zone %q: %w", zone, err)
 		}
 
-		cleaned = append(cleaned, RblProviderDTO{
+		cleaned = append(cleaned, BlocklistProviderDTO{
 			Zone:                zone,
 			Enabled:             p.Enabled,
 			RefusalCodes:        codes,
@@ -167,72 +153,6 @@ func validateProviderDTOs(providers []RblProviderDTO) ([]RblProviderDTO, error) 
 		})
 	}
 	return cleaned, nil
-}
-
-// getRblConfig handles GET /dns/rbl.
-func (s *SystemControllerHandlers) getRblConfig(c *echo.Context) error {
-	rc := s.Controller.GetRolodexClient()
-	if rc == nil {
-		return echo.NewHTTPError(503, "rolodex not available")
-	}
-	status, err := rc.GetRblConfig(c.Request().Context())
-	if err != nil {
-		return echo.NewHTTPError(500, fmt.Sprintf("get rbl config: %v", err))
-	}
-	return c.JSON(200, RblConfigResponse{
-		Enabled:             status.Enabled,
-		Providers:           rblProvidersToDTO(status.Providers),
-		RefusalCooldownSecs: status.RefusalCooldownSecs,
-		RotatedOut:          rotatedOutToDTO(status.RotatedOut),
-	})
-}
-
-// setRblConfig handles POST /dns/rbl.
-func (s *SystemControllerHandlers) setRblConfig(c *echo.Context) error {
-	rc := s.Controller.GetRolodexClient()
-	if rc == nil {
-		return echo.NewHTTPError(503, "rolodex not available")
-	}
-
-	var req RblConfigRequest
-	if err := json.NewDecoder(c.Request().Body).Decode(&req); err != nil {
-		return echo.NewHTTPError(400, fmt.Sprintf("invalid request: %v", err))
-	}
-
-	cleaned, err := validateProviderDTOs(req.Providers)
-	if err != nil {
-		return echo.NewHTTPError(400, err.Error())
-	}
-
-	providers := make([]*upstream.RblConfig, 0, len(cleaned))
-	for _, p := range cleaned {
-		providers = append(providers, &upstream.RblConfig{
-			Zone:                p.Zone,
-			Enabled:             p.Enabled,
-			RefusalCodes:        p.RefusalCodes,
-			RefusalCooldownSecs: p.RefusalCooldownSecs,
-		})
-	}
-
-	// Persist BEFORE pushing, and render the config file before the live push
-	// too. Rolodex persists none of this itself, so the stored setting is the
-	// source of truth: if the push below fails, ReconcileBlocklists converges
-	// the live server on the next pass, whereas a push that succeeded without
-	// being stored would quietly evaporate at the next rolodex restart.
-	stored := RblConfigRequest{Enabled: req.Enabled, Providers: cleaned, RefusalCooldownSecs: req.RefusalCooldownSecs}
-	if err := saveStoredBlocklist(c.Request().Context(), s.Controller.GetSettingsManager(), settingDNSRblConfig, stored); err != nil {
-		return echo.NewHTTPError(500, fmt.Sprintf("save rbl config: %v", err))
-	}
-	s.syncRolodexBlocklistConfig(c.Request().Context())
-
-	if err := rc.SetRblConfig(c.Request().Context(), req.Enabled, providers, req.RefusalCooldownSecs); err != nil {
-		return echo.NewHTTPError(500, fmt.Sprintf("set rbl config: %v", err))
-	}
-	return c.JSON(200, RblConfigResponse{
-		Enabled:             req.Enabled,
-		Providers:           cleaned,
-		RefusalCooldownSecs: req.RefusalCooldownSecs,
-	})
 }
 
 // getDnsblConfig handles GET /dns/dnsbl.
@@ -245,7 +165,7 @@ func (s *SystemControllerHandlers) getDnsblConfig(c *echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(500, fmt.Sprintf("get dnsbl config: %v", err))
 	}
-	return c.JSON(200, RblConfigResponse{
+	return c.JSON(200, BlocklistConfigResponse{
 		Enabled:             status.Enabled,
 		Providers:           dnsblProvidersToDTO(status.Providers),
 		RefusalCooldownSecs: status.RefusalCooldownSecs,
@@ -260,7 +180,7 @@ func (s *SystemControllerHandlers) setDnsblConfig(c *echo.Context) error {
 		return echo.NewHTTPError(503, "rolodex not available")
 	}
 
-	var req RblConfigRequest
+	var req BlocklistConfigRequest
 	if err := json.NewDecoder(c.Request().Body).Decode(&req); err != nil {
 		return echo.NewHTTPError(400, fmt.Sprintf("invalid request: %v", err))
 	}
@@ -280,11 +200,11 @@ func (s *SystemControllerHandlers) setDnsblConfig(c *echo.Context) error {
 		})
 	}
 
-	// Persisted first, for the same reason as the RBL twin: rolodex forgets
+	// Persisted first: rolodex forgets
 	// this on every restart, so the stored setting is what makes the toggle
 	// stay where the operator put it.
-	stored := RblConfigRequest{Enabled: req.Enabled, Providers: cleaned, RefusalCooldownSecs: req.RefusalCooldownSecs}
-	if err := saveStoredBlocklist(c.Request().Context(), s.Controller.GetSettingsManager(), settingDNSDnsblConfig, stored); err != nil {
+	stored := BlocklistConfigRequest{Enabled: req.Enabled, Providers: cleaned, RefusalCooldownSecs: req.RefusalCooldownSecs}
+	if err := saveStoredBlocklist(c.Request().Context(), s.Controller.GetSettingsManager(), stored); err != nil {
 		return echo.NewHTTPError(500, fmt.Sprintf("save dnsbl config: %v", err))
 	}
 	s.syncRolodexBlocklistConfig(c.Request().Context())
@@ -292,67 +212,67 @@ func (s *SystemControllerHandlers) setDnsblConfig(c *echo.Context) error {
 	if err := rc.SetDnsblConfig(c.Request().Context(), req.Enabled, providers, req.RefusalCooldownSecs); err != nil {
 		return echo.NewHTTPError(500, fmt.Sprintf("set dnsbl config: %v", err))
 	}
-	return c.JSON(200, RblConfigResponse{
+	return c.JSON(200, BlocklistConfigResponse{
 		Enabled:             req.Enabled,
 		Providers:           cleaned,
 		RefusalCooldownSecs: req.RefusalCooldownSecs,
 	})
 }
 
-// listLocalRblEntries handles GET /dns/rbl/local.
-func (s *SystemControllerHandlers) listLocalRblEntries(c *echo.Context) error {
+// listLocalBlocklistEntries handles GET /dns/rbl/local.
+func (s *SystemControllerHandlers) listLocalBlocklistEntries(c *echo.Context) error {
 	rc := s.Controller.GetRolodexClient()
 	if rc == nil {
 		return echo.NewHTTPError(503, "rolodex not available")
 	}
-	entries, err := rc.ListLocalRblEntries(c.Request().Context())
+	entries, err := rc.ListLocalBlocklistEntries(c.Request().Context())
 	if err != nil {
-		return echo.NewHTTPError(500, fmt.Sprintf("list local rbl entries: %v", err))
+		return echo.NewHTTPError(500, fmt.Sprintf("list local blocklist entries: %v", err))
 	}
-	out := make([]LocalRblEntryDTO, 0, len(entries))
+	out := make([]LocalBlocklistEntryDTO, 0, len(entries))
 	for _, e := range entries {
 		if e == nil {
 			continue
 		}
-		out = append(out, LocalRblEntryDTO{Name: e.Name, Reason: e.Reason})
+		out = append(out, LocalBlocklistEntryDTO{Name: e.Name, Reason: e.Reason})
 	}
 	return c.JSON(200, out)
 }
 
-// addLocalRblEntry handles POST /dns/rbl/local/add.
-func (s *SystemControllerHandlers) addLocalRblEntry(c *echo.Context) error {
+// addLocalBlocklistEntry handles POST /dns/rbl/local/add.
+func (s *SystemControllerHandlers) addLocalBlocklistEntry(c *echo.Context) error {
 	rc := s.Controller.GetRolodexClient()
 	if rc == nil {
 		return echo.NewHTTPError(503, "rolodex not available")
 	}
 
-	var req AddLocalRblEntryRequest
+	var req AddLocalBlocklistEntryRequest
 	if err := json.NewDecoder(c.Request().Body).Decode(&req); err != nil {
 		return echo.NewHTTPError(400, fmt.Sprintf("invalid request: %v", err))
 	}
 
 	name := strings.ToLower(strings.TrimSpace(req.Name))
-	if err := ValidateLocalRblName(name); err != nil {
+	if err := ValidateLocalBlocklistName(name); err != nil {
 		return echo.NewHTTPError(400, err.Error())
 	}
 
-	if err := rc.AddLocalRblEntry(c.Request().Context(), &upstream.LocalRblEntry{
+	if err := rc.AddLocalBlocklistEntry(c.Request().Context(), &upstream.LocalBlocklistEntry{
 		Name:   name,
 		Reason: strings.TrimSpace(req.Reason),
 	}); err != nil {
-		return echo.NewHTTPError(500, fmt.Sprintf("add local rbl entry: %v", err))
+		return echo.NewHTTPError(500, fmt.Sprintf("add local blocklist entry: %v", err))
 	}
 	return c.JSON(200, map[string]string{"status": "ok", "name": name})
 }
 
-// removeLocalRblEntry handles POST /dns/rbl/local/remove.
-func (s *SystemControllerHandlers) removeLocalRblEntry(c *echo.Context) error {
+// removeLocalBlocklistEntry handles POST /dns/rbl/local/remove.
+func (s *SystemControllerHandlers) removeLocalBlocklistEntry(c *echo.Context) error {
 	rc := s.Controller.GetRolodexClient()
 	if rc == nil {
 		return echo.NewHTTPError(503, "rolodex not available")
 	}
 
-	var req RemoveLocalRblEntryRequest
+	var req RemoveLocalBlocklistEntryRequest
 	if err := json.NewDecoder(c.Request().Body).Decode(&req); err != nil {
 		return echo.NewHTTPError(400, fmt.Sprintf("invalid request: %v", err))
 	}
@@ -362,8 +282,8 @@ func (s *SystemControllerHandlers) removeLocalRblEntry(c *echo.Context) error {
 		return echo.NewHTTPError(400, "name must not be empty")
 	}
 
-	if err := rc.RemoveLocalRblEntry(c.Request().Context(), name); err != nil {
-		return echo.NewHTTPError(500, fmt.Sprintf("remove local rbl entry: %v", err))
+	if err := rc.RemoveLocalBlocklistEntry(c.Request().Context(), name); err != nil {
+		return echo.NewHTTPError(500, fmt.Sprintf("remove local blocklist entry: %v", err))
 	}
 	return c.JSON(200, map[string]string{"status": "ok", "name": name})
 }

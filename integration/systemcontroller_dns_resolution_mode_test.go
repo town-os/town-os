@@ -5,9 +5,7 @@ package integration_test
 
 import (
 	"context"
-	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"gitea.com/town-os/town-os/src/rolodex"
@@ -16,10 +14,10 @@ import (
 	"gitea.com/town-os/town-os/src/systemd"
 )
 
-// initResolutionModeTest wires a real rolodex.Manager (writing into a temp data
-// dir) behind the real HTTP settings API, with a mock systemd so we can see the
-// restart it asks for.
-func initResolutionModeTest(t *testing.T) (*systemcontroller.SystemdClient, *systemd.MockManager, *rolodex.Manager, string) {
+// initResolutionModeTest stands a controller up behind the real HTTP settings
+// API with a fake rolodex server, so a test can see exactly what the handler
+// programs — and a mock systemd, so it can see that it asks for no restart.
+func initResolutionModeTest(t *testing.T) (*systemcontroller.SystemdClient, *systemd.MockManager, *rolodex.Manager, *rolodex.MockClient) {
 	t.Helper()
 
 	sd := systemd.InitMockManager()
@@ -36,17 +34,16 @@ func initResolutionModeTest(t *testing.T) (*systemcontroller.SystemdClient, *sys
 		UnixSocketPath: filepath.Join(dataDir, "rolodex.sock"),
 	})
 
-	// Lay down the config the way boot does, so the test starts from the same
-	// on-disk state a running box has.
-	if _, err := rolMgr.RewriteConfig(); err != nil {
-		t.Fatalf("RewriteConfig: %v", err)
-	}
+	// No config file is laid down, because a running box has none that Town OS
+	// wrote: rolodex.yml carries the install image's binds and metrics listener
+	// and nothing this test touches.
+	rolClient := &rolodex.MockClient{ResolutionMode: rolodex.ResolutionModeAuto}
 
 	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{
 		Storage:       storage.InitBtrFSMock(),
 		Systemd:       sd,
 		Rolodex:       rolMgr,
-		RolodexClient: &rolodex.MockClient{},
+		RolodexClient: rolClient,
 		SettingsMgr:   settings,
 	})
 	t.Cleanup(func() { ts.Server.Close() })
@@ -56,64 +53,65 @@ func initResolutionModeTest(t *testing.T) (*systemcontroller.SystemdClient, *sys
 		t.Fatalf("could not create client: %v", err)
 	}
 
-	return c, sd, rolMgr, dataDir
+	return c, sd, rolMgr, rolClient
 }
 
-// TestIntegrationSetDNSResolutionModeRewritesConfigAndRestartsRolodex drives the
+// TestIntegrationSetDNSResolutionModeProgramsRolodexWithoutRestarting drives the
 // real settings endpoint and asserts the operator-visible contract: flipping
-// dns_resolution_mode must (a) land in rolodex.yml on disk and (b) restart
-// rolodex, so the change takes effect NOW rather than at the next boot.
+// dns_resolution_mode must reach the RUNNING rolodex immediately, and must not
+// restart it.
 //
-// The on-disk assertion is the load-bearing one. WriteConfig used to skip any
-// rolodex.yml newer than the systemcontroller binary, and the file written at
-// the previous boot always is — so a handler on that path returned 200 and
-// changed nothing. Both entry points reconcile now, and this is what holds
-// them to it.
-func TestIntegrationSetDNSResolutionModeRewritesConfigAndRestartsRolodex(t *testing.T) {
+// Both halves are load-bearing. This setting used to be applied by rewriting
+// rolodex.yml and bouncing the unit, which meant every change to a dropdown
+// took the box's DNS down for the length of a container restart — and, for a
+// long time, silently did nothing at all, because the write was skipped and the
+// restart re-read the same file.
+func TestIntegrationSetDNSResolutionModeProgramsRolodexWithoutRestarting(t *testing.T) {
 	t.Parallel()
 
-	c, sd, rolMgr, dataDir := initResolutionModeTest(t)
+	c, sd, rolMgr, rolClient := initResolutionModeTest(t)
 	ctx := context.Background()
-
-	assertRolodexMode(t, dataDir, rolodex.ResolutionModeAuto)
 
 	if err := c.SetSetting(ctx, "dns_resolution_mode", rolodex.ResolutionModeForward); err != nil {
 		t.Fatalf("SetSetting: %v", err)
 	}
+	assertProgrammedMode(t, rolClient, rolodex.ResolutionModeForward)
 
-	assertRolodexMode(t, dataDir, rolodex.ResolutionModeForward)
-
-	if !rolodexRestartRequested(sd, rolMgr.UnitName()) {
-		t.Fatalf("rolodex was not restarted; systemd calls: %+v", sd.Calls)
+	if rolodexRestartRequested(sd, rolMgr.UnitName()) {
+		t.Fatalf("rolodex was restarted to apply a runtime setting; systemd calls: %+v", sd.Calls)
 	}
 
 	// And back again — the switch must not be one-way.
 	if err := c.SetSetting(ctx, "dns_resolution_mode", rolodex.ResolutionModeRecursive); err != nil {
 		t.Fatalf("SetSetting back to recursive: %v", err)
 	}
-	assertRolodexMode(t, dataDir, rolodex.ResolutionModeRecursive)
+	assertProgrammedMode(t, rolClient, rolodex.ResolutionModeRecursive)
 
 	if err := c.SetSetting(ctx, "dns_resolution_mode", rolodex.ResolutionModeAuto); err != nil {
 		t.Fatalf("SetSetting back to auto: %v", err)
 	}
-	assertRolodexMode(t, dataDir, rolodex.ResolutionModeAuto)
+	assertProgrammedMode(t, rolClient, rolodex.ResolutionModeAuto)
 }
 
-// TestIntegrationSetDNSResolutionModeRejectsGarbage: an unparseable mode in
-// rolodex.yml makes rolodex refuse to start, which takes DNS down for the entire
-// box. The API must reject it before it ever reaches disk.
+// TestIntegrationSetDNSResolutionModeRejectsGarbage: rolodex refuses an
+// unrecognized mode outright rather than defaulting, so an unvalidated value
+// from the API is a failed RPC and a box left in a mode nobody selected. The
+// API must reject it before it is sent, and must leave the live mode alone.
 func TestIntegrationSetDNSResolutionModeRejectsGarbage(t *testing.T) {
 	t.Parallel()
 
-	c, _, _, dataDir := initResolutionModeTest(t)
+	c, _, _, rolClient := initResolutionModeTest(t)
 	ctx := context.Background()
 
 	if err := c.SetSetting(ctx, "dns_resolution_mode", "iterative"); err == nil {
 		t.Fatal("expected an invalid resolution mode to be rejected")
 	}
 
-	// The config on disk must be untouched — no half-applied change.
-	assertRolodexMode(t, dataDir, rolodex.ResolutionModeAuto)
+	// No half-applied change: the running server still holds what it had.
+	assertProgrammedMode(t, rolClient, rolodex.ResolutionModeAuto)
+	if rolClient.Called("SetResolutionMode") {
+		t.Error("an invalid mode was sent to rolodex before validation")
+	}
 }
 
 func rolodexRestartRequested(sd *systemd.MockManager, want string) bool {
@@ -133,14 +131,10 @@ func rolodexRestartRequested(sd *systemd.MockManager, want string) bool {
 	return false
 }
 
-func assertRolodexMode(t *testing.T, dataDir, want string) {
+func assertProgrammedMode(t *testing.T, client *rolodex.MockClient, want string) {
 	t.Helper()
 
-	data, err := os.ReadFile(filepath.Join(dataDir, "rolodex.yml"))
-	if err != nil {
-		t.Fatalf("read rolodex.yml: %v", err)
-	}
-	if !strings.Contains(string(data), "  mode: "+want) {
-		t.Fatalf("rolodex.yml does not select mode %q:\n%s", want, data)
+	if got := client.ResolutionMode; got != want {
+		t.Fatalf("rolodex is holding mode %q, want %q", got, want)
 	}
 }

@@ -51,9 +51,7 @@ func TestRolodexServesPrometheusMetrics(t *testing.T) {
 		Key:            key,
 	})
 
-	if _, err := mgr.WriteConfig(); err != nil {
-		t.Fatalf("WriteConfig: %v", err)
-	}
+	writeRolodexBootstrapConfig(t, dataDir, dnsPort, metricsPort)
 
 	ctx := context.Background()
 	if dl, ok := t.Deadline(); ok {

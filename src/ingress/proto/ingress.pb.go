@@ -145,7 +145,14 @@ type PathBackend struct {
 	// more — the ingress drops one that is not.
 	Path string `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
 	// reverse_proxy target as "container:port" on the ingress network.
-	Backend       string `protobuf:"bytes,2,opt,name=backend,proto3" json:"backend,omitempty"`
+	Backend string `protobuf:"bytes,2,opt,name=backend,proto3" json:"backend,omitempty"`
+	// Whether that target speaks TLS. Set it for a backend that terminates its
+	// own HTTPS — rolodex's DoH listener, an admin UI with a self-signed leaf —
+	// and the ingress proxies the internal hop over https with verification
+	// skipped, exactly as it does for a route-level backend. Unset means plain
+	// HTTP, which is right for the containers that serve :80 and wrong to assume
+	// for everything else: this field exists because it used to be assumed.
+	BackendTls    bool `protobuf:"varint,3,opt,name=backend_tls,json=backendTls,proto3" json:"backend_tls,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -192,6 +199,13 @@ func (x *PathBackend) GetBackend() string {
 		return x.Backend
 	}
 	return ""
+}
+
+func (x *PathBackend) GetBackendTls() bool {
+	if x != nil {
+		return x.BackendTls
+	}
+	return false
 }
 
 type SetRoutesRequest struct {
@@ -528,10 +542,12 @@ const file_src_ingress_proto_ingress_proto_rawDesc = "" +
 	"backendTls\x12\x1d\n" +
 	"\n" +
 	"serve_http\x18\x06 \x01(\bR\tserveHttp\x12C\n" +
-	"\rpath_backends\x18\a \x03(\v2\x1e.townos.ingress.v1.PathBackendR\fpathBackends\";\n" +
+	"\rpath_backends\x18\a \x03(\v2\x1e.townos.ingress.v1.PathBackendR\fpathBackends\"\\\n" +
 	"\vPathBackend\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x18\n" +
-	"\abackend\x18\x02 \x01(\tR\abackend\"D\n" +
+	"\abackend\x18\x02 \x01(\tR\abackend\x12\x1f\n" +
+	"\vbackend_tls\x18\x03 \x01(\bR\n" +
+	"backendTls\"D\n" +
 	"\x10SetRoutesRequest\x120\n" +
 	"\x06routes\x18\x01 \x03(\v2\x18.townos.ingress.v1.RouteR\x06routes\"\x13\n" +
 	"\x11SetRoutesResponse\"A\n" +

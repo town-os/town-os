@@ -31,13 +31,6 @@ const (
 	// scrape a different service's numbers under this job name.
 	DefaultMetricsPort = 9146
 
-	// caddyAdminMetricsURL is the caddy child's own Prometheus endpoint on its
-	// admin API. The address is container-local (the admin API is never
-	// published — see renderCaddyfileTally), and the Host header it implies is
-	// one caddy's origin check accepts, which a "localhost" spelling is not
-	// guaranteed to be.
-	caddyAdminMetricsURL = "http://127.0.0.1:2019/metrics"
-
 	// caddyScrapeTimeout bounds the admin fetch. A scrape must answer in
 	// bounded time or Prometheus records the ingress itself as down — the
 	// caddy passthrough is the least important part of this endpoint and must
@@ -49,6 +42,19 @@ const (
 	// child hold a scrape's worth of memory per concurrent request.
 	caddyScrapeLimit = 4 << 20
 )
+
+// caddyAdminMetricsURL is the caddy child's own Prometheus endpoint on its admin
+// API, on the port that child was rendered with.
+//
+// Derived from the same adminAddr the Caddyfile carries rather than written out
+// again here: the scrape and the config have to name one port, and a second
+// spelling of it is how a relocated admin API ends up scraped at 2019 — where,
+// in the host namespace a test runs in, some OTHER run's caddy may well answer.
+// The address is loopback and the Host header it implies is one caddy's origin
+// check accepts, which a "localhost" spelling is not guaranteed to be.
+func caddyAdminMetricsURL(adminPort int) string {
+	return "http://" + adminAddr(adminPort) + MetricsPath
+}
 
 // Route TLS buckets, the label values of townos_ingress_routes. "pending" is a
 // route with neither an issued leaf nor an ACME issuer — programmed, resolvable,
@@ -152,7 +158,9 @@ func (s *Server) metricsCounters() *metricsState {
 func (s *Server) recordTally(t renderTally) {
 	counters := s.metricsCounters()
 	for key, n := range t.dropped {
-		counters.dropped.Add(n, key[0], key[1])
+		// The tally counts whole routes; Prometheus counters are float64 by
+		// convention, which is what CounterVec.Add takes.
+		counters.dropped.Add(float64(n), key[0], key[1])
 	}
 }
 

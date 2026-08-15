@@ -24,9 +24,9 @@ func TestRenderCaddyfile(t *testing.T) {
 			name:      "empty routes render only the global block",
 			routes:    nil,
 			httpsPort: 443,
-			want:      []string{"auto_https off", "protocols h1 h2"},
-			// admin must stay enabled (default localhost:2019) so the supervisor's
-			// `caddy reload` can push route updates; `admin off` would break it.
+			want:      []string{"auto_https off", "protocols h1 h2", "admin 127.0.0.1:2019"},
+			// admin must stay enabled so the supervisor's `caddy reload` can push
+			// route updates; `admin off` would break it.
 			notWant: []string{"https://", "admin off", ":80 {"},
 		},
 		{
@@ -140,7 +140,7 @@ func TestRenderCaddyfile(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			out := string(renderCaddyfile(tc.routes, tc.httpsPort, tc.httpPort, tc.defaultBackend))
+			out := string(renderCaddyfile(tc.routes, tc.httpsPort, tc.httpPort, tc.defaultBackend, false))
 			for _, w := range tc.want {
 				if !strings.Contains(out, w) {
 					t.Errorf("rendered config missing %q\n--- config ---\n%s", w, out)
@@ -172,7 +172,7 @@ func TestRenderCaddyfileHTTPBlocks(t *testing.T) {
 	}
 
 	// A page proxies on BOTH :443 and :80 (two reverse_proxy), and never redirects.
-	pageOut := string(renderCaddyfile([]*ingresspb.Route{page}, 443, 80, ""))
+	pageOut := string(renderCaddyfile([]*ingresspb.Route{page}, 443, 80, "", false))
 	if n := strings.Count(pageOut, "reverse_proxy"); n != 2 {
 		t.Errorf("page: want 2 reverse_proxy (https + http), got %d\n%s", n, pageOut)
 	}
@@ -182,7 +182,7 @@ func TestRenderCaddyfileHTTPBlocks(t *testing.T) {
 
 	// A package proxies ONLY on :443 (one reverse_proxy) and redirects on :80 —
 	// it must not serve content over plain HTTP.
-	pkgOut := string(renderCaddyfile([]*ingresspb.Route{pkg}, 443, 80, ""))
+	pkgOut := string(renderCaddyfile([]*ingresspb.Route{pkg}, 443, 80, "", false))
 	if n := strings.Count(pkgOut, "reverse_proxy"); n != 1 {
 		t.Errorf("package: want exactly 1 reverse_proxy (https only), got %d\n%s", n, pkgOut)
 	}
@@ -192,7 +192,7 @@ func TestRenderCaddyfileHTTPBlocks(t *testing.T) {
 
 	// A half-provisioned, non-page route (no cert, no acme, not ServeHttp) emits
 	// NO vhost at all: neither an HTTPS block (no cert) nor an HTTP one.
-	unOut := string(renderCaddyfile([]*ingresspb.Route{unprovisioned}, 443, 80, ""))
+	unOut := string(renderCaddyfile([]*ingresspb.Route{unprovisioned}, 443, 80, "", false))
 	if strings.Contains(unOut, "pending.asdf.home") {
 		t.Errorf("unprovisioned route must emit no vhost\n%s", unOut)
 	}
@@ -205,7 +205,7 @@ func TestRenderCaddyfileHTTPBlocks(t *testing.T) {
 	if strings.Contains(unOut, ":80 {") {
 		t.Errorf("no default backend must not emit a :80 catch-all\n%s", unOut)
 	}
-	defOut := string(renderCaddyfile(nil, 443, 80, "town-os-system--ui:80"))
+	defOut := string(renderCaddyfile(nil, 443, 80, "town-os-system--ui:80", false))
 	if !strings.Contains(defOut, ":80 {") || strings.Count(defOut, "reverse_proxy town-os-system--ui:80") != 1 {
 		t.Errorf("default backend must emit one :80 catch-all to the UI\n%s", defOut)
 	}
@@ -216,13 +216,54 @@ func TestRenderCaddyfileDeterministicOrder(t *testing.T) {
 		{Hostname: "zebra.asdf.home", Backend: "b:1", CertDir: "/c/z"},
 		{Hostname: "alpha.asdf.home", Backend: "b:2", CertDir: "/c/a"},
 	}
-	out := string(renderCaddyfile(routes, 443, 80, ""))
+	out := string(renderCaddyfile(routes, 443, 80, "", false))
 	if a, z := strings.Index(out, "alpha.asdf.home"), strings.Index(out, "zebra.asdf.home"); a < 0 || z < 0 || a > z {
 		t.Fatalf("expected alpha before zebra (sorted), got:\n%s", out)
 	}
 	// Rendering the same routes in a different input order yields identical bytes.
 	reordered := []*ingresspb.Route{routes[1], routes[0]}
-	if string(renderCaddyfile(reordered, 443, 80, "")) != out {
+	if string(renderCaddyfile(reordered, 443, 80, "", false)) != out {
 		t.Fatal("render is not order-independent")
+	}
+}
+
+// TestRenderCaddyfileEmitsTheAdminEndpoint pins the global option that decides
+// which caddy a `caddy reload` reaches.
+//
+// The port has to appear in the file rather than being left to caddy's default,
+// because `caddy reload` reads the admin address out of the config it adapts —
+// so the rendered address IS the address the supervisor talks to. A render that
+// dropped this line would put every test's caddy back on the shared 2019, and
+// the way that fails is not a clean bind error: the first run's reload would
+// find the second run's admin API and program it with the first run's routes.
+func TestRenderCaddyfileEmitsTheAdminEndpoint(t *testing.T) {
+	const relocated = 41919
+
+	out, _ := renderCaddyfileTally(nil, 443, 80, relocated, "", false)
+	if got, want := string(out), "\tadmin 127.0.0.1:41919\n"; !strings.Contains(got, want) {
+		t.Errorf("rendered Caddyfile does not carry %q:\n%s", want, got)
+	}
+	if strings.Contains(string(out), ":2019") {
+		t.Errorf("rendered Caddyfile still names the default admin port:\n%s", out)
+	}
+
+	// Zero means the default, matching every other port in this renderer.
+	zero, _ := renderCaddyfileTally(nil, 443, 80, 0, "", false)
+	if got, want := string(zero), "\tadmin 127.0.0.1:2019\n"; !strings.Contains(got, want) {
+		t.Errorf("admin port 0 should render the default %q:\n%s", want, got)
+	}
+}
+
+// The admin address is loopback in every rendering. Caddy's admin API can
+// replace the entire running config, so one reachable from the LAN would let
+// anyone who can reach the box re-point every hostname it serves.
+func TestRenderCaddyfileAdminStaysOnLoopback(t *testing.T) {
+	for _, port := range []int{0, DefaultAdminPort, 41919} {
+		out, _ := renderCaddyfileTally(nil, 443, 80, port, "", false)
+		for _, bad := range []string{"admin 0.0.0.0:", "admin :", "admin [::]:"} {
+			if strings.Contains(string(out), bad) {
+				t.Errorf("admin port %d rendered a non-loopback endpoint (%q):\n%s", port, bad, out)
+			}
+		}
 	}
 }

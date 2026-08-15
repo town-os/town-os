@@ -92,47 +92,22 @@ SystemControllerClient.prototype.setupDNS = async function () {
   await this.postJSON('/dns/setup', {})
 }
 
-// --- RBL / DNSBL ---
+// --- Blocklists ---
+//
+// There is one provider list, the DNSBL (domain) one. The RBL (reverse-IP)
+// half is retired: `getRBLConfig`/`setRBLConfig` and the `/dns/rbl` endpoints
+// they called are gone, and the controller no longer registers that route. The
+// LOCAL blocklist below keeps its historical `/dns/rbl/local*` paths — those
+// are a published contract and their entries, which may still be addresses,
+// are unchanged.
 
 /**
- * Returns the RBL (reverse-IP blocklist) configuration.
+ * Returns the DNSBL (domain blocklist) configuration.
  *
  * Each provider's `refusal_codes` come back RESOLVED — a provider that names
  * none reads back as rolodex's built-in set rather than as an empty list, so the
  * screen can show what the box is actually matching on. `rotated_out` lists the
  * providers currently not being asked because they refused a query.
- *
- * Calls GET /dns/rbl.
- * @returns {Promise<{enabled: boolean, providers: Array<{zone: string, enabled: boolean, refusal_codes?: string[], refusal_cooldown_secs?: number}>, refusal_cooldown_secs?: number, rotated_out?: Array<{zone: string, code: string, seconds_remaining: number}>}>}
- */
-SystemControllerClient.prototype.getRBLConfig = async function () {
-  return this.getJSON('/dns/rbl')
-}
-
-/**
- * Replaces the RBL configuration.
- *
- * A provider's `refusal_codes` say what "I refused your query" looks like coming
- * back from that provider, as opposed to "this is listed" — the two arrive as
- * the same kind of record and only the address separates them. Omit the field
- * (or pass an empty array) to use rolodex's built-in set; pass `['none']` to
- * switch the detection off for a list whose real listings collide with one.
- *
- * Calls POST /dns/rbl.
- * @param {boolean} enabled
- * @param {Array<{zone: string, enabled: boolean, refusal_codes?: string[], refusal_cooldown_secs?: number}>} providers
- * @param {number} [refusalCooldownSecs] seconds a refusing provider is taken out
- *   of the lookup rotation, for providers that set none of their own; 0 or
- *   omitted uses rolodex's built-in default
- * @returns {Promise<void>}
- */
-SystemControllerClient.prototype.setRBLConfig = async function (enabled, providers, refusalCooldownSecs = 0) {
-  await this.postJSON('/dns/rbl', { enabled, providers, refusal_cooldown_secs: refusalCooldownSecs })
-}
-
-/**
- * Returns the DNSBL (domain blocklist) configuration, in the same shape as
- * [getRBLConfig]{@link SystemControllerClient#getRBLConfig}.
  *
  * Calls GET /dns/dnsbl.
  * @returns {Promise<{enabled: boolean, providers: Array<{zone: string, enabled: boolean, refusal_codes?: string[], refusal_cooldown_secs?: number}>, refusal_cooldown_secs?: number, rotated_out?: Array<{zone: string, code: string, seconds_remaining: number}>}>}
@@ -142,14 +117,20 @@ SystemControllerClient.prototype.getDNSBLConfig = async function () {
 }
 
 /**
- * Replaces the DNSBL configuration. Refusal handling works exactly as in
- * [setRBLConfig]{@link SystemControllerClient#setRBLConfig}, with its own
- * independent cooldown.
+ * Replaces the DNSBL configuration.
+ *
+ * A provider's `refusal_codes` say what "I refused your query" looks like coming
+ * back from that provider, as opposed to "this is listed" — the two arrive as
+ * the same kind of record and only the address separates them. Omit the field
+ * (or pass an empty array) to use rolodex's built-in set; pass `['none']` to
+ * switch the detection off for a list whose real listings collide with one.
  *
  * Calls POST /dns/dnsbl.
  * @param {boolean} enabled
  * @param {Array<{zone: string, enabled: boolean, refusal_codes?: string[], refusal_cooldown_secs?: number}>} providers
- * @param {number} [refusalCooldownSecs]
+ * @param {number} [refusalCooldownSecs] seconds a refusing provider is taken out
+ *   of the lookup rotation, for providers that set none of their own; 0 or
+ *   omitted uses rolodex's built-in default
  * @returns {Promise<void>}
  */
 SystemControllerClient.prototype.setDNSBLConfig = async function (enabled, providers, refusalCooldownSecs = 0) {

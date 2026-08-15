@@ -102,11 +102,36 @@ func TestUnregisterScopedPackageTLSA(t *testing.T) {
 }
 
 func TestTLSANameFormat(t *testing.T) {
-	if got := tlsaName("app.repo.home", 8443); got != "_8443._tcp.app.repo.home." {
+	if got := tlsaName("app.repo.home", 8443, "tcp"); got != "_8443._tcp.app.repo.home." {
 		t.Fatalf("tlsaName = %q", got)
 	}
 	// Trailing dot on the input must not double up.
-	if got := tlsaName("app.repo.home.", 443); got != "_443._tcp.app.repo.home." {
+	if got := tlsaName("app.repo.home.", 443, "tcp"); got != "_443._tcp.app.repo.home." {
 		t.Fatalf("tlsaName with trailing dot = %q", got)
+	}
+}
+
+// The protocol label is what separates DoT from DoQ when they share port 853 on
+// one certificate, so it has to reach the owner name. Every caller written
+// before UDP existed omits the field, so empty has to go on meaning tcp.
+func TestTLSANameProtocol(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		proto string
+		want  string
+	}{
+		{"udp is carried through", "udp", "_853._udp.dns.example.home."},
+		{"case is normalized", "UDP", "_853._udp.dns.example.home."},
+		{"tcp is explicit", "tcp", "_853._tcp.dns.example.home."},
+		// The control for the udp cases: without these, a function that
+		// returned tcp unconditionally would still pass every tcp assertion.
+		{"empty defaults to tcp", "", "_853._tcp.dns.example.home."},
+		{"unrecognized defaults to tcp", "sctp", "_853._tcp.dns.example.home."},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tlsaName("dns.example.home", 853, tc.proto); got != tc.want {
+				t.Fatalf("tlsaName(proto=%q) = %q, want %q", tc.proto, got, tc.want)
+			}
+		})
 	}
 }

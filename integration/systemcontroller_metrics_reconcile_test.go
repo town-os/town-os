@@ -5,123 +5,17 @@ package integration_test
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
 	"gitea.com/town-os/town-os/src/monitoring"
-	"gitea.com/town-os/town-os/src/rolodex"
 	"gitea.com/town-os/town-os/src/storage"
 	"gitea.com/town-os/town-os/src/svc/systemcontroller"
 	"gitea.com/town-os/town-os/src/systemd"
 )
-
-// legacyRolodexConfig is the rendering a pre-9689461 controller wrote: correct
-// for its day, and missing both sections added since. It is spelled out
-// verbatim rather than generated, because generating it from today's template
-// is exactly the assumption under test.
-const legacyRolodexConfig = `database_path: /data/rolodex.db
-dns:
-  bind:
-    - udp: "%s:%s"
-    - tcp: "%s:%s"
-grpc:
-  tcp_bind: ""
-  unix_socket: /data/rolodex.sock
-  shared_secret: ""
-forwarders:
-  - "8.8.8.8:53"
-  - "8.8.4.4:53"
-resolution:
-  mode: auto
-`
-
-// TestUpgradedControllerOpensRolodexMetricsListener is the end-to-end proof for
-// the freeze that cost a deployed box every DNS panel it had.
-//
-// A rolodex.yml written by an older controller sits on disk, newer than the
-// binary that finds it — which is the state EVERY boot leaves behind, since the
-// file a boot writes is always newer than the image that wrote it. WriteConfig
-// used to treat that as a hand edit and skip, so the file froze at its first
-// rendering for the life of the box and no image update could move it. rolodex
-// was never told to open its Prometheus listener, Prometheus scraped
-// 127.0.0.2:9153 every 15s for weeks, nothing was ever bound there, and the DNS
-// dashboards rendered empty charts rather than errors.
-//
-// Nothing cheaper catches this. The template has emitted `metrics:` since
-// 9689461 and every unit test of it passes; the bug lives entirely in the
-// decision not to write the file, and its symptom is a listener that never
-// opens. So this test starts a real rolodex from the reconciled config and
-// scrapes it.
-func TestUpgradedControllerOpensRolodexMetricsListener(t *testing.T) {
-	t.Parallel()
-
-	dataDir := rolodexTempDir(t, "rolodex-upgrade-*")
-	sd := systemd.NewManager()
-	key := rolodexTestKey()
-	dnsPort := findFreePort(t)
-	metricsPort := findFreePort(t)
-
-	// Plant the legacy config, then age it FORWARD. A file in the future is
-	// newer than any binary, which is what the old guard keyed on.
-	configPath := filepath.Join(dataDir, "rolodex.yml")
-	legacy := fmt.Sprintf(legacyRolodexConfig,
-		rolodex.DNSLoopback, dnsPort, rolodex.DNSLoopback, dnsPort)
-	if err := os.WriteFile(configPath, []byte(legacy), 0o644); err != nil {
-		t.Fatalf("plant legacy rolodex.yml: %v", err)
-	}
-	future := time.Now().Add(24 * time.Hour)
-	if err := os.Chtimes(configPath, future, future); err != nil {
-		t.Fatalf("chtimes: %v", err)
-	}
-
-	mgr := rolodex.NewManager(rolodex.Config{
-		Systemd:        sd,
-		DataDir:        dataDir,
-		Image:          rolodexTestImage(),
-		UnixSocketPath: filepath.Join(dataDir, "rolodex.sock"),
-		DNSPort:        dnsPort,
-		MetricsPort:    metricsPort,
-		Key:            key,
-	})
-
-	// The boot-time entry point, unchanged from what main.go calls.
-	written, err := mgr.WriteConfig()
-	if err != nil {
-		t.Fatalf("WriteConfig: %v", err)
-	}
-	// The boolean is load-bearing, not decoration: boot restarts rolodex only
-	// when the file changed, so a false here means the new listener would not
-	// come up until something else happened to bounce the unit.
-	if !written {
-		t.Fatal("WriteConfig left the legacy config in place; rolodex will never open its metrics listener")
-	}
-
-	raw, err := os.ReadFile(configPath)
-	if err != nil {
-		t.Fatalf("read reconciled rolodex.yml: %v", err)
-	}
-	if want := "metrics:\n  bind: \"" + mgr.MetricsAddr() + "\"\n"; !strings.Contains(string(raw), want) {
-		t.Fatalf("reconciled config missing %q:\n%s", want, raw)
-	}
-
-	startRolodexUnit(t, sd, key, dataDir, "Rolodex DNS (upgrade test)")
-
-	ctx := testContext(t, 3*time.Minute)
-
-	// Scrape MetricsAddr itself — the same string the config was rendered from
-	// and the same string the Prometheus job carries. Recomposing it here would
-	// let the two drift and still pass.
-	body := scrapeUntilReady(ctx, t, "http://"+mgr.MetricsAddr()+"/metrics", dataDir, key)
-	if !strings.Contains(body, "rolodex_dns_build_info") {
-		t.Errorf("scrape did not carry rolodex_dns_build_info; got %d bytes:\n%s", len(body), truncateForLog(body))
-	}
-}
 
 // TestPrometheusScrapesTheSchemeTheListenerActuallySpeaks is the end-to-end
 // proof for the other half: the controller job must be written with the scheme
@@ -226,7 +120,16 @@ func startMetricsListener(t *testing.T, useTLS bool) string {
 }
 
 // startRolodexUnit installs, enables and starts a rolodex system-service unit
-// over dataDir, and tears it down at the end of the test.
+// over dataDir, waits until the server inside answers, and tears it all down at
+// the end of the test.
+//
+// The wait is the part that is easy to leave out and expensive to leave out.
+// `systemctl restart` returns when systemd has started the *podman* command, and
+// what the caller wants is a rolodex that has read its config, opened its
+// database and bound its gRPC socket — a second or so later. Without the wait,
+// the first thing every caller does (dial the socket, stat it for a generation,
+// query the resolver) lands in that gap and fails on a box that is merely slow,
+// which reads as a broken feature rather than a premature test.
 //
 // It derives its own context rather than taking one: rolodexTestImage may pull,
 // and both that and the teardown outlive any context a caller would hand in.
@@ -261,4 +164,9 @@ func startRolodexUnit(t *testing.T, sd systemd.Manager, key, dataDir, descriptio
 		logCleanupf(t, sd.SetStatus(cleanupCtx, uf.Name, systemd.Stop), "rolodex stop")
 		logCleanupf(t, sd.UninstallUnit(cleanupCtx, uf.Name), "rolodex uninstall")
 	})
+
+	// The socket the config above names, as the HOST sees it: the container's
+	// /data is this dataDir.
+	client := waitForRolodexClient(t, ctx, filepath.Join(dataDir, "rolodex.sock"), dataDir, key)
+	logCleanupf(t, client.Close(), "close readiness client")
 }

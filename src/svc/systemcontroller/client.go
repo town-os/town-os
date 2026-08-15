@@ -286,37 +286,27 @@ type Client interface {
 	// Calls POST /dns/setup on the Control Plane Service.
 	SetupDNS(ctx context.Context) error
 
-	// GetRblConfig returns the current RBL (reverse-IP blocklist) config.
-	//
-	// Calls GET /dns/rbl on the Control Plane Service.
-	GetRblConfig(ctx context.Context) (*RblConfigResponse, error)
-	// SetRblConfig replaces the RBL configuration, including each provider's
-	// refusal codes and the default rotate-out duration applied to a provider
-	// that refuses a query.
-	//
-	// Calls POST /dns/rbl on the Control Plane Service.
-	SetRblConfig(ctx context.Context, enabled bool, providers []RblProviderDTO, refusalCooldownSecs uint32) error
 	// GetDnsblConfig returns the current DNSBL (domain blocklist) config.
 	//
 	// Calls GET /dns/dnsbl on the Control Plane Service.
-	GetDnsblConfig(ctx context.Context) (*RblConfigResponse, error)
+	GetDnsblConfig(ctx context.Context) (*BlocklistConfigResponse, error)
 	// SetDnsblConfig replaces the DNSBL configuration, including each provider's
 	// refusal codes and the default rotate-out duration.
 	//
 	// Calls POST /dns/dnsbl on the Control Plane Service.
-	SetDnsblConfig(ctx context.Context, enabled bool, providers []RblProviderDTO, refusalCooldownSecs uint32) error
-	// ListLocalRblEntries returns the local RBL blocklist entries.
+	SetDnsblConfig(ctx context.Context, enabled bool, providers []BlocklistProviderDTO, refusalCooldownSecs uint32) error
+	// ListLocalBlocklistEntries returns the local blocklist entries.
 	//
 	// Calls GET /dns/rbl/local on the Control Plane Service.
-	ListLocalRblEntries(ctx context.Context) ([]LocalRblEntryDTO, error)
-	// AddLocalRblEntry adds a name or IP to the local RBL blocklist.
+	ListLocalBlocklistEntries(ctx context.Context) ([]LocalBlocklistEntryDTO, error)
+	// AddLocalBlocklistEntry adds a name or IP to the local blocklist.
 	//
 	// Calls POST /dns/rbl/local/add on the Control Plane Service.
-	AddLocalRblEntry(ctx context.Context, name, reason string) error
-	// RemoveLocalRblEntry removes a name or IP from the local RBL blocklist.
+	AddLocalBlocklistEntry(ctx context.Context, name, reason string) error
+	// RemoveLocalBlocklistEntry removes a name or IP from the local blocklist.
 	//
 	// Calls POST /dns/rbl/local/remove on the Control Plane Service.
-	RemoveLocalRblEntry(ctx context.Context, name string) error
+	RemoveLocalBlocklistEntry(ctx context.Context, name string) error
 	// ListDnsblAllowlistEntries returns the DNSBL allowlist entries — names
 	// exempted from the name-based blocklist check.
 	//

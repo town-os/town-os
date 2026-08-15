@@ -1,35 +1,20 @@
 package rolodex
 
 import (
-	"os"
-	"path/filepath"
-	"strings"
+	"slices"
 	"testing"
 )
 
-func localForwarderManager(t *testing.T, cfg Config) (*Manager, string) {
-	t.Helper()
-
-	dataDir := t.TempDir()
-	cfg.DataDir = dataDir
-	return NewManager(cfg), dataDir
-}
-
-func readRolodexConfig(t *testing.T, dataDir string) string {
-	t.Helper()
-
-	data, err := os.ReadFile(filepath.Join(dataDir, "rolodex.yml"))
-	if err != nil {
-		t.Fatalf("read rolodex.yml: %v", err)
-	}
-	return string(data)
-}
+// The forwarder list is no longer rendered into a file — it is programmed into
+// the running rolodex over gRPC — so these tests assert what the manager
+// RESOLVES the list to. That value is what ProgramRolodex pushes, at boot and
+// after every rolodex restart.
 
 func TestForwardersDefaultToThePublicResolvers(t *testing.T) {
 	t.Parallel()
 
-	m, _ := localForwarderManager(t, Config{})
-	if strings.Join(m.Forwarders(), ",") != strings.Join(DefaultForwarders, ",") {
+	m := NewManager(Config{})
+	if !slices.Equal(m.Forwarders(), DefaultForwarders) {
 		t.Fatalf("Forwarders() = %v, want %v", m.Forwarders(), DefaultForwarders)
 	}
 	if m.LocalForwarders() {
@@ -41,144 +26,119 @@ func TestLocalForwardersReplaceTheForwarderList(t *testing.T) {
 	t.Parallel()
 
 	resolv := writeResolvConf(t, "resolv.conf", "nameserver 192.168.4.1\n")
-	m, dataDir := localForwarderManager(t, Config{
+	m := NewManager(Config{
 		LocalForwarders: true,
 		ResolvConfPaths: []string{resolv},
 	})
 
-	if got := strings.Join(m.Forwarders(), ","); got != "192.168.4.1:53" {
-		t.Fatalf("Forwarders() = %v, want [192.168.4.1:53]", m.Forwarders())
-	}
-
-	if _, err := m.RewriteConfig(); err != nil {
-		t.Fatalf("RewriteConfig: %v", err)
-	}
-	config := readRolodexConfig(t, dataDir)
-	if !strings.Contains(config, `- "192.168.4.1:53"`) {
-		t.Fatalf("rolodex.yml does not forward to the local resolver:\n%s", config)
-	}
-	for _, public := range DefaultForwarders {
-		if strings.Contains(config, public) {
-			t.Fatalf("rolodex.yml still names the public forwarder %q:\n%s", public, config)
-		}
+	want := []string{"192.168.4.1:53"}
+	if !slices.Equal(m.Forwarders(), want) {
+		t.Fatalf("Forwarders() = %v, want %v", m.Forwarders(), want)
 	}
 }
 
-// Discovery reads files that may hold nothing usable — a box with no lease yet,
-// or one whose only nameserver line is a loopback stub. An empty result must
-// keep the forwarders already configured: deleting them would leave the auto
-// chain's local tier pointing at nothing, which is strictly worse than the
-// public defaults this switch was turned on to replace.
+// TestLocalForwardersFallBackWhenDiscoveryFindsNothing covers a box with no
+// lease yet, or one whose only nameserver line is a loopback stub. An empty
+// discovery result must keep the previous addresses: pushing an empty list to
+// rolodex would delete the local tier of the auto chain outright, which is the
+// tier that exists for networks where everything else is filtered.
 func TestLocalForwardersFallBackWhenDiscoveryFindsNothing(t *testing.T) {
 	t.Parallel()
 
-	stub := writeResolvConf(t, "stub-resolv.conf", "nameserver 127.0.0.53\n")
-	m, _ := localForwarderManager(t, Config{
+	resolv := writeResolvConf(t, "resolv.conf", "nameserver 127.0.0.53\n")
+	configured := []string{"10.0.0.1:53"}
+	m := NewManager(Config{
 		LocalForwarders: true,
-		ResolvConfPaths: []string{stub},
-		Forwarders:      []string{"9.9.9.9:53"},
+		Forwarders:      configured,
+		ResolvConfPaths: []string{resolv},
 	})
 
-	if got := strings.Join(m.Forwarders(), ","); got != "9.9.9.9:53" {
-		t.Fatalf("Forwarders() = %v, want the configured [9.9.9.9:53]", m.Forwarders())
+	if !slices.Equal(m.Forwarders(), configured) {
+		t.Fatalf("Forwarders() = %v, want the configured list %v kept", m.Forwarders(), configured)
 	}
 }
 
 func TestLocalForwardersFallBackToTheDefaultsWithNothingConfigured(t *testing.T) {
 	t.Parallel()
 
-	stub := writeResolvConf(t, "stub-resolv.conf", "nameserver 127.0.0.53\n")
-	m, _ := localForwarderManager(t, Config{
+	resolv := writeResolvConf(t, "resolv.conf", "# nothing usable here\n")
+	m := NewManager(Config{
 		LocalForwarders: true,
-		ResolvConfPaths: []string{stub},
+		ResolvConfPaths: []string{resolv},
 	})
 
-	if strings.Join(m.Forwarders(), ",") != strings.Join(DefaultForwarders, ",") {
+	if !slices.Equal(m.Forwarders(), DefaultForwarders) {
 		t.Fatalf("Forwarders() = %v, want %v", m.Forwarders(), DefaultForwarders)
 	}
 }
 
-// The forwarder list is orthogonal to the resolution mode: it changes WHICH
-// addresses the local tier holds, not whether that tier is consulted. Turning
-// it on must not move the mode, which decides that.
+// TestLocalForwardersLeaveTheResolutionModeAlone is the invariant that keeps
+// two independent settings independent: the flag changes WHICH addresses the
+// local tier holds, and the mode decides whether that tier is consulted at all.
+// Turning it on must never move the mode — in recursive the list is unused, and
+// silently switching to forward would send every query to the local resolver.
 func TestLocalForwardersLeaveTheResolutionModeAlone(t *testing.T) {
 	t.Parallel()
 
 	resolv := writeResolvConf(t, "resolv.conf", "nameserver 192.168.4.1\n")
-	m, dataDir := localForwarderManager(t, Config{
-		ResolutionMode:  ResolutionModeAuto,
-		LocalForwarders: true,
+	m := NewManager(Config{
+		ResolutionMode:  ResolutionModeRecursive,
 		ResolvConfPaths: []string{resolv},
 	})
-
-	if _, err := m.RewriteConfig(); err != nil {
-		t.Fatalf("RewriteConfig: %v", err)
-	}
-	if !strings.Contains(readRolodexConfig(t, dataDir), "  mode: "+ResolutionModeAuto) {
-		t.Fatalf("rolodex.yml does not keep mode %q:\n%s", ResolutionModeAuto, readRolodexConfig(t, dataDir))
-	}
-	if m.ResolutionMode() != ResolutionModeAuto {
-		t.Fatalf("ResolutionMode() = %q, want %q", m.ResolutionMode(), ResolutionModeAuto)
-	}
-}
-
-func TestSetLocalForwardersRewritesTheConfigBothWays(t *testing.T) {
-	t.Parallel()
-
-	resolv := writeResolvConf(t, "resolv.conf", "nameserver 192.168.4.1\n")
-	m, dataDir := localForwarderManager(t, Config{ResolvConfPaths: []string{resolv}})
-
-	if _, err := m.RewriteConfig(); err != nil {
-		t.Fatalf("RewriteConfig: %v", err)
-	}
 
 	m.SetLocalForwarders(true)
-	written, err := m.RewriteConfig()
-	if err != nil {
-		t.Fatalf("RewriteConfig on: %v", err)
+	if got := m.ResolutionMode(); got != ResolutionModeRecursive {
+		t.Fatalf("ResolutionMode() = %q after enabling local forwarders, want recursive", got)
 	}
-	if !written {
-		t.Fatal("RewriteConfig reported no change when switching to local forwarders")
-	}
-	if !strings.Contains(readRolodexConfig(t, dataDir), `- "192.168.4.1:53"`) {
-		t.Fatalf("rolodex.yml did not pick up the local resolver:\n%s", readRolodexConfig(t, dataDir))
-	}
-
-	// And back: an operator who turns this off must get the public resolvers
-	// again, not be stuck on a network's resolver they have since left.
 	m.SetLocalForwarders(false)
-	written, err = m.RewriteConfig()
-	if err != nil {
-		t.Fatalf("RewriteConfig off: %v", err)
-	}
-	if !written {
-		t.Fatal("RewriteConfig reported no change when switching back")
-	}
-	if !strings.Contains(readRolodexConfig(t, dataDir), DefaultForwarders[0]) {
-		t.Fatalf("rolodex.yml did not return to the public forwarders:\n%s", readRolodexConfig(t, dataDir))
+	if got := m.ResolutionMode(); got != ResolutionModeRecursive {
+		t.Fatalf("ResolutionMode() = %q after disabling local forwarders, want recursive", got)
 	}
 }
 
-// An unchanged render must report no change, because the caller restarts
-// rolodex on the strength of that boolean — a rewrite that always claimed a
-// change would bounce DNS for the whole box on every settings write.
-func TestRewriteConfigReportsNoChangeWhenTheRenderIsIdentical(t *testing.T) {
+// TestSetLocalForwardersSwitchesBothWays asserts the toggle is not one-way:
+// turning it off has to restore the configured or default list, since that is
+// what gets programmed into rolodex on the way back.
+func TestSetLocalForwardersSwitchesBothWays(t *testing.T) {
 	t.Parallel()
 
 	resolv := writeResolvConf(t, "resolv.conf", "nameserver 192.168.4.1\n")
-	m, _ := localForwarderManager(t, Config{
-		LocalForwarders: true,
-		ResolvConfPaths: []string{resolv},
-	})
+	m := NewManager(Config{ResolvConfPaths: []string{resolv}})
 
-	if _, err := m.RewriteConfig(); err != nil {
-		t.Fatalf("RewriteConfig: %v", err)
+	m.SetLocalForwarders(true)
+	if want := []string{"192.168.4.1:53"}; !slices.Equal(m.Forwarders(), want) {
+		t.Fatalf("Forwarders() = %v after enabling, want %v", m.Forwarders(), want)
 	}
-	written, err := m.RewriteConfig()
-	if err != nil {
-		t.Fatalf("RewriteConfig again: %v", err)
+	if !m.LocalForwarders() {
+		t.Fatal("LocalForwarders() = false after enabling")
 	}
-	if written {
-		t.Fatal("RewriteConfig reported a change for an identical render")
+
+	m.SetLocalForwarders(false)
+	if !slices.Equal(m.Forwarders(), DefaultForwarders) {
+		t.Fatalf("Forwarders() = %v after disabling, want %v", m.Forwarders(), DefaultForwarders)
+	}
+	if m.LocalForwarders() {
+		t.Fatal("LocalForwarders() = true after disabling")
+	}
+}
+
+// TestLocalForwardersRediscoverOnEveryRead is why the toggle does not cache:
+// with the flag already on, the discovered addresses themselves move (a new
+// lease, a different network), and the programming path reads this on every
+// pass so the new address reaches rolodex without anything else happening.
+func TestLocalForwardersRediscoverOnEveryRead(t *testing.T) {
+	t.Parallel()
+
+	first := writeResolvConf(t, "first.conf", "nameserver 192.168.4.1\n")
+	second := writeResolvConf(t, "second.conf", "nameserver 10.9.9.9\n")
+
+	m := NewManager(Config{LocalForwarders: true, ResolvConfPaths: []string{first}})
+	if want := []string{"192.168.4.1:53"}; !slices.Equal(m.Forwarders(), want) {
+		t.Fatalf("Forwarders() = %v, want %v", m.Forwarders(), want)
+	}
+
+	m2 := NewManager(Config{LocalForwarders: true, ResolvConfPaths: []string{second}})
+	if want := []string{"10.9.9.9:53"}; !slices.Equal(m2.Forwarders(), want) {
+		t.Fatalf("Forwarders() = %v, want %v", m2.Forwarders(), want)
 	}
 }

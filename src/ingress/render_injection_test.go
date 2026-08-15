@@ -97,7 +97,7 @@ func TestRenderCaddyfileRejectsInjectedHostnames(t *testing.T) {
 				Backend:  "town-os-system--pages:80",
 				CertDir:  "/c/evil",
 			}
-			out := string(renderCaddyfile([]*ingresspb.Route{route}, 443, 80, ""))
+			out := string(renderCaddyfile([]*ingresspb.Route{route}, 443, 80, "", false))
 
 			if strings.Contains(out, tc.marker) {
 				t.Errorf("rendered Caddyfile carries %q, injected through a hostname:\n%s", tc.marker, out)
@@ -124,7 +124,7 @@ func TestRenderCaddyfileBadHostnameDoesNotDropGoodRoutes(t *testing.T) {
 				Backend:  "town-os-system--pages:80",
 				CertDir:  "/c/evil",
 			}
-			out := string(renderCaddyfile([]*ingresspb.Route{good, bad}, 443, 80, ""))
+			out := string(renderCaddyfile([]*ingresspb.Route{good, bad}, 443, 80, "", false))
 
 			if !strings.Contains(out, "https://gitea.core.home {") {
 				t.Errorf("a malformed hostname removed the healthy route from the config:\n%s", out)
@@ -189,7 +189,7 @@ func TestIngressBadHostnameDoesNotBreakCaddyValidation(t *testing.T) {
 				Backend:  "town-os-system--pages:80",
 				CertDir:  "/c/evil",
 			}
-			content := renderCaddyfile([]*ingresspb.Route{good, bad}, 443, 80, "")
+			content := renderCaddyfile([]*ingresspb.Route{good, bad}, 443, 80, "", false)
 
 			path := filepath.Join(t.TempDir(), "Caddyfile")
 			if err := os.WriteFile(path, content, 0o600); err != nil {
@@ -230,7 +230,7 @@ func TestRenderCaddyfileDropsUnderscoreHostnames(t *testing.T) {
 	} {
 		t.Run(host, func(t *testing.T) {
 			bad := &ingresspb.Route{Hostname: host, Backend: "town-os-system--pages:80", CertDir: "/c/bad"}
-			out := string(renderCaddyfile([]*ingresspb.Route{good, bad}, 443, 80, ""))
+			out := string(renderCaddyfile([]*ingresspb.Route{good, bad}, 443, 80, "", false))
 
 			if strings.Contains(out, host) {
 				t.Errorf("rendered a vhost for %q; an underscore is not a hostname and cannot be covered by a leaf:\n%s", host, out)
@@ -253,7 +253,7 @@ func TestRenderCaddyfileKeepsDashedHostnames(t *testing.T) {
 	} {
 		t.Run(host, func(t *testing.T) {
 			route := &ingresspb.Route{Hostname: host, Backend: "town-os-system--pages:80", CertDir: "/c/ok"}
-			out := string(renderCaddyfile([]*ingresspb.Route{route}, 443, 80, ""))
+			out := string(renderCaddyfile([]*ingresspb.Route{route}, 443, 80, "", false))
 			if !strings.Contains(out, "https://"+host+" {") {
 				t.Errorf("dropped a legitimate hostname %q:\n%s", host, out)
 			}

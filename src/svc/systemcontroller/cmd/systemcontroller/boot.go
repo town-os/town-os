@@ -106,6 +106,11 @@ type boot struct {
 	// DNS.
 	rolMgr *rolodex.Manager
 	dnsTLD string
+	// dnsPort is the port rolodex serves DNS on, empty meaning the default.
+	// It is carried past bootServices because the resolved-routing decision it
+	// gates has to be made a second time, for the running controller — see
+	// resolvedConfigurator.
+	dnsPort string
 
 	// Monitoring.
 	monPorts       monitoring.Ports
@@ -411,10 +416,11 @@ func (b *boot) seedRepositories() error {
 	return nil
 }
 
-// bootDNS is the boot_dns stage: render rolodex.yml, restart rolodex only if
-// the file actually changed, wait for it to answer, and point systemd-resolved
-// at it. It also resolves the remaining image names and the monitoring
-// settings, which have to be known before the pull set is assembled.
+// bootDNS is the boot_dns stage: build the rolodex.Manager from the stored
+// settings, wait for the already-running rolodex to answer, and point
+// systemd-resolved at it. It writes no config file and restarts nothing — see
+// the block below. It also resolves the remaining image names and the
+// monitoring settings, which have to be known before the pull set is assembled.
 //
 // Non-fatal throughout: a box with no DNS still boots, and says so on stderr.
 func (b *boot) bootDNS(ctx context.Context) error {
@@ -428,8 +434,9 @@ func (b *boot) bootDNS(ctx context.Context) error {
 	// The resolution mode is a user-facing setting: "auto" (the default: roots,
 	// then DoH/DoT, then the forwarders, then a public resolver), "recursive"
 	// (roots only, no fallback), or "forward" (straight to the forwarders). An
-	// invalid stored value is ignored so a bad setting can never render a
-	// rolodex.yml that rolodex refuses to start with.
+	// invalid stored value is ignored so a bad setting can never be programmed
+	// into the running server, which rejects a mode it does not know rather
+	// than falling back to its default.
 	resolutionMode := rolodex.DefaultResolutionMode
 	if v, modeErr := b.settingsMgr.Get(ctx, "dns_resolution_mode"); modeErr == nil && rolodex.ValidResolutionMode(v) {
 		resolutionMode = v
@@ -452,14 +459,14 @@ func (b *boot) bootDNS(ctx context.Context) error {
 	// Empty (the normal case) means rolodex.DefaultDNSPort — see ports.go for
 	// why the integration harness relocates it.
 	dnsPort := dnsPortFromEnv()
+	b.dnsPort = dnsPort
 
-	// The blocklist provider lists are rendered into rolodex.yml from the
-	// persisted settings, because rolodex keeps them in memory only and would
-	// otherwise come up with every configured blocklist switched off. The
-	// gRPC re-assert in RebuildDNS is the repair path; this is what makes
-	// rolodex correct from its first second, including the window before the
-	// systemcontroller has finished booting.
-	storedRBL, storedDNSBL := systemcontroller.StoredBlocklists(ctx, b.settingsMgr)
+	// The blocklist provider list comes off the persisted settings, because
+	// rolodex keeps it in memory only and comes back from any restart with
+	// every configured provider switched off. It is carried on the manager so
+	// the gRPC push below — and the re-assert in RebuildDNS — have the
+	// operator's list to push rather than an empty one.
+	storedDNSBL := systemcontroller.StoredBlocklist(ctx, b.settingsMgr)
 
 	b.rolMgr = rolodex.NewManager(rolodex.Config{
 		Systemd:         b.sd,
@@ -470,27 +477,27 @@ func (b *boot) bootDNS(ctx context.Context) error {
 		DNSPort:         dnsPort,
 		MetricsPort:     rolodexMetricsPortFromEnv(),
 		LocalForwarders: localForwarders,
-		RBL:             storedRBL,
 		DNSBL:           storedDNSBL,
 	})
-	configWritten, configErr := b.rolMgr.WriteConfig()
-	if configErr != nil {
-		fmt.Fprintf(os.Stderr, "rolodex config: %v\n", configErr)
-	}
-
-	// Restart rolodex only if the config file was actually written
-	// (created or updated). Skip restart when the file was unchanged.
-	if configWritten {
-		rolUnitName := systemd.SystemServiceUnitName(b.rolMgr.Key())
-		if err := b.sd.SetStatus(ctx, rolUnitName, systemd.Restart); err != nil {
-			fmt.Fprintf(os.Stderr, "rolodex restart: %v\n", err)
-		}
-	}
+	// Nothing is written to rolodex.yml here, and nothing restarts rolodex.
+	// That file belongs to the install image, which renders the two settings
+	// that cannot be programmed at runtime — the bind list, from host
+	// addresses only it can enumerate, and the metrics listener rolodex opens
+	// once at startup. Everything Town OS owns (forwarders, resolution mode,
+	// both blocklists) is pushed into the running server instead, below.
+	//
+	// This ordering is why rolodex starts before the systemcontroller at all:
+	// the controller cannot pull an image until something resolves names, so
+	// rolodex is already serving from its own config by the time this runs.
 
 	// Wait for DNS readiness.
 	if err := b.rolMgr.WaitForDNSReady(ctx); err != nil {
 		fmt.Fprintf(os.Stderr, "rolodex DNS readiness: %v\n", err)
 	}
+
+	// The settings rolodex does not persist — forwarders, resolution mode,
+	// both blocklists — are programmed in reconcileDNSAndNetworks, which is
+	// where this boot already has a dialed rolodex client.
 
 	// Configure systemd-resolved to route the TLD to rolodex so
 	// inter-package DNS resolution works (container -> aardvark ->
@@ -502,8 +509,8 @@ func (b *boot) bootDNS(ctx context.Context) error {
 	// resolved can only route a domain to a resolver on :53, so this is skipped
 	// entirely when rolodex has been relocated off the standard port. Pointing
 	// resolved at DNSLoopback in that case would blackhole every .tld query.
-	if dnsPortIsDefault(dnsPort) {
-		rolodex.ConfigureResolvedRouting(ctx, b.dnsTLD, rolodex.DNSLoopback)
+	if fn := b.resolvedConfigurator(); fn != nil {
+		fn(ctx, b.dnsTLD, rolodex.DNSLoopback)
 	} else {
 		fmt.Fprintf(os.Stderr, "rolodex DNS on non-standard port %s; skipping systemd-resolved routing\n", dnsPort)
 	}
@@ -511,6 +518,29 @@ func (b *boot) bootDNS(ctx context.Context) error {
 	b.resolveRemainingImages()
 	b.readMonitoringSettings(ctx)
 	return nil
+}
+
+// resolvedConfigurator returns the function that points systemd-resolved at
+// rolodex for the box's TLD, or nil when this box must not have one.
+//
+// Boot is not the only caller: changing the TLD re-points resolved at the new
+// domain, from the running controller, hours later — so the decision boot makes
+// here has to be the same one the controller is handed in its ServerConfig, and
+// a nil there is what makes /dns/tld skip the call. It was not: boot guarded its
+// own call and then wired the raw rolodex.ConfigureResolvedRouting into the
+// controller regardless, so a relocated rolodex stayed unrouted only until
+// somebody renamed the TLD.
+//
+// nil is returned for exactly one reason, and it is the reason a per-domain
+// resolved server address carries no port: with rolodex on anything but :53,
+// resolved would send every query for the TLD to 127.0.0.2:53, where nothing is
+// listening, and blackhole a domain that would otherwise have fallen through to
+// the normal resolver path.
+func (b *boot) resolvedConfigurator() func(ctx context.Context, tld, loopbackAddr string) {
+	if !dnsPortIsDefault(b.dnsPort) {
+		return nil
+	}
+	return rolodex.ConfigureResolvedRouting
 }
 
 // resolveRemainingImages derives the UI and gfeh image names.
@@ -826,6 +856,16 @@ func (b *boot) reconcileDNSAndNetworks(ctx context.Context) {
 		time.Sleep(500 * time.Millisecond)
 	}
 	if rolClient != nil {
+		// Program what rolodex does not persist BEFORE reconciling records.
+		// rolodex seeds forwarders, resolution mode and both blocklists from
+		// its config file and keeps them in memory only, so until this runs
+		// the box is resolving with rolodex's defaults rather than the
+		// operator's choices — and the records reconciled below are records in
+		// a resolver whose upstreams are not yet the ones Town OS chose.
+		if err := systemcontroller.ProgramRolodex(ctx, rolClient, b.rolMgr, b.settingsMgr); err != nil {
+			fmt.Fprintf(os.Stderr, "program rolodex: %v\n", err)
+		}
+
 		dnsCfg := systemcontroller.ReconcileDNSConfig{
 			Client:           rolClient,
 			Installer:        b.inst,
@@ -838,6 +878,11 @@ func (b *boot) reconcileDNSAndNetworks(ctx context.Context) {
 			NetworkStatePath: b.networkStatePath,
 			BtrfsBasePath:    b.btrfsPath,
 			Gfeh:             b.gfehReg,
+			// Issues the leaf rolodex's DoT/DoQ listeners serve. This boot is
+			// the first moment the CA exists — rolodex started before it — so
+			// it is also the first moment that certificate can stop being
+			// self-signed.
+			TLSCA: b.tlsCA,
 		}
 		if dnsErr := systemcontroller.RebuildDNS(ctx, dnsCfg); dnsErr != nil {
 			fmt.Fprintf(os.Stderr, "rebuild DNS: %v\n", dnsErr)
@@ -971,7 +1016,7 @@ func (b *boot) serve(ctx context.Context) error {
 		Ingress:                    b.ingressMgr,
 		UI:                         b.uiMgr,
 		GfehRegistry:               b.gfehReg,
-		ResolvedConfigurator:       rolodex.ConfigureResolvedRouting,
+		ResolvedConfigurator:       b.resolvedConfigurator(),
 		SystemControllerImage:      "quay.io/town/town:" + b.tag,
 		SystemControllerListenAddr: b.listenAddr,
 		// Same id the boot stub reported on /status/ping, so a refresh

@@ -29,7 +29,13 @@ type Server struct {
 	sup            caddysup.CaddySupervisor
 	httpsPort      int
 	httpPort       int
+	adminPort      int
 	defaultBackend string
+	// defaultBackendTLS marks that fallback as speaking HTTPS, so the hop to it
+	// is proxied over https with verification skipped rather than sending
+	// plaintext at a TLS socket.
+	defaultBackendTLS bool
+
 	// lastReloadOK is when the last successful reload happened, guarded by mu
 	// and exported as townos_ingress_last_reload_success_time_seconds.
 	lastReloadOK time.Time
@@ -49,14 +55,54 @@ type Server struct {
 // production; ephemeral ports in tests). A value of 0 is treated as the scheme
 // default. defaultBackend, when non-empty, is the :80 fallback for unmatched
 // hosts (the Town OS UI); empty means no fallback vhost is emitted.
-func NewServer(sup caddysup.CaddySupervisor, httpsPort, httpPort int, defaultBackend string) *Server {
-	return &Server{
-		routes:          make(map[string]*ingresspb.Route),
-		sup:             sup,
-		httpsPort:       httpsPort,
-		httpPort:        httpPort,
-		defaultBackend:  defaultBackend,
-		caddyMetricsURL: caddyAdminMetricsURL,
+func NewServer(sup caddysup.CaddySupervisor, httpsPort, httpPort int, defaultBackend string, opts ...ServerOption) *Server {
+	s := &Server{
+		routes:         make(map[string]*ingresspb.Route),
+		sup:            sup,
+		httpsPort:      httpsPort,
+		httpPort:       httpPort,
+		adminPort:      DefaultAdminPort,
+		defaultBackend: defaultBackend,
+	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	// After the options, so WithCaddyAdminPort moves the scrape with the
+	// endpoint. A test that wants the passthrough pointed somewhere else
+	// entirely (or off) still overwrites the field directly.
+	s.caddyMetricsURL = caddyAdminMetricsURL(s.adminPort)
+	return s
+}
+
+// ServerOption adjusts a Server at construction. Options rather than more
+// positional parameters: every existing caller passes the same four arguments,
+// and a fifth bool at the end of that list is the kind of thing that gets
+// transposed with httpPort in a call nobody reads twice.
+type ServerOption func(*Server)
+
+// WithDefaultBackendTLS marks the :80 fallback backend as speaking HTTPS, so
+// the ingress proxies that hop over https with verification skipped rather than
+// sending plaintext at a TLS socket.
+func WithDefaultBackendTLS(enabled bool) ServerOption {
+	return func(s *Server) { s.defaultBackendTLS = enabled }
+}
+
+// WithCaddyAdminPort moves caddy's admin API off its default port, for callers
+// that run the child in a network namespace they share with other caddy
+// children. That means every test: `go test ./src/...` runs on the host, and the
+// integration container is `--net host`, so a default-port caddy binds the
+// developer's own :2019 and collides with any concurrent make test-full — IRON
+// RULE. Production leaves it alone; the ingress container has a namespace to
+// itself.
+//
+// It moves the metrics passthrough with it, since that fetch goes to the same
+// admin API — see NewServer. A port of 0 means the default.
+func WithCaddyAdminPort(port int) ServerOption {
+	return func(s *Server) {
+		if port == 0 {
+			port = DefaultAdminPort
+		}
+		s.adminPort = port
 	}
 }
 
@@ -80,7 +126,7 @@ func (s *Server) applyLocked() error {
 	for _, r := range s.routes {
 		list = append(list, r)
 	}
-	content, tally := renderCaddyfileTally(list, s.httpsPort, s.httpPort, s.defaultBackend)
+	content, tally := renderCaddyfileTally(list, s.httpsPort, s.httpPort, s.adminPort, s.defaultBackend, s.defaultBackendTLS)
 	s.recordTally(tally)
 	err := s.sup.Reload(content)
 	s.recordReloadLocked(err)

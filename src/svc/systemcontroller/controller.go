@@ -108,6 +108,11 @@ type serviceBackend interface {
 	GetGfehRegistry() GfehRegistry
 	GetMonitoringBackend() string
 	GetMonitoringPorts() monitoring.Ports
+	// GetScrapeTargetsFunc returns the function that asks Prometheus which of
+	// its scrape jobs are answering. nil means monitoring.FetchScrapeTargets —
+	// the real query against the loopback Prometheus — and a test supplies its
+	// own so a status poll never depends on a port in the host namespace.
+	GetScrapeTargetsFunc() ScrapeTargetsFunc
 	GetDiskDevices() []string
 	GetSwapCapability() monitoring.SwapCapability
 	RefreshMonitoringBackend(ctx context.Context, backend string) error
@@ -391,14 +396,16 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 	e.Add("POST", "/dns/tld", s.setDNSTLD, s.requireAdmin)
 	e.Add("POST", "/dns/setup", s.setupDNS, s.requireAdmin)
 
-	// DNS RBL / DNSBL (spam/malware/ad blocklists via rolodex)
-	e.Add("GET", "/dns/rbl", s.getRblConfig, s.requireAuth)
-	e.Add("POST", "/dns/rbl", s.setRblConfig, s.requireAdmin)
+	// DNSBL (spam/malware/ad blocklists via rolodex)
 	e.Add("GET", "/dns/dnsbl", s.getDnsblConfig, s.requireAuth)
 	e.Add("POST", "/dns/dnsbl", s.setDnsblConfig, s.requireAdmin)
-	e.Add("GET", "/dns/rbl/local", s.listLocalRblEntries, s.requireAuth)
-	e.Add("POST", "/dns/rbl/local/add", s.addLocalRblEntry, s.requireAdmin)
-	e.Add("POST", "/dns/rbl/local/remove", s.removeLocalRblEntry, s.requireAdmin)
+	// The local blocklist keeps its historical /dns/rbl/local paths: they are a
+	// published HTTP contract with the UI, and the entries themselves are
+	// unchanged — only the RBL provider lookups that once shared the prefix are
+	// gone.
+	e.Add("GET", "/dns/rbl/local", s.listLocalBlocklistEntries, s.requireAuth)
+	e.Add("POST", "/dns/rbl/local/add", s.addLocalBlocklistEntry, s.requireAdmin)
+	e.Add("POST", "/dns/rbl/local/remove", s.removeLocalBlocklistEntry, s.requireAdmin)
 	// The DNSBL allowlist: the escape hatch out of every name-based block.
 	e.Add("GET", "/dns/dnsbl/allowlist", s.listDnsblAllowlistEntries, s.requireAuth)
 	e.Add("POST", "/dns/dnsbl/allowlist/add", s.addDnsblAllowlistEntry, s.requireAdmin)
@@ -462,6 +469,11 @@ type ServerConfig struct {
 	// integration harness sets ephemeral ports so a test box never collides
 	// with a dev or production box in the shared host network namespace.
 	MonitoringPorts monitoring.Ports
+	// ScrapeTargetsFunc asks Prometheus which of its scrape jobs are
+	// answering, for /monitoring/status. nil means the real query
+	// (monitoring.FetchScrapeTargets) against the loopback Prometheus; a test
+	// sets it so a status poll never reaches for a port in the host namespace.
+	ScrapeTargetsFunc ScrapeTargetsFunc
 	PagesMgr                 account.PagesManager
 	NetworkMgr               account.NetworkManager
 	GitCloner                packages.GitCloner

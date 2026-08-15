@@ -65,6 +65,13 @@ message PathBackend {
   string path = 1;
   // reverse_proxy target as "container:port" on the ingress network.
   string backend = 2;
+  // Whether that target speaks TLS. Set it for a backend that terminates its
+  // own HTTPS — rolodex's DoH listener, an admin UI with a self-signed leaf —
+  // and the ingress proxies the internal hop over https with verification
+  // skipped, exactly as it does for a route-level backend. Unset means plain
+  // HTTP, which is right for the containers that serve :80 and wrong to assume
+  // for everything else: this field exists because it used to be assumed.
+  bool backend_tls = 3;
 }
 
 message SetRoutesRequest {

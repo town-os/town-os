@@ -10,19 +10,36 @@ import (
 )
 
 // TLSAEntry describes one DANE TLSA record to publish: the association data
-// (RDATA, e.g. "3 1 1 <hex>") for a TLS service reachable at Name on Port/tcp.
-// Name is the base FQDN (e.g. gitea.default.home) without the RFC 6698
-// _<port>._tcp prefix, which RegisterPackageTLSA prepends.
+// (RDATA, e.g. "3 1 1 <hex>") for a TLS service reachable at Name on
+// Port/Proto. Name is the base FQDN (e.g. gitea.default.home) without the RFC
+// 6698 _<port>._<proto> prefix, which RegisterPackageTLSA prepends.
+//
+// Proto is "tcp" or "udp"; empty means tcp, which is what every HTTP-supplying
+// package is. It exists because a TLSA record names a *service endpoint* rather
+// than a certificate, and encrypted DNS is two endpoints on one certificate:
+// DoT at 853/tcp and DoQ at 853/udp. With the protocol hardcoded there was no
+// way to publish the DoQ half, and an endpoint with no TLSA fails closed for a
+// DANE-checking client — indistinguishable from one that never had DANE at all.
 type TLSAEntry struct {
 	Name  string
 	Port  uint16
+	Proto string
 	Value string
 }
 
 // tlsaName builds the RFC 6698 owner name for a TLSA record:
-// _<port>._tcp.<fqdn>. (always fully qualified with a trailing dot).
-func tlsaName(name string, port uint16) string {
-	return fmt.Sprintf("_%d._tcp.%s.", port, strings.TrimSuffix(name, "."))
+// _<port>._<proto>.<fqdn>. (always fully qualified with a trailing dot).
+//
+// An empty or unrecognized proto is tcp: every caller predating UDP support
+// omits the field, and a typo must not mint a name under a protocol label
+// nothing will ever query.
+func tlsaName(name string, port uint16, proto string) string {
+	if strings.EqualFold(proto, "udp") {
+		proto = "udp"
+	} else {
+		proto = "tcp"
+	}
+	return fmt.Sprintf("_%d._%s.%s.", port, proto, strings.TrimSuffix(name, "."))
 }
 
 // RegisterPackageTLSA publishes a TLSA record for each entry pinning the
@@ -34,7 +51,7 @@ func RegisterPackageTLSA(ctx context.Context, c Client, entries []TLSAEntry) err
 		if e.Value == "" {
 			continue
 		}
-		owner := tlsaName(e.Name, e.Port)
+		owner := tlsaName(e.Name, e.Port, e.Proto)
 		if err := c.AddRecord(ctx, &upstream.DnsRecord{
 			Name:       owner,
 			RecordType: upstream.RecordTypeTLSA,
@@ -57,7 +74,7 @@ func RegisterScopedPackageTLSA(ctx context.Context, c Client, scope string, entr
 		if e.Value == "" {
 			continue
 		}
-		owner := tlsaName(e.Name, e.Port)
+		owner := tlsaName(e.Name, e.Port, e.Proto)
 		if err := c.AddScopedRecord(ctx, scope, &upstream.DnsRecord{
 			Name:       owner,
 			RecordType: upstream.RecordTypeTLSA,
@@ -75,7 +92,7 @@ func RegisterScopedPackageTLSA(ctx context.Context, c Client, scope string, entr
 func UnregisterPackageTLSA(ctx context.Context, c Client, entries []TLSAEntry) error {
 	tlsaType := upstream.RecordTypeTLSA
 	for _, e := range entries {
-		owner := tlsaName(e.Name, e.Port)
+		owner := tlsaName(e.Name, e.Port, e.Proto)
 		if _, err := c.RemoveRecord(ctx, owner, &upstream.RemoveRecordOptions{RecordType: &tlsaType}); err != nil {
 			return fmt.Errorf("remove TLSA record %s: %w", owner, err)
 		}
@@ -91,7 +108,7 @@ func UnregisterPackageTLSA(ctx context.Context, c Client, entries []TLSAEntry) e
 func UnregisterScopedPackageTLSA(ctx context.Context, c Client, scope string, entries []TLSAEntry) error {
 	tlsaType := upstream.RecordTypeTLSA
 	for _, e := range entries {
-		owner := tlsaName(e.Name, e.Port)
+		owner := tlsaName(e.Name, e.Port, e.Proto)
 		if _, err := c.RemoveScopedRecord(ctx, scope, owner, &upstream.RemoveScopedRecordOptions{RecordType: &tlsaType}); err != nil {
 			return fmt.Errorf("remove scoped TLSA record %s: %w", owner, err)
 		}

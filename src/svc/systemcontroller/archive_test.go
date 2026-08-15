@@ -174,6 +174,10 @@ func (b *archiveTestBackend) GetSwapCapability() monitoring.SwapCapability {
 func (b *archiveTestBackend) GetMonitoringPorts() monitoring.Ports {
 	return monitoring.Ports{}
 }
+
+// nil means the real Prometheus query, which this backend's handlers never
+// reach — /monitoring/status is not among them.
+func (b *archiveTestBackend) GetScrapeTargetsFunc() ScrapeTargetsFunc { return nil }
 func (b *archiveTestBackend) RefreshMonitoringBackend(_ context.Context, _ string) error {
 	return nil
 }

@@ -89,7 +89,12 @@ func TestServerBaseSatisfiesEachRoleIndividually(t *testing.T) {
 // question to answer first is whether the caller could take a role interface
 // instead, and then raise the bound deliberately.
 func TestBackendDoesNotGrowUnnoticed(t *testing.T) {
-	const bound = 44
+	// 45: GetScrapeTargetsFunc joined serviceBackend so /monitoring/status can
+	// report which Prometheus scrape jobs are failing without a unit test
+	// reaching for a port in the host namespace. The handler already takes the
+	// whole backend for four other monitoring getters, so a role interface
+	// would have bought nothing here.
+	const bound = 45
 
 	got := reflect.TypeFor[systemControllerBackend]().NumMethod()
 	if got > bound {

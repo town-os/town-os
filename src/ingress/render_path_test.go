@@ -32,7 +32,7 @@ func httpViewRoute() *ingresspb.Route {
 // A path backend splits one vhost between two services: the matched path to the
 // path backend, everything else to the route's own.
 func TestRenderCaddyfilePathBackendSplitsTheVhost(t *testing.T) {
-	out := string(renderCaddyfile([]*ingresspb.Route{httpViewRoute()}, 443, 80, ""))
+	out := string(renderCaddyfile([]*ingresspb.Route{httpViewRoute()}, 443, 80, "", false))
 
 	for _, want := range []string{
 		"https://http.gfeh.home {",
@@ -60,7 +60,7 @@ func TestRenderCaddyfilePathBackendSplitsTheVhost(t *testing.T) {
 // Only the root. A prefix would shadow paths gfehd may grow later, which is the
 // failure the index exists to fix, inverted.
 func TestRenderCaddyfilePathBackendMatchesTheRootOnly(t *testing.T) {
-	out := string(renderCaddyfile([]*ingresspb.Route{httpViewRoute()}, 443, 80, ""))
+	out := string(renderCaddyfile([]*ingresspb.Route{httpViewRoute()}, 443, 80, "", false))
 
 	if strings.Contains(out, "handle /* {") || strings.Contains(out, "handle /f/") {
 		t.Errorf("the path backend claims more than the root:\n%s", out)
@@ -74,7 +74,7 @@ func TestRenderCaddyfileWithoutPathBackendsIsUnchanged(t *testing.T) {
 		Hostname: "gitea.core.home",
 		Backend:  "town-os-package--core-gitea-1.0:3000",
 		CertDir:  "/c/gitea",
-	}}, 443, 80, ""))
+	}}, 443, 80, "", false))
 
 	if !strings.Contains(out, "\treverse_proxy town-os-package--core-gitea-1.0:3000\n") {
 		t.Errorf("a plain route no longer renders a plain reverse_proxy:\n%s", out)
@@ -102,7 +102,7 @@ func TestRenderCaddyfileDropsInjectedPathBackends(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			r := httpViewRoute()
 			r.PathBackends[0].Path = tc.path
-			out := string(renderCaddyfile([]*ingresspb.Route{r}, 443, 80, ""))
+			out := string(renderCaddyfile([]*ingresspb.Route{r}, 443, 80, "", false))
 
 			if strings.Contains(out, "evil") {
 				t.Errorf("an injected path reached the config:\n%s", out)
@@ -123,7 +123,7 @@ func TestRenderCaddyfileDropsInjectedPathBackends(t *testing.T) {
 func TestRenderCaddyfileDropsInjectedPathBackendTargets(t *testing.T) {
 	r := httpViewRoute()
 	r.PathBackends[0].Backend = "pages:80 }\nhttps://evil.home {\n\treverse_proxy evil:80"
-	out := string(renderCaddyfile([]*ingresspb.Route{r}, 443, 80, ""))
+	out := string(renderCaddyfile([]*ingresspb.Route{r}, 443, 80, "", false))
 
 	if strings.Contains(out, "evil") {
 		t.Errorf("an injected path backend target reached the config:\n%s", out)
@@ -142,7 +142,7 @@ func TestRenderCaddyfileDropsDuplicatePathBackends(t *testing.T) {
 		Path:    "/",
 		Backend: "town-os-system--other:80",
 	})
-	out := string(renderCaddyfile([]*ingresspb.Route{r}, 443, 80, ""))
+	out := string(renderCaddyfile([]*ingresspb.Route{r}, 443, 80, "", false))
 
 	if n := strings.Count(out, "handle / {"); n != 1 {
 		t.Errorf("got %d handle blocks for /, want 1:\n%s", n, out)
@@ -160,9 +160,9 @@ func TestRenderCaddyfileDropsDuplicatePathBackends(t *testing.T) {
 // to reload, so a route that rendered differently between identical reconciles
 // would bounce caddy every pass.
 func TestRenderCaddyfilePathBackendsAreDeterministic(t *testing.T) {
-	first := renderCaddyfile([]*ingresspb.Route{httpViewRoute()}, 443, 80, "")
+	first := renderCaddyfile([]*ingresspb.Route{httpViewRoute()}, 443, 80, "", false)
 	for i := range 5 {
-		if got := renderCaddyfile([]*ingresspb.Route{httpViewRoute()}, 443, 80, ""); string(got) != string(first) {
+		if got := renderCaddyfile([]*ingresspb.Route{httpViewRoute()}, 443, 80, "", false); string(got) != string(first) {
 			t.Fatalf("render %d differs:\n%s\n---\n%s", i, string(first), string(got))
 		}
 	}
@@ -177,7 +177,7 @@ func TestRenderCaddyfilePathBackendValidatesWithCaddy(t *testing.T) {
 	content := renderCaddyfile([]*ingresspb.Route{
 		httpViewRoute(),
 		{Hostname: "gitea.core.home", Backend: "town-os-package--core-gitea-1.0:3000", CertDir: "/c/gitea"},
-	}, 443, 80, "town-os-system--ui:80")
+	}, 443, 80, "town-os-system--ui:80", false)
 
 	path := filepath.Join(t.TempDir(), "Caddyfile")
 	if err := os.WriteFile(path, content, 0o600); err != nil {
@@ -212,5 +212,90 @@ func TestValidPathMatcher(t *testing.T) {
 		if got := validPathMatcher(tc.path); got != tc.want {
 			t.Errorf("validPathMatcher(%q) = %v, want %v", tc.path, got, tc.want)
 		}
+	}
+}
+
+// A path backend that terminates its own TLS is proxied over https with
+// verification skipped on the internal hop — the same treatment a route-level
+// TLS backend gets.
+//
+// This is what lets one vhost front a DoH resolver at /dns-query while serving
+// something else at every other path: rolodex's DoH listener speaks TLS, and the
+// scheme used to be hardcoded to plain HTTP for every path backend. That failure
+// is a 502 with nothing in it to say the config chose the wrong scheme.
+func TestRenderCaddyfilePathBackendKeepsItsOwnScheme(t *testing.T) {
+	route := &ingresspb.Route{
+		Hostname: "dns.home",
+		Backend:  "town-os-system--ui:80",
+		CertDir:  "/etc/town-os/tls/leaves/dns/home/current",
+		PathBackends: []*ingresspb.PathBackend{{
+			Path:       "/dns-query",
+			Backend:    "127.0.0.2:443",
+			BackendTls: true,
+		}},
+	}
+
+	out := string(renderCaddyfile([]*ingresspb.Route{route}, 443, 80, "", false))
+
+	for _, want := range []string{
+		"handle /dns-query {",
+		"reverse_proxy https://127.0.0.2:443 {",
+		"tls_insecure_skip_verify",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("rendered config is missing %q:\n%s", want, out)
+		}
+	}
+	// The path is handled, not stripped: rolodex serves /dns-query and nothing
+	// else, so a handle_path here would proxy "/" and every query would 404.
+	if strings.Contains(out, "handle_path") {
+		t.Errorf("the DoH path is stripped before it reaches rolodex:\n%s", out)
+	}
+	// The route's own backend is untouched by the path backend's scheme.
+	if !strings.Contains(out, "reverse_proxy town-os-system--ui:80") {
+		t.Errorf("the route's own backend lost its scheme:\n%s", out)
+	}
+}
+
+// The default stays plain HTTP: an unset flag must not start proxying https to
+// the pages container, which speaks :80.
+func TestRenderCaddyfilePathBackendDefaultsToPlainHTTP(t *testing.T) {
+	out := string(renderCaddyfile([]*ingresspb.Route{httpViewRoute()}, 443, 80, "", false))
+
+	if strings.Contains(out, "reverse_proxy https://town-os-system--pages:80") {
+		t.Errorf("a path backend with no TLS flag was proxied over https:\n%s", out)
+	}
+	if !strings.Contains(out, "reverse_proxy town-os-system--pages:80") {
+		t.Errorf("rendered config is missing the plain-HTTP pages backend:\n%s", out)
+	}
+}
+
+// The :80 fallback backend can speak HTTPS too. It was the last hop in the
+// renderer that could only be plaintext, which meant a fallback service holding
+// its own certificate could not be fronted at all — the proxy would send
+// plaintext at a TLS socket and every unmatched host would 502.
+func TestRenderCaddyfileDefaultBackendCanSpeakHTTPS(t *testing.T) {
+	out := string(renderCaddyfile(nil, 443, 80, "town-os-system--ui:443", true))
+
+	for _, want := range []string{
+		":80 {",
+		"reverse_proxy https://town-os-system--ui:443 {",
+		"tls_insecure_skip_verify",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("rendered config is missing %q:\n%s", want, out)
+		}
+	}
+}
+
+// And still defaults to plaintext, because the UI container serves :80.
+func TestRenderCaddyfileDefaultBackendStaysPlainByDefault(t *testing.T) {
+	out := string(renderCaddyfile(nil, 443, 80, "town-os-system--ui:80", false))
+
+	if strings.Contains(out, "reverse_proxy https://town-os-system--ui:80") {
+		t.Errorf("the default backend was proxied over https without being asked:\n%s", out)
+	}
+	if !strings.Contains(out, "reverse_proxy town-os-system--ui:80") {
+		t.Errorf("rendered config is missing the plain default backend:\n%s", out)
 	}
 }
