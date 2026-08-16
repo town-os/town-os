@@ -102,6 +102,24 @@ API 界面、启动顺序、设置项，以及维系这些内容的不变量—�
 - 确保所有文件按 API 组织。它们应按子模块名称分层限定作用域。行数的参考指标大约为 500 行。
 
 
+## 跨仓库契约
+
+**另有两个仓库通过成文契约依赖本仓库，各自维护一份 `TOWNOS_CONTRACT.md`；只有在这里改代码的同时也改它，那份契约才继续为真。两个仓库彼此看不见对方，而它们不一致时本检出目录里没有任何东西会失败 —— 一处改动落在这里却没有配套的契约修改，就是这边一片绿色的测试套件，那边一台坏掉的机器。**
+
+- **gfeh**（`~/src/github.com/town-os/gfeh`）是 Town OS 的*客户端*：它鉴权账户，并置备其分区所在的 btrfs 子卷；它模拟（`crates/gfeh-townos-emulator`）这一表面，使其测试无需 root、systemd、podman 或 btrfs 即可运行。它在本侧固定的是 systemcontroller 的路由**及其线上形状** —— `controller.go`、`controller_storage.go`、`controller_auth.go`、`controller_gfeh_partitions.go` —— `createFilesystem` 中无条件的 `user/` 改写、保留前缀集合（按 Go 常量解析，因此重命名无妨，成员变化则不然），以及 `requireAuth` / `requireAdmin` 中间件。对 `src/storage`、`src/account` 或这些文件声明的任何路由的改动，都是契约变更，而不是重构。一个漂移的字段名对真实 Town OS 会返回 422，而模拟器的每个测试仍然全绿 —— 这正是契约存在要防止的失败。
+
+- **rolodex-dns**（`../rolodex-dns`）方向相反：它是被 Town OS 通过 gRPC *驱动*的东西，所以它的契约主要写的是本仓库可以对 rolodex 作何假设；它还覆盖 `../install`，因为那里的 `scripts/rolodex-config.sh` 是 rolodex 启动所读 `rolodex.yml` 的唯一写入者。它在本侧固定的是 `src/rolodex/client.go`（`Client` 接口声明的每个方法都必须存在于 rolodex 自己的 Go 客户端上 —— 那才是本仓库绑定的表面，而不是 proto）、`src/rolodex/forwarder.go`（其 scheme 集合必须与 `src/forwarder.rs` 中手写的 Rust 解析器一致：同一套文法的两个解析器，中间没有任何生成代码，是契约中防护最薄弱的一处），以及那些固定地址 —— `RolodexDohBackend`（`ingress_doh.go`）、`DNSLoopback` 与 `DefaultMetricsPort`（`rolodex.go`）、`RolodexTLSSubdir`（`rolodex_transport_tls.go`）。rolodex 不会持久化任何通过 gRPC 告知它的东西，因此一次没有落地的设置推送，看起来与落地了的完全一样；这就是为什么这些要靠检查，而不是靠发现。
+
+**当这里的改动触及上述任何一项时，请连同改动一起编辑该仓库的 `TOWNOS_CONTRACT.md`，并在那个检出目录里重新运行检查** —— `make check-townos-sync`，两边同名。它们都很快、离线且只读，所以需要时尽管运行；它们是让不一致变响的唯一地方。**不要**运行 gfeh 的 `check-townos-sync-release`：它会通过网络抓取 Gitea 的 HEAD，其存在是作为那边 `make publish` 的闸门。
+
+关于这些契约，有三件事决定了该怎么与它们打交道：
+
+- **跳过不等于通过。** 当所需的检出目录不存在时，两个脚本都会干净地跳过（rolodex 的需要 `../town-os` *和* `../install`；gfeh 的默认在 `$HOME/src/gitea.com/town-os/town-os`），因为每个仓库都必须能在只有它自己的机器上构建。一次打印了 `skipping` 的运行什么都没有验证。
+
+- **两侧都刻意不锁定到任何版本。** 检查在运行的那一刻解析机器上检出的内容，因此“已验证”意味着*针对当下的 Town OS*，而不是针对某人上次记得去更新某个常量时的 Town OS。不要加锁定，也不要把某个版本写进文档：没有任何脚本会读的版本记录，是一份无人维护的声明。
+
+- **rolodex 的契约有翻译，而它的翻译检查会强制这一点。** 那边的 `TOWNOS_CONTRACT.md` 与本文件一样带有同样五种翻译，并被 `translation-drift-check.py` 覆盖，该检查在那个仓库的 `make lint` 中运行。只改英文文件，会把一次契约修复变成那边的一次 lint 失败。gfeh 的契约只有英文。
+
 ## 发布镜像架构
 
 **两种架构必须能够在同一个检出目录中同时构建。每种架构同一时刻只需支持一个构建 —— 必须永远不能相互破坏的情形，是一个 x86_64 构建与一个 aarch64 构建并发运行。**

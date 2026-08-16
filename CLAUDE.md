@@ -107,6 +107,73 @@ the translations follow.
 - Ensure all files are organized by api. They should be scoped by subsection name, hierarchically. The metric for line count should be about 500 or so.
 
 
+## The Cross-Repository Contracts
+
+**Two other repositories depend on this one through a written contract, and each
+keeps a `TOWNOS_CONTRACT.md` that stays true only as long as somebody changes it
+in the same breath as the code here. Neither repository can see the other, and
+nothing in this checkout fails when they disagree — a change that lands here
+without its contract edit is a green test suite here and a broken box there.**
+
+- **gfeh** (`~/src/github.com/town-os/gfeh`) is a *client* of Town OS: it
+  authenticates accounts and provisions the btrfs subvolumes its partitions live
+  in, and it emulates that surface (`crates/gfeh-townos-emulator`) so its tests
+  run without root, systemd, podman, or btrfs. What it pins on this side is the
+  systemcontroller's routes **and their wire shapes** — `controller.go`,
+  `controller_storage.go`, `controller_auth.go`,
+  `controller_gfeh_partitions.go` — the unconditional `user/` rewrite in
+  `createFilesystem`, the reserved-prefix set (resolved as Go constants, so a
+  rename is fine and a membership change is not), and the `requireAuth` /
+  `requireAdmin` middleware. A change to `src/storage`, `src/account`, or any
+  route those files declare is a contract change, not a refactor. A drifted
+  field name returns 422 against real Town OS while every emulator test stays
+  green, which is the failure the contract exists to prevent.
+
+- **rolodex-dns** (`../rolodex-dns`) runs the other direction: it is a thing
+  Town OS *drives* over gRPC, so its contract is mostly what this repository may
+  assume about rolodex, and it covers `../install` too, since
+  `scripts/rolodex-config.sh` there is the only writer of the `rolodex.yml`
+  rolodex boots from. What it pins on this side is `src/rolodex/client.go`
+  (every method the `Client` interface declares must exist on rolodex's own Go
+  client — that, not the proto, is the surface this repo binds to),
+  `src/rolodex/forwarder.go` (its scheme set must match the hand-written Rust
+  parser in `src/forwarder.rs`: two parsers of one grammar with no generated
+  code between them, and the least defended thing in the contract), and the
+  fixed addresses — `RolodexDohBackend` (`ingress_doh.go`), `DNSLoopback` and
+  `DefaultMetricsPort` (`rolodex.go`), `RolodexTLSSubdir`
+  (`rolodex_transport_tls.go`). rolodex persists nothing it is told over gRPC,
+  so a settings push that never lands looks exactly like one that did; that is
+  why these are checked rather than discovered.
+
+**When a change here touches any of those, edit that repository's
+`TOWNOS_CONTRACT.md` with it and re-run the check from that checkout** —
+`make check-townos-sync`, the same target name in both. Both are fast, offline
+and read-only, so run them whenever you need to; they are the one place the
+disagreement becomes loud. Do **not** run gfeh's
+`check-townos-sync-release`: it fetches Gitea HEAD over the network and exists
+as a gate on `make publish` over there.
+
+Three things about those contracts that decide how to work with them:
+
+- **A skip is not a pass.** Both scripts skip cleanly when the checkout they
+  want is absent (rolodex's wants `../town-os` *and* `../install`; gfeh's
+  defaults to `$HOME/src/gitea.com/town-os/town-os`), because each repository
+  has to build on a machine that has only itself. A run that printed `skipping`
+  verified nothing.
+
+- **Nothing is pinned to a revision on either side, deliberately.** The checks
+  resolve whatever is checked out at the moment they run, so "verified" means
+  against Town OS *as it is now* rather than as it was when somebody last
+  remembered to bump a constant. Do not add a pin, and do not write a revision
+  into a document: a recorded revision that no script reads is a claim nobody is
+  maintaining.
+
+- **rolodex's contract is translated, and its translation check enforces that.**
+  `TOWNOS_CONTRACT.md` there carries the same five translations this file does
+  and is covered by `translation-drift-check.py`, which runs in that repo's
+  `make lint`. Editing the English file alone turns a contract fix into a lint
+  failure there. gfeh's contract is English-only.
+
 ## Release Image Architecture
 
 **Two architectures must be able to build at the same time, in the same

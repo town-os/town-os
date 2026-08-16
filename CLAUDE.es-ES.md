@@ -110,6 +110,79 @@ con él.
 - Asegúrate de que todos los archivos estén organizados por API. Deben acotarse por nombre de subsección, de forma jerárquica. La métrica de recuento de líneas es de unas 500 aproximadamente.
 
 
+## Los Contratos Entre Repositorios
+
+**Otros dos repositorios dependen de este a través de un contrato escrito, y cada
+uno mantiene un `TOWNOS_CONTRACT.md` que solo sigue siendo cierto mientras
+alguien lo cambie a la vez que el código de aquí. Ninguno de los dos
+repositorios ve al otro, y nada en este checkout falla cuando discrepan — un
+cambio que aterriza aquí sin su edición del contrato es una batería de pruebas
+en verde de este lado y una máquina rota del otro.**
+
+- **gfeh** (`~/src/github.com/town-os/gfeh`) es un *cliente* de Town OS:
+  autentica cuentas y aprovisiona los subvolúmenes btrfs donde viven sus
+  particiones, y emula esa superficie (`crates/gfeh-townos-emulator`) para que
+  sus pruebas corran sin root, systemd, podman ni btrfs. Lo que fija de este
+  lado son las rutas del systemcontroller **y sus formas del cable** —
+  `controller.go`, `controller_storage.go`, `controller_auth.go`,
+  `controller_gfeh_partitions.go` —, la reescritura incondicional a `user/` de
+  `createFilesystem`, el conjunto de prefijos reservados (resuelto como
+  constantes de Go, así que un renombrado da igual y un cambio de miembros no) y
+  los middlewares `requireAuth` / `requireAdmin`. Un cambio en `src/storage`, en
+  `src/account` o en cualquier ruta que declaren esos archivos es un cambio de
+  contrato, no una refactorización. Un nombre de campo que se ha desviado
+  devuelve 422 contra el Town OS real mientras todas las pruebas del emulador
+  siguen en verde, que es justo el fallo que el contrato existe para impedir.
+
+- **rolodex-dns** (`../rolodex-dns`) va en la dirección contraria: es algo que
+  Town OS *dirige* por gRPC, así que su contrato es sobre todo lo que este
+  repositorio puede dar por supuesto de rolodex, y también cubre `../install`,
+  porque el `scripts/rolodex-config.sh` de allí es el único que escribe el
+  `rolodex.yml` con el que arranca rolodex. Lo que fija de este lado es
+  `src/rolodex/client.go` (todos los métodos que declara la interfaz `Client`
+  deben existir en el propio cliente Go de rolodex — esa, y no el proto, es la
+  superficie a la que se enlaza este repositorio), `src/rolodex/forwarder.go`
+  (su conjunto de esquemas debe coincidir con el analizador Rust escrito a mano
+  de `src/forwarder.rs`: dos analizadores de una misma gramática sin nada
+  generado entre ellos, lo menos defendido del contrato) y las direcciones
+  fijas: `RolodexDohBackend` (`ingress_doh.go`), `DNSLoopback` y
+  `DefaultMetricsPort` (`rolodex.go`), `RolodexTLSSubdir`
+  (`rolodex_transport_tls.go`). rolodex no persiste nada de lo que se le indica
+  por gRPC, así que un envío de ajustes que nunca llega se ve exactamente igual
+  que uno que sí llegó; por eso esto se comprueba en vez de descubrirse.
+
+**Cuando un cambio de aquí toque cualquiera de esas cosas, edita el
+`TOWNOS_CONTRACT.md` de ese repositorio junto con él y vuelve a ejecutar su
+comprobación desde ese checkout** — `make check-townos-sync`, el mismo nombre de
+target en ambos. Las dos son rápidas, sin red y de solo lectura, así que
+ejecútalas cuando las necesites; son el único sitio donde la discrepancia se
+vuelve ruidosa. **No** ejecutes el `check-townos-sync-release` de gfeh: descarga
+el HEAD de Gitea por red y existe como puerta de `make publish` de aquel lado.
+
+Tres cosas sobre esos contratos que deciden cómo trabajar con ellos:
+
+- **Un salto no es un aprobado.** Ambos scripts se saltan limpiamente cuando el
+  checkout que quieren no está (el de rolodex quiere `../town-os` *y*
+  `../install`; el de gfeh usa por defecto
+  `$HOME/src/gitea.com/town-os/town-os`), porque cada repositorio tiene que
+  compilar en una máquina que solo lo tenga a él. Una ejecución que imprimió
+  `skipping` no verificó nada.
+
+- **Nada está fijado a una revisión en ninguno de los dos lados, y es
+  deliberado.** Las comprobaciones resuelven lo que haya en el checkout en el
+  momento en que se ejecutan, así que "verificado" significa contra Town OS *tal
+  como es ahora* y no como era cuando alguien se acordó por última vez de subir
+  una constante. No introduzcas un pin, ni escribas una revisión en un
+  documento: una revisión anotada que ningún script lee es una afirmación que
+  nadie mantiene.
+
+- **El contrato de rolodex está traducido, y su comprobación de traducciones lo
+  exige.** El `TOWNOS_CONTRACT.md` de allí lleva las mismas cinco traducciones
+  que este archivo y lo cubre `translation-drift-check.py`, que corre en el
+  `make lint` de aquel repositorio. Editar solo el archivo en inglés convierte
+  un arreglo del contrato en un fallo de lint allí. El contrato de gfeh es solo
+  en inglés.
+
 ## Arquitectura de las Imágenes de Release
 
 **Dos arquitecturas deben poder compilarse a la vez, en el mismo checkout. Basta con que funcione una compilación por arquitectura a la vez — el caso que jamás debe corromper ninguna de las dos es una compilación x86_64 y una aarch64 ejecutándose de forma concurrente.**
