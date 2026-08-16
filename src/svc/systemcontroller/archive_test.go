@@ -188,6 +188,9 @@ func (b *archiveTestBackend) RefreshDNSResolutionMode(_ context.Context, _ strin
 func (b *archiveTestBackend) RefreshDNSLocalForwarders(_ context.Context, _ bool) error {
 	return nil
 }
+func (b *archiveTestBackend) RefreshDNSForwarders(_ context.Context, _ string) error {
+	return nil
+}
 func (b *archiveTestBackend) GetRolodex() *rolodex.Manager                       { return nil }
 func (b *archiveTestBackend) GetRolodexClient() rolodex.Client                   { return nil }
 func (b *archiveTestBackend) GetIngress() *ingressctl.Manager                       { return nil }

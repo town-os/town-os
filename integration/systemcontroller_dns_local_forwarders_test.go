@@ -7,6 +7,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -28,12 +29,20 @@ type localForwardersEnv struct {
 // settings API, with a fake rolodex server so a test can see what the handler
 // programs, and a mock systemd so it can see that it asks for no restart.
 //
-// Discovery is pointed at a fixture rather than the machine's own resolv.conf:
-// the addresses a test asserts on must be a property of the test, not of
-// whichever resolver the host running `make test-full` happens to have — and on
-// a host whose /etc/resolv.conf holds only a loopback stub, real discovery
-// would find nothing and the assertion would be about the wrong thing.
-func initLocalForwardersTest(t *testing.T) localForwardersEnv {
+// Discovery is pointed at fixtures rather than the machine's own resolv.conf
+// and routing table, and the probe is stubbed: the addresses a test asserts on
+// must be a property of the test, not of whichever resolver the host running
+// `make test-full` happens to have — and on a host whose /etc/resolv.conf holds
+// only a loopback stub, real discovery would find nothing and the assertion
+// would be about the wrong thing.
+//
+// The probe stub matters twice over. Left to the real one these tests would
+// send DNS queries to the host's own gateway, which is a suite that reaches the
+// network, and every candidate would be judged by whether the machine running
+// CI can resolve through it.
+//
+// working is the set of candidate addresses the stubbed probe accepts.
+func initLocalForwardersTest(t *testing.T, working ...string) localForwardersEnv {
 	t.Helper()
 
 	sd := systemd.InitMockManager()
@@ -48,13 +57,29 @@ func initLocalForwardersTest(t *testing.T) localForwardersEnv {
 	if err := os.WriteFile(resolvPath, []byte("nameserver 192.168.77.1\n"), 0600); err != nil {
 		t.Fatalf("write resolv.conf fixture: %v", err)
 	}
+	// A default route via 192.168.122.1, in the native-endian hex form
+	// /proc/net/route prints. Present in every one of these tests because a
+	// real box always has one, and discovery reading it is the whole point.
+	routePath := filepath.Join(dataDir, "route")
+	routeTable := "Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n" +
+		"ens3\t00000000\t017AA8C0\t0003\t0\t0\t1024\t00000000\t0\t0\t0\n"
+	if err := os.WriteFile(routePath, []byte(routeTable), 0600); err != nil {
+		t.Fatalf("write route table fixture: %v", err)
+	}
 
+	if len(working) == 0 {
+		working = []string{"192.168.77.1:53", "192.168.122.1:53"}
+	}
 	rolMgr := rolodex.NewManager(rolodex.Config{
 		Systemd:         sd,
 		DataDir:         dataDir,
 		Image:           rolodexTestImage(),
 		UnixSocketPath:  filepath.Join(dataDir, "rolodex.sock"),
 		ResolvConfPaths: []string{resolvPath},
+		RouteTablePath:  routePath,
+		ForwarderProbe: func(_ context.Context, addr string) bool {
+			return slices.Contains(working, addr)
+		},
 	})
 
 	// No config file: rolodex.yml holds the install image's binds and metrics
@@ -95,7 +120,9 @@ func TestIntegrationSetDNSLocalForwardersProgramsRolodexWithoutRestarting(t *tes
 		t.Fatalf("SetSetting: %v", err)
 	}
 
-	assertProgrammedForwarders(t, rolCli, []string{"192.168.77.1:53"})
+	// Both discovered candidates answered, so both are programmed: the
+	// nameserver the network handed out, then the default gateway.
+	assertProgrammedForwarders(t, rolCli, []string{"192.168.77.1:53", "192.168.122.1:53"})
 
 	if rolodexRestartRequested(sd, rolMgr.UnitName()) {
 		t.Fatalf("rolodex was restarted to apply a runtime setting; systemd calls: %+v", sd.Calls)
@@ -180,9 +207,66 @@ func TestIntegrationDNSStatusReportsTheEffectiveForwarders(t *testing.T) {
 	if !status.LocalForwarders {
 		t.Fatal("DNSStatus still reports local forwarders off after enabling them")
 	}
-	if strings.Join(status.Forwarders, ",") != "192.168.77.1:53" {
-		t.Fatalf("DNSStatus forwarders = %v, want [192.168.77.1:53]", status.Forwarders)
+	if want := "192.168.77.1:53,192.168.122.1:53"; strings.Join(status.Forwarders, ",") != want {
+		t.Fatalf("DNSStatus forwarders = %v, want %v", status.Forwarders, want)
 	}
+}
+
+// TestIntegrationLocalForwardersDropWhatCannotResolve is the berkeley network
+// end to end, through the real settings endpoint: the resolver the network
+// advertised does not answer, the default gateway does, and only the gateway is
+// programmed. Before the probe, both went in — and the dead one sat in the
+// local tier of "auto", which is reached only after the roots and the encrypted
+// upstreams have failed, charging every query that got that far a full
+// per-forwarder timeout on its way to SERVFAIL.
+func TestIntegrationLocalForwardersDropWhatCannotResolve(t *testing.T) {
+	t.Parallel()
+
+	env := initLocalForwardersTest(t, "192.168.122.1:53")
+	c, rolCli := env.client, env.rolCli
+	ctx := context.Background()
+
+	if err := c.SetSetting(ctx, "dns_local_forwarders", "true"); err != nil {
+		t.Fatalf("SetSetting: %v", err)
+	}
+
+	assertProgrammedForwarders(t, rolCli, []string{"192.168.122.1:53"})
+}
+
+// The control for the test above, and the reason the probe cannot simply prefer
+// the gateway: on a network where nothing is filtered the advertised resolver
+// answers too, and dropping it would throw away the resolver the network
+// actually asked this box to use. Only the gateway answering is a property of
+// the filtered case, not a rule.
+func TestIntegrationLocalForwardersKeepTheAdvertisedResolverWhenItWorks(t *testing.T) {
+	t.Parallel()
+
+	env := initLocalForwardersTest(t, "192.168.77.1:53")
+	c, rolCli := env.client, env.rolCli
+	ctx := context.Background()
+
+	if err := c.SetSetting(ctx, "dns_local_forwarders", "true"); err != nil {
+		t.Fatalf("SetSetting: %v", err)
+	}
+
+	assertProgrammedForwarders(t, rolCli, []string{"192.168.77.1:53"})
+}
+
+// Nothing answering is the "keep what was already configured" case, and it has
+// to survive the probe: an empty list pushed to rolodex would delete the local
+// tier outright, which is strictly worse than the public defaults it replaced.
+func TestIntegrationLocalForwardersKeepTheDefaultsWhenNothingAnswers(t *testing.T) {
+	t.Parallel()
+
+	env := initLocalForwardersTest(t, "203.0.113.1:53")
+	c, rolCli := env.client, env.rolCli
+	ctx := context.Background()
+
+	if err := c.SetSetting(ctx, "dns_local_forwarders", "true"); err != nil {
+		t.Fatalf("SetSetting: %v", err)
+	}
+
+	assertProgrammedForwarders(t, rolCli, rolodex.DefaultForwarders)
 }
 
 func assertProgrammedForwarders(t *testing.T, client *rolodex.MockClient, want []string) {
@@ -190,5 +274,72 @@ func assertProgrammedForwarders(t *testing.T, client *rolodex.MockClient, want [
 
 	if got := strings.Join(client.Forwarders, ","); got != strings.Join(want, ",") {
 		t.Fatalf("rolodex is holding forwarders %v, want %v", client.Forwarders, want)
+	}
+}
+
+// TestIntegrationSetDNSForwardersProgramsEncryptedUpstreams is the end of the
+// thread this feature exists for: an operator can now put a DoH/DoT/DoQ
+// upstream into the forwarder list and have it reach the RUNNING resolver.
+//
+// Before forwarders were typed this was impossible by construction. rolodex
+// reads `secure_upstreams:` once at startup from a file the install image owns
+// and exposes no setter for it, so on a network where only the encrypted
+// transports work, the one tier that could answer was also the one tier nothing
+// could reconfigure without restarting the box's only resolver.
+func TestIntegrationSetDNSForwardersProgramsEncryptedUpstreams(t *testing.T) {
+	t.Parallel()
+
+	env := initLocalForwardersTest(t)
+	c, rolCli := env.client, env.rolCli
+	ctx := context.Background()
+
+	want := "https://cloudflare-dns.com@1.1.1.1/dns-query,tls://dns.google@8.8.8.8:853"
+	if err := c.SetSetting(ctx, "dns_forwarders", want); err != nil {
+		t.Fatalf("SetSetting: %v", err)
+	}
+
+	assertProgrammedForwarders(t, rolCli, []string{
+		"https://cloudflare-dns.com@1.1.1.1/dns-query",
+		"tls://dns.google@8.8.8.8:853",
+	})
+}
+
+// Clearing the setting restores the defaults rather than leaving the resolver
+// with no upstreams at all — an empty forwarder list would delete the tier.
+func TestIntegrationClearingDNSForwardersRestoresTheDefaults(t *testing.T) {
+	t.Parallel()
+
+	env := initLocalForwardersTest(t)
+	c, rolCli := env.client, env.rolCli
+	ctx := context.Background()
+
+	if err := c.SetSetting(ctx, "dns_forwarders", "quic://dns.adguard.com@94.140.14.14:853"); err != nil {
+		t.Fatalf("SetSetting: %v", err)
+	}
+	assertProgrammedForwarders(t, rolCli, []string{"quic://dns.adguard.com@94.140.14.14:853"})
+
+	if err := c.SetSetting(ctx, "dns_forwarders", ""); err != nil {
+		t.Fatalf("SetSetting to empty: %v", err)
+	}
+	assertProgrammedForwarders(t, rolCli, rolodex.DefaultForwarders)
+}
+
+// A spec that will not parse must be refused at the API, with nothing pushed.
+// Accepting it would store a value that silently does not apply — and on the
+// encrypted transports the difference between a validated name and a typo is
+// the difference between an authenticated upstream and none.
+func TestIntegrationSetDNSForwardersRejectsGarbage(t *testing.T) {
+	t.Parallel()
+
+	env := initLocalForwardersTest(t)
+	c, rolCli := env.client, env.rolCli
+	ctx := context.Background()
+
+	if err := c.SetSetting(ctx, "dns_forwarders", "8.8.8.8:53,gopher://8.8.8.8:53"); err == nil {
+		t.Fatal("expected an unparseable forwarder spec to be rejected")
+	}
+
+	if rolCli.Called("SetForwarders") {
+		t.Fatal("a rejected forwarder list still reached rolodex")
 	}
 }

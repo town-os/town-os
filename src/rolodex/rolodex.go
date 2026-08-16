@@ -134,6 +134,25 @@ type Config struct {
 	// at a fixture so discovery is a property of the test rather than of
 	// whatever resolver the machine running it happens to have.
 	ResolvConfPaths []string
+	// RouteTablePath overrides the routing table discovery reads to find the
+	// default gateway. Empty (the normal case) means the system path. Tests
+	// point this at a fixture for the same reason as ResolvConfPaths.
+	RouteTablePath string
+	// ForwarderProbe overrides how a discovered candidate is proven to answer
+	// queries. Nil (the normal case) means a real DNS query.
+	//
+	// Every test that exercises discovery MUST set this. Left nil, discovery
+	// queries whatever the test machine's gateway is: a test that reaches the
+	// network, whose result depends on the network it reached, and which on a
+	// box where the gateway does resolve would pass no matter what the code
+	// under it did.
+	ForwarderProbe func(ctx context.Context, addr string) bool
+	// ForwarderProbeTimeout overrides the ceiling on one round of probing.
+	// Zero means DefaultForwarderProbeTimeout.
+	ForwarderProbeTimeout time.Duration
+	// ForwarderProbeTTL overrides how long a validated list is reused before
+	// the probes run again. Zero means DefaultForwarderProbeTTL.
+	ForwarderProbeTTL time.Duration
 	// ResolutionMode selects how rolodex resolves unmatched queries: "auto"
 	// (the default: roots, then DoH/DoT, then Forwarders, then a public
 	// resolver — sticking to whichever tier last worked), "recursive"
@@ -152,11 +171,20 @@ type Config struct {
 // stop, or restart it.
 type Manager struct {
 	cfg Config
-	// mu guards the blocklist alone. It is the only configuration this manager
-	// holds that an HTTP handler writes after construction (POST /dns/dnsbl),
-	// and it carries a slice — two concurrent saves racing on it is a data
-	// race, not a torn scalar.
+	// mu guards the configuration an HTTP handler writes after construction —
+	// the blocklist (POST /dns/dnsbl), the local-forwarder flag (POST
+	// /settings/set) — and the discovery cache below. Each carries a slice or
+	// is read on a path a background tick also runs, so two of these racing is
+	// a data race, not a torn scalar.
 	mu sync.RWMutex
+	// discovered is the last validated local-forwarder list, and discoveredAt
+	// when it was probed. Cached because ProgramRolodex re-pushes the
+	// forwarders on every tick and GET /dns/status reports them on request:
+	// probing on each of those would pay the probe timeout on a schedule, and
+	// the answer only changes when the network does. SetLocalForwarders drops
+	// it so an operator toggling the setting is not served a stale list.
+	discovered   []string
+	discoveredAt time.Time
 }
 
 // NewManager creates a new rolodex Manager with the given configuration.
@@ -276,54 +304,120 @@ func (m *Manager) UnitName() string {
 	return systemd.SystemServiceUnitName(m.key())
 }
 
-// forwarders returns the upstream forwarder addresses written to rolodex.yml:
-// the host's own resolvers when LocalForwarders is set and discovery found any,
-// otherwise the configured list, otherwise DefaultForwarders.
+// forwarders returns the upstream forwarder addresses programmed into rolodex:
+// the host's own resolvers when LocalForwarders is set and discovery found any
+// that ANSWER, otherwise the configured list, otherwise DefaultForwarders.
 //
 // The fallback ordering is deliberate. Discovery reads files that may hold
 // nothing usable — a box with no DHCP lease yet, or one whose only nameserver
 // line is a loopback stub — and a forwarder list that came back empty would
 // silently delete the local tier of the auto chain. Keeping the previous
 // addresses degrades to today's behavior instead.
-func (m *Manager) forwarders() []string {
-	if m.cfg.LocalForwarders {
-		if local := HostResolversFrom(m.resolvConfPaths()...); len(local) > 0 {
-			return local
+//
+// "Found any" now means "proved any", which is the substantive change. A
+// candidate is only kept once it has resolved a name through it; see
+// ForwarderDiscovery. An address that is merely configured is exactly the thing
+// that was wrong on a filtered network, where the local tier held two public
+// resolvers that could not be reached and every query that got that far paid
+// both timeouts on its way to SERVFAIL.
+func (m *Manager) forwarders(ctx context.Context) []string {
+	m.mu.RLock()
+	local := m.cfg.LocalForwarders
+	configured := m.cfg.Forwarders
+	m.mu.RUnlock()
+
+	if local {
+		if found := m.discoverForwarders(ctx); len(found) > 0 {
+			return found
 		}
 	}
-	if len(m.cfg.Forwarders) > 0 {
-		return m.cfg.Forwarders
+	if len(configured) > 0 {
+		return configured
 	}
 	return DefaultForwarders
 }
 
-// resolvConfPaths returns the files host-resolver discovery reads, defaulting
-// to the system ones.
-func (m *Manager) resolvConfPaths() []string {
-	if len(m.cfg.ResolvConfPaths) > 0 {
-		return m.cfg.ResolvConfPaths
+// discoverForwarders returns the validated local forwarders, probing at most
+// once per ForwarderProbeTTL.
+//
+// Two callers arriving together on a cold cache both probe. That is left alone
+// rather than serialized behind the lock: probing is idempotent and holding a
+// mutex across a network round trip would block every reader of the blocklist
+// and the local-forwarder flag for the probe timeout, which is a worse failure
+// than one redundant round of queries.
+func (m *Manager) discoverForwarders(ctx context.Context) []string {
+	ttl := m.cfg.ForwarderProbeTTL
+	if ttl <= 0 {
+		ttl = DefaultForwarderProbeTTL
 	}
-	return hostResolvConfPaths
+
+	m.mu.RLock()
+	cached, at := m.discovered, m.discoveredAt
+	m.mu.RUnlock()
+	if !at.IsZero() && time.Since(at) < ttl {
+		return cached
+	}
+
+	found := ForwarderDiscovery{
+		ResolvConfPaths: m.cfg.ResolvConfPaths,
+		RouteTablePath:  m.cfg.RouteTablePath,
+		ProbeTimeout:    m.cfg.ForwarderProbeTimeout,
+		Probe:           m.cfg.ForwarderProbe,
+	}.Validated(ctx)
+
+	m.mu.Lock()
+	m.discovered, m.discoveredAt = found, time.Now()
+	m.mu.Unlock()
+
+	return found
 }
 
-// Forwarders returns the upstream forwarder addresses this manager would write
-// into rolodex.yml right now, so the API can report what the box is actually
-// configured to fall back to rather than what was asked for.
-func (m *Manager) Forwarders() []string {
-	return m.forwarders()
+// Forwarders returns the upstream forwarder addresses this manager would
+// program into rolodex right now, so the API can report what the box is
+// actually configured to fall back to rather than what was asked for.
+//
+// It takes a context because answering can require probing the candidates, and
+// a caller that has given up should not leave a round of DNS queries running
+// behind it.
+func (m *Manager) Forwarders(ctx context.Context) []string {
+	return m.forwarders(ctx)
 }
 
 // LocalForwarders reports whether the forwarder list is taken from the host's
 // own resolvers.
 func (m *Manager) LocalForwarders() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	return m.cfg.LocalForwarders
 }
 
+// SetForwarders replaces the operator's configured forwarder list.
+//
+// An empty list restores DefaultForwarders through Manager.forwarders, which is
+// what clearing the setting means. Entries may name any transport; they are
+// pushed to rolodex verbatim, which is why they are validated where an operator
+// sets them rather than here.
+func (m *Manager) SetForwarders(forwarders []string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.cfg.Forwarders = forwarders
+}
+
 // SetLocalForwarders changes whether the host's own resolvers are used as the
-// forwarder list. The list itself is re-derived on every read (see forwarders),
-// and programmed into the running server — no unit restart.
+// forwarder list. The list itself is re-derived on read (see forwarders), and
+// programmed into the running server — no unit restart.
+//
+// The discovery cache is dropped rather than left to expire. An operator
+// toggling this has just told the box something about its network, and serving
+// them a list probed up to ForwarderProbeTTL ago would answer a question they
+// did not ask. It also makes the switch usable as a re-probe: RefreshDNSLocal-
+// Forwarders deliberately does not short-circuit on an unchanged flag, and this
+// is what gives that call something new to find.
 func (m *Manager) SetLocalForwarders(enabled bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.cfg.LocalForwarders = enabled
+	m.discovered, m.discoveredAt = nil, time.Time{}
 }
 
 // Generation identifies the current run of the rolodex server, and changes

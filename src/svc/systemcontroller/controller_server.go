@@ -343,7 +343,41 @@ func (s *serverBase) RefreshDNSLocalForwarders(ctx context.Context, enabled bool
 		// DB, and the reprogramming tick pushes the list once rolodex is up.
 		return nil
 	}
-	if err := client.SetForwarders(ctx, s.Rolodex.Forwarders()); err != nil {
+	if err := client.SetForwarders(ctx, s.Rolodex.Forwarders(ctx)); err != nil {
+		return fmt.Errorf("set rolodex forwarders: %w", err)
+	}
+	return nil
+}
+
+// RefreshDNSForwarders replaces the operator's upstream forwarder list on the
+// running server.
+//
+// Empty restores DefaultForwarders, which is what an operator clearing the
+// setting means. The list may name any transport — this is the path by which an
+// ENCRYPTED upstream becomes configurable at all, since rolodex reads its
+// `secure_upstreams:` once at startup from a file the install image owns.
+//
+// Like the resolution mode it costs no restart: rolodex holds forwarders in
+// memory and takes them over gRPC, and restarting the box's only resolver to
+// change one would be a DNS outage for everything on it.
+func (s *serverBase) RefreshDNSForwarders(ctx context.Context, value string) error {
+	if s.Rolodex == nil {
+		return nil
+	}
+
+	specs := rolodex.SplitForwarderSpecs(value)
+	if err := rolodex.ValidateForwarders(specs); err != nil {
+		return fmt.Errorf("invalid forwarders: %w", err)
+	}
+	s.Rolodex.SetForwarders(specs)
+
+	client := s.GetRolodexClient() //nolint:contextcheck // GetRolodexClient uses its own short-lived dial context; see onInternalIPChange.
+	if client == nil {
+		// Deferred, not lost: the list is on the manager and in the settings
+		// DB, and the reprogramming tick pushes it once rolodex is up.
+		return nil
+	}
+	if err := client.SetForwarders(ctx, s.Rolodex.Forwarders(ctx)); err != nil {
 		return fmt.Errorf("set rolodex forwarders: %w", err)
 	}
 	return nil

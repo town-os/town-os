@@ -39,6 +39,23 @@ var DefaultSettings = map[string]string{
 	// That is a trade an operator makes knowingly, not one a box makes for
 	// them the first time a network misbehaves.
 	"dns_local_forwarders": "false",
+	// dns_forwarders is the operator's own upstream forwarder list, as
+	// comma-separated specs. Empty (the default) means DefaultForwarders.
+	//
+	// Each spec names its transport, and a bare "ip:port" is plaintext UDP —
+	// the meaning it has always had. This is the only way an ENCRYPTED upstream
+	// becomes configurable at runtime: rolodex reads its `secure_upstreams:`
+	// once at startup from a config file the install image owns, so before
+	// forwarders were typed, the tier that keeps working on a network which
+	// filters :53 was also the one tier nothing could reconfigure without a
+	// restart of the box's only resolver.
+	//
+	//	8.8.8.8:53                                    plaintext UDP
+	//	tcp://8.8.8.8:53                              plaintext TCP
+	//	tls://cloudflare-dns.com@1.1.1.1:853          DoT
+	//	https://cloudflare-dns.com@1.1.1.1/dns-query  DoH
+	//	quic://dns.adguard.com@94.140.14.14:853       DoQ
+	"dns_forwarders": "",
 	// peer_ttl is how long, in seconds, a WireGuard peer enrollment stays valid
 	// before the reaper removes it. Stored as raw seconds to match the other
 	// duration settings (archive_unpack_timeout). A long-lived client (the

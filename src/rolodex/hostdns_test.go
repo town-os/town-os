@@ -1,9 +1,12 @@
 package rolodex
 
 import (
+	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -13,6 +16,32 @@ func writeResolvConf(t *testing.T, name, content string) string {
 	path := filepath.Join(t.TempDir(), name)
 	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
 		t.Fatalf("write %s: %v", name, err)
+	}
+	return path
+}
+
+// routeTableHeader is the header /proc/net/route prints. It is included in
+// every fixture because parsing has to skip it, and a fixture without it would
+// not exercise that.
+const routeTableHeader = "Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT"
+
+// defaultRouteLine renders a default route via gateway, where gwHex is the
+// address in the native-endian hex form the kernel prints — 0101A8C0 is
+// 192.168.1.1, not 1.1.168.192.
+func defaultRouteLine(iface, gwHex string) string {
+	return fmt.Sprintf("%s\t00000000\t%s\t0003\t0\t0\t1024\t00000000\t0\t0\t0", iface, gwHex)
+}
+
+func writeRouteTable(t *testing.T, lines string) string {
+	t.Helper()
+
+	path := filepath.Join(t.TempDir(), "route")
+	content := routeTableHeader + "\n"
+	if lines != "" {
+		content += lines + "\n"
+	}
+	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+		t.Fatalf("write route table: %v", err)
 	}
 	return path
 }
@@ -120,5 +149,226 @@ func TestHostResolvConfPathsPreferTheResolvedUplinkFile(t *testing.T) {
 	want := []string{"/run/systemd/resolve/resolv.conf", "/etc/resolv.conf"}
 	if strings.Join(hostResolvConfPaths, ",") != strings.Join(want, ",") {
 		t.Fatalf("hostResolvConfPaths = %v, want %v", hostResolvConfPaths, want)
+	}
+}
+
+// The gateway is printed native-endian, so the bytes come out reversed. Reading
+// it big-endian would turn the QEMU box's 192.168.122.1 into 1.122.168.192 —
+// a syntactically fine address, pointing at nothing, that would then be probed
+// and (correctly) discarded, leaving discovery looking exactly like the
+// "found nothing" case it is supposed to fix.
+func TestParseRouteTableDecodesTheGatewayLittleEndian(t *testing.T) {
+	t.Parallel()
+
+	got := parseRouteTable([]byte(routeTableHeader + "\n" +
+		defaultRouteLine("ens3", "017AA8C0") + "\n"))
+
+	want := []string{"192.168.122.1:53"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("parseRouteTable = %v, want %v", got, want)
+	}
+}
+
+// Only a default route is a candidate, and only one that actually has a next
+// hop. A LAN route names the subnet, not a resolver; a default route without
+// RTF_GATEWAY is directly attached and has no address to send a query to; and
+// RTF_UP has to be set or the route is not in service. Each of these would
+// otherwise contribute a bogus candidate.
+func TestParseRouteTableIgnoresEverythingButLiveDefaultGateways(t *testing.T) {
+	t.Parallel()
+
+	got := parseRouteTable([]byte(routeTableHeader + "\n" +
+		// A LAN route: destination is the subnet, not 00000000.
+		"ens3\t007AA8C0\t00000000\t0001\t0\t0\t0\t00FFFFFF\t0\t0\t0\n" +
+		// Default, but RTF_GATEWAY is clear — directly attached.
+		"ens3\t00000000\t00000000\t0001\t0\t0\t0\t00000000\t0\t0\t0\n" +
+		// Default via a gateway, but RTF_UP is clear.
+		"ens3\t00000000\t017AA8C0\t0002\t0\t0\t0\t00000000\t0\t0\t0\n"))
+
+	if len(got) != 0 {
+		t.Fatalf("parseRouteTable = %v, want no candidates", got)
+	}
+}
+
+// A box with two uplinks has two default routes, and both gateways are
+// candidates — the probe decides which of them actually resolves. Duplicates
+// fold, because the same gateway on two interfaces is one resolver.
+func TestParseRouteTableKeepsEveryDistinctGateway(t *testing.T) {
+	t.Parallel()
+
+	got := parseRouteTable([]byte(routeTableHeader + "\n" +
+		defaultRouteLine("ens3", "017AA8C0") + "\n" +
+		defaultRouteLine("wlan0", "0101A8C0") + "\n" +
+		defaultRouteLine("ens4", "017AA8C0") + "\n"))
+
+	want := []string{"192.168.122.1:53", "192.168.1.1:53"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("parseRouteTable = %v, want %v", got, want)
+	}
+}
+
+// TestCandidatesFindTheGatewayWhenEveryResolvConfIsLoopback is the whole reason
+// the route table is read at all, and it reproduces the state of a running Town
+// OS box exactly: ttyforce's UseDNS=no keeps the DHCP servers out of the lease,
+// bootstrap-dns.sh points resolved at DNSLoopback while rolodex is up, and
+// /etc/resolv.conf is resolved's own stub. Every nameserver line is a loopback
+// address, all of them correctly discarded — which left discovery with nothing
+// to find on precisely the boxes it exists for.
+func TestCandidatesFindTheGatewayWhenEveryResolvConfIsLoopback(t *testing.T) {
+	t.Parallel()
+
+	uplink := writeResolvConf(t, "resolv.conf", "nameserver "+DNSLoopback+"\n")
+	stub := writeResolvConf(t, "stub-resolv.conf", "nameserver 127.0.0.53\n")
+
+	got := ForwarderDiscovery{
+		ResolvConfPaths: []string{uplink, stub},
+		RouteTablePath:  writeRouteTable(t, defaultRouteLine("ens3", "017AA8C0")),
+	}.Candidates()
+
+	want := []string{"192.168.122.1:53"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("Candidates() = %v, want %v", got, want)
+	}
+}
+
+// resolv.conf is what the network explicitly said to use; the gateway is an
+// inference from the route table. Where both answer, the explicit one leads.
+func TestCandidatesPreferResolvConfOverTheGateway(t *testing.T) {
+	t.Parallel()
+
+	resolv := writeResolvConf(t, "resolv.conf", "nameserver 10.0.0.53\n")
+
+	got := ForwarderDiscovery{
+		ResolvConfPaths: []string{resolv},
+		RouteTablePath:  writeRouteTable(t, defaultRouteLine("ens3", "017AA8C0")),
+	}.Candidates()
+
+	want := []string{"10.0.0.53:53", "192.168.122.1:53"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("Candidates() = %v, want %v", got, want)
+	}
+}
+
+// A gateway that is also the DHCP-offered nameserver is one resolver, not two.
+// Probed twice it would also be counted twice in the list rolodex is handed.
+func TestCandidatesDeduplicateAcrossSources(t *testing.T) {
+	t.Parallel()
+
+	resolv := writeResolvConf(t, "resolv.conf", "nameserver 192.168.122.1\n")
+
+	got := ForwarderDiscovery{
+		ResolvConfPaths: []string{resolv},
+		RouteTablePath:  writeRouteTable(t, defaultRouteLine("ens3", "017AA8C0")),
+	}.Candidates()
+
+	want := []string{"192.168.122.1:53"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("Candidates() = %v, want %v", got, want)
+	}
+}
+
+// TestValidatedKeepsOnlyWhatAnswered is the berkeley network in miniature, and
+// the assertion the whole change turns on: the public resolver is discovered
+// and does not answer, the gateway is discovered and does. A list that kept
+// both would be the bug — rolodex's local tier would hold an address that costs
+// a timeout and never resolves anything.
+func TestValidatedKeepsOnlyWhatAnswered(t *testing.T) {
+	t.Parallel()
+
+	resolv := writeResolvConf(t, "resolv.conf", "nameserver 8.8.8.8\n")
+
+	got := ForwarderDiscovery{
+		ResolvConfPaths: []string{resolv},
+		RouteTablePath:  writeRouteTable(t, defaultRouteLine("ens3", "017AA8C0")),
+		Probe: func(_ context.Context, addr string) bool {
+			return addr == "192.168.122.1:53"
+		},
+	}.Validated(t.Context())
+
+	want := []string{"192.168.122.1:53"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("Validated() = %v, want %v", got, want)
+	}
+}
+
+// The control for the test above: on a network where :53 is not filtered,
+// nothing is dropped. A probe that only ever kept the gateway would satisfy the
+// berkeley case and quietly break every ordinary network.
+func TestValidatedKeepsEveryCandidateOnAnUnfilteredNetwork(t *testing.T) {
+	t.Parallel()
+
+	resolv := writeResolvConf(t, "resolv.conf", "nameserver 8.8.8.8\nnameserver 10.0.0.53\n")
+
+	got := ForwarderDiscovery{
+		ResolvConfPaths: []string{resolv},
+		RouteTablePath:  writeRouteTable(t, defaultRouteLine("ens3", "0101A8C0")),
+		Probe:           func(context.Context, string) bool { return true },
+	}.Validated(t.Context())
+
+	want := []string{"8.8.8.8:53", "10.0.0.53:53", "192.168.1.1:53"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("Validated() = %v, want %v", got, want)
+	}
+}
+
+// Every candidate is probed, not just enough of them to find one winner: a
+// second working resolver in the list is the difference between one resolver's
+// outage being invisible and being an outage.
+func TestValidatedProbesEveryCandidate(t *testing.T) {
+	t.Parallel()
+
+	resolv := writeResolvConf(t, "resolv.conf", "nameserver 8.8.8.8\nnameserver 10.0.0.53\n")
+
+	var mu sync.Mutex
+	probed := map[string]bool{}
+	got := ForwarderDiscovery{
+		ResolvConfPaths: []string{resolv},
+		RouteTablePath:  writeRouteTable(t, defaultRouteLine("ens3", "0101A8C0")),
+		Probe: func(_ context.Context, addr string) bool {
+			mu.Lock()
+			defer mu.Unlock()
+			probed[addr] = true
+			return addr != "8.8.8.8:53"
+		},
+	}.Validated(t.Context())
+
+	for _, addr := range []string{"8.8.8.8:53", "10.0.0.53:53", "192.168.1.1:53"} {
+		if !probed[addr] {
+			t.Fatalf("candidate %s was never probed; probed = %v", addr, probed)
+		}
+	}
+	want := []string{"10.0.0.53:53", "192.168.1.1:53"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("Validated() = %v, want %v", got, want)
+	}
+}
+
+// Nothing to probe must not become a probe of nothing that somehow succeeds:
+// an empty candidate list is the "keep the forwarders already configured" case,
+// and it has to reach the caller as an empty result rather than as a nil probe
+// being consulted.
+func TestValidatedReturnsNothingWithNoCandidates(t *testing.T) {
+	t.Parallel()
+
+	stub := writeResolvConf(t, "stub-resolv.conf", "nameserver 127.0.0.53\n")
+
+	got := ForwarderDiscovery{
+		ResolvConfPaths: []string{stub},
+		RouteTablePath:  writeRouteTable(t, ""),
+		Probe:           func(context.Context, string) bool { return true },
+	}.Validated(t.Context())
+
+	if len(got) != 0 {
+		t.Fatalf("Validated() = %v, want empty", got)
+	}
+}
+
+// The system path is the contract with the systemcontroller unit, which runs
+// --net host so /proc/net/route is the host's own routing table.
+func TestHostRouteTablePathIsTheKernelRoutingTable(t *testing.T) {
+	t.Parallel()
+
+	if hostRouteTablePath != "/proc/net/route" {
+		t.Fatalf("hostRouteTablePath = %q, want /proc/net/route", hostRouteTablePath)
 	}
 }

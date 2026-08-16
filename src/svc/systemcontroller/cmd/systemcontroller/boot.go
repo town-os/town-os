@@ -456,6 +456,22 @@ func (b *boot) bootDNS(ctx context.Context) error {
 		}
 	}
 
+	// The operator's own forwarder list, which may name any transport. An
+	// unparseable entry is dropped rather than failing the boot: this is the
+	// box's resolver, and refusing to start over one bad forwarder would take
+	// DNS down for everything on it. Empty leaves Config.Forwarders nil, which
+	// Manager.forwarders reads as DefaultForwarders.
+	var configuredForwarders []string
+	if v, fwdErr := b.settingsMgr.Get(ctx, "dns_forwarders"); fwdErr == nil {
+		for _, spec := range rolodex.SplitForwarderSpecs(v) {
+			if _, parseErr := rolodex.ParseForwarder(spec); parseErr != nil {
+				slog.Warn("ignoring unparseable dns forwarder", "spec", spec, "error", parseErr)
+				continue
+			}
+			configuredForwarders = append(configuredForwarders, spec)
+		}
+	}
+
 	// Empty (the normal case) means rolodex.DefaultDNSPort — see ports.go for
 	// why the integration harness relocates it.
 	dnsPort := dnsPortFromEnv()
@@ -476,6 +492,7 @@ func (b *boot) bootDNS(ctx context.Context) error {
 		ResolutionMode:  resolutionMode,
 		DNSPort:         dnsPort,
 		MetricsPort:     rolodexMetricsPortFromEnv(),
+		Forwarders:      configuredForwarders,
 		LocalForwarders: localForwarders,
 		DNSBL:           storedDNSBL,
 	})

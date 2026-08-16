@@ -31,6 +31,7 @@ var settingsValidators = map[string]func(string) error{
 	"dns_tld":              ValidateTLD,
 	"dns_resolution_mode":  ValidateDNSResolutionMode,
 	"dns_local_forwarders": ValidateBool,
+	"dns_forwarders":       ValidateDNSForwarders,
 }
 
 // ValidateBool accepts what strconv.ParseBool accepts, which is what every
@@ -53,6 +54,22 @@ func ValidateDNSResolutionMode(v string) error {
 			rolodex.ResolutionModeForward)
 	}
 	return nil
+}
+
+// ValidateDNSForwarders accepts a comma-separated forwarder list, each entry
+// naming its transport (a bare "ip:port" being plaintext UDP). Empty means the
+// public defaults.
+//
+// Every entry is checked and the first bad one is refused, rather than the list
+// being accepted with that entry dropped: rolodex applies a forwarder list as a
+// replacement, so a partially-accepted list leaves the resolver configured with
+// something the operator did not ask for and has no way to see.
+func ValidateDNSForwarders(v string) error {
+	specs := rolodex.SplitForwarderSpecs(v)
+	if len(specs) == 0 {
+		return nil
+	}
+	return rolodex.ValidateForwarders(specs)
 }
 
 var byteValueSettings = map[string]bool{
@@ -160,6 +177,15 @@ func (s *SystemControllerHandlers) setSetting(c *echo.Context) error {
 		}
 		if err := s.Controller.RefreshDNSLocalForwarders(c.Request().Context(), enabled); err != nil {
 			return echo.NewHTTPError(500, fmt.Sprintf("failed to apply dns local forwarders: %v", err))
+		}
+	}
+
+	// And the forwarder list itself. Already known parseable — the validator
+	// above ran — so what remains is pushing it into the running server, which
+	// costs no restart because rolodex takes a forwarder list over gRPC.
+	if req.Key == "dns_forwarders" {
+		if err := s.Controller.RefreshDNSForwarders(c.Request().Context(), value); err != nil {
+			return echo.NewHTTPError(500, fmt.Sprintf("failed to apply dns forwarders: %v", err))
 		}
 	}
 

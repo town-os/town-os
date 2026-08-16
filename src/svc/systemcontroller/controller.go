@@ -95,6 +95,10 @@ type dnsBackend interface {
 	// public defaults and the resolvers this box's own network handed it,
 	// taking effect immediately.
 	RefreshDNSLocalForwarders(ctx context.Context, enabled bool) error
+	// RefreshDNSForwarders replaces the operator's upstream forwarder list on
+	// the running server. Entries may name any transport; empty restores the
+	// public defaults.
+	RefreshDNSForwarders(ctx context.Context, value string) error
 }
 
 // serviceBackend is the system services the controller supervises alongside

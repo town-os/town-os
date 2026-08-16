@@ -142,7 +142,7 @@ func (s *SystemControllerHandlers) dnsStatus(c *echo.Context) error {
 		TLD:             tld,
 		RecordCount:     recordCount,
 		LocalForwarders: mgr.LocalForwarders(),
-		Forwarders:      mgr.Forwarders(),
+		Forwarders:      mgr.Forwarders(c.Request().Context()),
 		Encrypted:       encryptedDNSView(tld),
 	})
 }

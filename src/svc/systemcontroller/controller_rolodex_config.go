@@ -42,7 +42,7 @@ func ProgramRolodex(ctx context.Context, client rolodex.Client, mgr *rolodex.Man
 	// the API, and rolodex's setter is a plain store — no cache flush, no
 	// upstream reconnection — so an identical push costs one RPC and changes
 	// nothing observable.
-	if err := client.SetForwarders(ctx, mgr.Forwarders()); err != nil {
+	if err := client.SetForwarders(ctx, mgr.Forwarders(ctx)); err != nil {
 		errs = append(errs, fmt.Errorf("forwarders: %w", err))
 	}
 
