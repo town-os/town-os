@@ -80,13 +80,13 @@ func TestSystemUpdatePullsAndRestartsEverySystemImage(t *testing.T) {
 	)
 
 	uiMgr := ui.NewManager(ui.Config{Systemd: sd, Image: uiImg})
-	rolMgr := rolodex.NewManager(rolodex.Config{
+	rolMgr := rolodex.NewManager(pinRolodexDiscovery(t, rolodex.Config{
 		Systemd:        sd,
 		DataDir:        dataDir,
 		Image:          rolImg,
 		UnixSocketPath: filepath.Join(dataDir, "rolodex.sock"),
 		Key:            "rolodex-updtest",
-	})
+	}))
 	ingMgr := ingressctl.NewManager(ingressctl.Config{
 		Systemd: sd,
 		DataDir: dataDir,

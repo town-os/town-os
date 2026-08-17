@@ -30,12 +30,12 @@ func initDNSMockTest(t *testing.T) (*systemcontroller.SystemdClient, *rolodex.Mo
 	settings := &mockSettingsManager{values: map[string]string{"dns_tld": "home"}}
 
 	dataDir := rolodexTempDir(t, "dns-mock-*")
-	rolMgr := rolodex.NewManager(rolodex.Config{
+	rolMgr := rolodex.NewManager(pinRolodexDiscovery(t, rolodex.Config{
 		Systemd:        sd,
 		DataDir:        dataDir,
 		Image:          rolodexTestImage(),
 		UnixSocketPath: filepath.Join(dataDir, "dns-test.sock"),
-	})
+	}))
 
 	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{
 		Storage:       mock,
@@ -389,12 +389,12 @@ func TestResolvedRoutingCalledOnTLDChange(t *testing.T) {
 	settings := &mockSettingsManager{values: map[string]string{"dns_tld": "home"}}
 
 	dataDir := rolodexTempDir(t, "resolved-tld-*")
-	rolMgr := rolodex.NewManager(rolodex.Config{
+	rolMgr := rolodex.NewManager(pinRolodexDiscovery(t, rolodex.Config{
 		Systemd:        sd,
 		DataDir:        dataDir,
 		Image:          rolodexTestImage(),
 		UnixSocketPath: filepath.Join(dataDir, "resolved-test.sock"),
-	})
+	}))
 
 	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{
 		Storage:              mock,
@@ -432,12 +432,12 @@ func TestResolvedRoutingNotCalledWhenNil(t *testing.T) {
 	settings := &mockSettingsManager{values: map[string]string{"dns_tld": "home"}}
 
 	dataDir := rolodexTempDir(t, "resolved-nil-*")
-	rolMgr := rolodex.NewManager(rolodex.Config{
+	rolMgr := rolodex.NewManager(pinRolodexDiscovery(t, rolodex.Config{
 		Systemd:        sd,
 		DataDir:        dataDir,
 		Image:          rolodexTestImage(),
 		UnixSocketPath: filepath.Join(dataDir, "resolved-nil.sock"),
-	})
+	}))
 
 	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{
 		Storage:       mock,

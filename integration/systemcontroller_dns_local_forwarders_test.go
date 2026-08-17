@@ -44,11 +44,26 @@ type localForwardersEnv struct {
 // working is the set of candidate addresses the stubbed probe accepts.
 func initLocalForwardersTest(t *testing.T, working ...string) localForwardersEnv {
 	t.Helper()
+	return initLocalForwardersTestMode(t, rolodex.ResolutionModeAuto, working...)
+}
+
+// initLocalForwardersTestMode is the same wiring with the resolution mode named
+// rather than defaulted, because the mode now decides whether discovery happens
+// at all: `auto` fills its own local tier with dns_local_forwarders never set,
+// while `forward` — where that tier is the only upstream and takes every query
+// always — keeps waiting to be asked. A test about the FLAG has to say
+// `forward`, or it is asserting the default mode's behavior instead.
+//
+// The mode is set in three places because three things read it: the settings DB
+// the handler consults, the manager that resolves the list, and the fake server
+// standing in for a running rolodex.
+func initLocalForwardersTestMode(t *testing.T, mode string, working ...string) localForwardersEnv {
+	t.Helper()
 
 	sd := systemd.InitMockManager()
 	settings := &mockSettingsManager{values: map[string]string{
 		"dns_tld":              "home",
-		"dns_resolution_mode":  rolodex.ResolutionModeAuto,
+		"dns_resolution_mode":  mode,
 		"dns_local_forwarders": "false",
 	}}
 
@@ -74,6 +89,7 @@ func initLocalForwardersTest(t *testing.T, working ...string) localForwardersEnv
 		Systemd:         sd,
 		DataDir:         dataDir,
 		Image:           rolodexTestImage(),
+		ResolutionMode:  mode,
 		UnixSocketPath:  filepath.Join(dataDir, "rolodex.sock"),
 		ResolvConfPaths: []string{resolvPath},
 		RouteTablePath:  routePath,
@@ -84,7 +100,7 @@ func initLocalForwardersTest(t *testing.T, working ...string) localForwardersEnv
 
 	// No config file: rolodex.yml holds the install image's binds and metrics
 	// listener, and the forwarder list is programmed into the running server.
-	rolClient := &rolodex.MockClient{ResolutionMode: rolodex.ResolutionModeAuto}
+	rolClient := &rolodex.MockClient{ResolutionMode: mode}
 
 	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{
 		Storage:       storage.InitBtrFSMock(),
@@ -109,10 +125,18 @@ func initLocalForwardersTest(t *testing.T, working ...string) localForwardersEnv
 // RUNNING rolodex — so a household stuck behind a network that blocks external
 // DNS is resolving again NOW rather than after a reboot they have no reason to
 // think would help — and must not restart it to do so.
+//
+// Pinned to `forward` deliberately, because that is the mode where the FLAG is
+// what decides. Under `auto` the tier is discovered either way, so the toggle
+// back to false would change nothing and the second half of this test would be
+// asserting the default mode's behavior while looking like it asserted the
+// flag's. That is intended rather than a regression, and it is stated directly
+// by TestIntegrationAutoKeepsDiscoveringWithTheFlagOff below. The on-direction
+// under auto is covered by the drop-what-cannot-resolve pair.
 func TestIntegrationSetDNSLocalForwardersProgramsRolodexWithoutRestarting(t *testing.T) {
 	t.Parallel()
 
-	env := initLocalForwardersTest(t)
+	env := initLocalForwardersTestMode(t, rolodex.ResolutionModeForward)
 	c, sd, rolMgr, rolCli := env.client, env.systemd, env.rolodex, env.rolCli
 	ctx := context.Background()
 
@@ -134,6 +158,32 @@ func TestIntegrationSetDNSLocalForwardersProgramsRolodexWithoutRestarting(t *tes
 		t.Fatalf("SetSetting back to false: %v", err)
 	}
 	assertProgrammedForwarders(t, rolCli, rolodex.DefaultForwarders)
+}
+
+// TestIntegrationAutoKeepsDiscoveringWithTheFlagOff states, at the API rather
+// than in the manager, the one case where dns_local_forwarders is inert: under
+// `auto`, with no explicit dns_forwarders list, turning the flag OFF does not
+// put the public defaults back.
+//
+// It cannot, and that is the point. The local tier in `auto` is reached only
+// after the roots AND the encrypted upstreams have both failed, so the choice
+// in front of it is never "the roots or the local resolver" — it is "the local
+// resolver or SERVFAIL". Honoring "off" here would mean programming
+// DefaultForwarders into a tier that exists only because everything else already
+// failed, on precisely the networks that drop those addresses. An operator who
+// wants no local resolver in the path asks for `recursive`.
+func TestIntegrationAutoKeepsDiscoveringWithTheFlagOff(t *testing.T) {
+	t.Parallel()
+
+	env := initLocalForwardersTest(t)
+	c, rolCli := env.client, env.rolCli
+	ctx := context.Background()
+
+	if err := c.SetSetting(ctx, "dns_local_forwarders", "false"); err != nil {
+		t.Fatalf("SetSetting: %v", err)
+	}
+
+	assertProgrammedForwarders(t, rolCli, []string{"192.168.77.1:53", "192.168.122.1:53"})
 }
 
 // The mode decides whether the local tier is consulted; the forwarder list only
@@ -176,14 +226,19 @@ func TestIntegrationSetDNSLocalForwardersRejectsGarbage(t *testing.T) {
 }
 
 // GET /dns/status is what the settings screen renders, and it must report the
-// list that is actually programmed rather than echoing the setting back: the two
-// disagree whenever discovery found nothing usable, which is the one case where
-// the switch reads as on and nothing changed.
+// list that is actually programmed rather than echoing the setting back. The two
+// disagree in both directions now, and this is the direction that appeared with
+// auto managing its own tier: the switch reads as OFF while the effective list
+// is the one discovery found, because in `auto` the flag is not what put it
+// there. A status endpoint that inferred the list from the setting would show
+// the public defaults on a box that is not using them.
 func TestIntegrationDNSStatusReportsTheEffectiveForwarders(t *testing.T) {
 	t.Parallel()
 
 	c := initLocalForwardersTest(t).client
 	ctx := context.Background()
+
+	discovered := "192.168.77.1:53,192.168.122.1:53"
 
 	status, err := c.DNSStatus(ctx)
 	if err != nil {
@@ -192,8 +247,8 @@ func TestIntegrationDNSStatusReportsTheEffectiveForwarders(t *testing.T) {
 	if status.LocalForwarders {
 		t.Fatal("DNSStatus reports local forwarders on before anything enabled them")
 	}
-	if strings.Join(status.Forwarders, ",") != strings.Join(rolodex.DefaultForwarders, ",") {
-		t.Fatalf("DNSStatus forwarders = %v, want %v", status.Forwarders, rolodex.DefaultForwarders)
+	if strings.Join(status.Forwarders, ",") != discovered {
+		t.Fatalf("DNSStatus forwarders = %v, want the discovered %v with the flag still off", status.Forwarders, discovered)
 	}
 
 	if err := c.SetSetting(ctx, "dns_local_forwarders", "true"); err != nil {
@@ -207,8 +262,35 @@ func TestIntegrationDNSStatusReportsTheEffectiveForwarders(t *testing.T) {
 	if !status.LocalForwarders {
 		t.Fatal("DNSStatus still reports local forwarders off after enabling them")
 	}
-	if want := "192.168.77.1:53,192.168.122.1:53"; strings.Join(status.Forwarders, ",") != want {
-		t.Fatalf("DNSStatus forwarders = %v, want %v", status.Forwarders, want)
+	if strings.Join(status.Forwarders, ",") != discovered {
+		t.Fatalf("DNSStatus forwarders = %v, want %v", status.Forwarders, discovered)
+	}
+}
+
+// TestIntegrationDNSStatusReportsTheDefaultsWhenNothingAnswers is the other
+// direction of the same disagreement, and the older one: the switch reads as ON
+// and the effective list is still the public defaults, because every candidate
+// discovery turned up failed its probe. That is the case where an operator would
+// otherwise be looking at a screen claiming a change that did not happen.
+func TestIntegrationDNSStatusReportsTheDefaultsWhenNothingAnswers(t *testing.T) {
+	t.Parallel()
+
+	c := initLocalForwardersTest(t, "203.0.113.1:53").client
+	ctx := context.Background()
+
+	if err := c.SetSetting(ctx, "dns_local_forwarders", "true"); err != nil {
+		t.Fatalf("SetSetting: %v", err)
+	}
+
+	status, err := c.DNSStatus(ctx)
+	if err != nil {
+		t.Fatalf("DNSStatus: %v", err)
+	}
+	if !status.LocalForwarders {
+		t.Fatal("DNSStatus reports local forwarders off after enabling them")
+	}
+	if strings.Join(status.Forwarders, ",") != strings.Join(rolodex.DefaultForwarders, ",") {
+		t.Fatalf("DNSStatus forwarders = %v, want %v when nothing answered", status.Forwarders, rolodex.DefaultForwarders)
 	}
 }
 
@@ -306,10 +388,17 @@ func TestIntegrationSetDNSForwardersProgramsEncryptedUpstreams(t *testing.T) {
 
 // Clearing the setting restores the defaults rather than leaving the resolver
 // with no upstreams at all — an empty forwarder list would delete the tier.
+//
+// Run on a network where nothing answers, so the fallback under test is the one
+// named: with the explicit list gone, `auto` reaches for discovery first (see
+// TestIntegrationClearingDNSForwardersHandsAutoBackToDiscovery) and only lands
+// on DefaultForwarders once that comes back empty. Left on the answering
+// fixture this test would have asserted the defaults against a box that had
+// something better, which is how it failed rather than how it should pass.
 func TestIntegrationClearingDNSForwardersRestoresTheDefaults(t *testing.T) {
 	t.Parallel()
 
-	env := initLocalForwardersTest(t)
+	env := initLocalForwardersTest(t, "203.0.113.1:53")
 	c, rolCli := env.client, env.rolCli
 	ctx := context.Background()
 
@@ -322,6 +411,30 @@ func TestIntegrationClearingDNSForwardersRestoresTheDefaults(t *testing.T) {
 		t.Fatalf("SetSetting to empty: %v", err)
 	}
 	assertProgrammedForwarders(t, rolCli, rolodex.DefaultForwarders)
+}
+
+// TestIntegrationClearingDNSForwardersHandsAutoBackToDiscovery is the other
+// half, and the ordering the change turns on: an explicit dns_forwarders list
+// outranks discovery, so setting one takes the tier back from it — and clearing
+// that list hands it straight back rather than falling to the public defaults.
+// Both steps go through the real endpoint, because the ordering only exists
+// where the handler resolves the list.
+func TestIntegrationClearingDNSForwardersHandsAutoBackToDiscovery(t *testing.T) {
+	t.Parallel()
+
+	env := initLocalForwardersTest(t)
+	c, rolCli := env.client, env.rolCli
+	ctx := context.Background()
+
+	if err := c.SetSetting(ctx, "dns_forwarders", "10.0.0.1:53"); err != nil {
+		t.Fatalf("SetSetting: %v", err)
+	}
+	assertProgrammedForwarders(t, rolCli, []string{"10.0.0.1:53"})
+
+	if err := c.SetSetting(ctx, "dns_forwarders", ""); err != nil {
+		t.Fatalf("SetSetting to empty: %v", err)
+	}
+	assertProgrammedForwarders(t, rolCli, []string{"192.168.77.1:53", "192.168.122.1:53"})
 }
 
 // A spec that will not parse must be refused at the API, with nothing pushed.

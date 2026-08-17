@@ -27,12 +27,12 @@ func initResolutionModeTest(t *testing.T) (*systemcontroller.SystemdClient, *sys
 	}}
 
 	dataDir := rolodexTempDir(t, "resolution-mode-*")
-	rolMgr := rolodex.NewManager(rolodex.Config{
+	rolMgr := rolodex.NewManager(pinRolodexDiscovery(t, rolodex.Config{
 		Systemd:        sd,
 		DataDir:        dataDir,
 		Image:          rolodexTestImage(),
 		UnixSocketPath: filepath.Join(dataDir, "rolodex.sock"),
-	})
+	}))
 
 	// No config file is laid down, because a running box has none that Town OS
 	// wrote: rolodex.yml carries the install image's binds and metrics listener

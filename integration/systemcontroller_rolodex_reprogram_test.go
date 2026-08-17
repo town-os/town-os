@@ -40,7 +40,7 @@ func TestProgrammedSettingsSurviveARolodexRestart(t *testing.T) {
 	dnsPort := findFreePort(t)
 	metricsPort := findFreePort(t)
 
-	mgr := rolodex.NewManager(rolodex.Config{
+	mgr := rolodex.NewManager(pinRolodexDiscovery(t, rolodex.Config{
 		Systemd:        sd,
 		DataDir:        dataDir,
 		Image:          rolodexTestImage(),
@@ -52,7 +52,7 @@ func TestProgrammedSettingsSurviveARolodexRestart(t *testing.T) {
 		// default would still read as "programmed" after a restart that
 		// dropped it.
 		ResolutionMode: rolodex.ResolutionModeRecursive,
-	})
+	}))
 
 	writeRolodexBootstrapConfig(t, dataDir, dnsPort, metricsPort)
 	startRolodexUnit(t, sd, key, dataDir, "Rolodex DNS (reprogram test)")
@@ -114,7 +114,7 @@ func TestGenerationChangesOnlyWhenRolodexRestarts(t *testing.T) {
 	key := rolodexTestKey()
 	dnsPort := findFreePort(t)
 
-	mgr := rolodex.NewManager(rolodex.Config{
+	mgr := rolodex.NewManager(pinRolodexDiscovery(t, rolodex.Config{
 		Systemd:        sd,
 		DataDir:        dataDir,
 		Image:          rolodexTestImage(),
@@ -122,7 +122,7 @@ func TestGenerationChangesOnlyWhenRolodexRestarts(t *testing.T) {
 		DNSPort:        dnsPort,
 		MetricsPort:    findFreePort(t),
 		Key:            key,
-	})
+	}))
 
 	if gen := mgr.Generation(); gen != "" {
 		t.Fatalf("Generation() = %q before rolodex has ever run, want empty", gen)

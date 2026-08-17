@@ -64,6 +64,43 @@ func rolodexTempDir(t *testing.T, pattern string) string {
 	return dir
 }
 
+// pinRolodexDiscovery neuters local-forwarder discovery in cfg unless the
+// caller deliberately wired it up, and every rolodex.Config in this package is
+// built through it for that reason.
+//
+// It is not tidiness. `auto` is the DEFAULT resolution mode and `auto` now
+// discovers its own local tier without dns_local_forwarders being set, so a
+// zero-valued Config takes the discovery path — and ProgramRolodex resolves the
+// forwarder list on every pass. Left alone, discovery reads the TEST MACHINE's
+// own /run/systemd/resolve/resolv.conf and /proc/net/route and then probes
+// whatever it found with a REAL DNS query (ForwarderDiscovery.Probe is
+// documented as doing exactly that when nil). That is this suite reaching the
+// network on a box whose resolver is not its business, one live query per
+// candidate per pass, on captive networks included — the same reason
+// writeRolodexBootstrapConfig pins `address_family: off` above.
+//
+// Absent paths make discovery find nothing, which is the state these tests
+// already assumed they were in. The rejecting probe is belt-and-braces for a
+// future candidate source that does not read a file.
+//
+// The one file that pins its own fixtures is the local-forwarders suite, where
+// what discovery finds IS the thing under test.
+func pinRolodexDiscovery(t *testing.T, cfg rolodex.Config) rolodex.Config {
+	t.Helper()
+
+	dir := t.TempDir()
+	if cfg.ResolvConfPaths == nil {
+		cfg.ResolvConfPaths = []string{filepath.Join(dir, "absent-resolv.conf")}
+	}
+	if cfg.RouteTablePath == "" {
+		cfg.RouteTablePath = filepath.Join(dir, "absent-route")
+	}
+	if cfg.ForwarderProbe == nil {
+		cfg.ForwarderProbe = func(context.Context, string) bool { return false }
+	}
+	return cfg
+}
+
 // writeRolodexBootstrapConfig writes the config file the INSTALL IMAGE writes
 // on a real box (scripts/rolodex-config.sh in ../install), which is the only
 // config rolodex ever reads from disk: the DNS binds, the metrics listener, and
@@ -127,12 +164,12 @@ func initSystemControllerRolodexTest(t *testing.T) (*systemcontroller.SystemdCli
 	mock := storage.InitBtrFSMock()
 	sd := systemd.InitMockManager()
 	dataDir := rolodexTempDir(t, "rolodex-mock-*")
-	rolMgr := rolodex.NewManager(rolodex.Config{
+	rolMgr := rolodex.NewManager(pinRolodexDiscovery(t, rolodex.Config{
 		Systemd:        sd,
 		DataDir:        dataDir,
 		Image:          rolodexTestImage(),
 		UnixSocketPath: filepath.Join(dataDir, "rolodex.sock"),
-	})
+	}))
 
 	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{
 		Storage: mock,
@@ -183,7 +220,7 @@ func initRolodexRealTestWith(t *testing.T, forwarders []string, dnsbl rolodex.Bl
 	dnsPort := findFreePort(t)
 	key := rolodexTestKey()
 
-	mgr := rolodex.NewManager(rolodex.Config{
+	mgr := rolodex.NewManager(pinRolodexDiscovery(t, rolodex.Config{
 		Systemd:        sd,
 		DataDir:        dataDir,
 		Image:          rolodexTestImage(),
@@ -196,7 +233,7 @@ func initRolodexRealTestWith(t *testing.T, forwarders []string, dnsbl rolodex.Bl
 		// forward mode here.
 		ResolutionMode: rolodex.ResolutionModeForward,
 		DNSBL:          dnsbl,
-	})
+	}))
 
 	writeRolodexBootstrapConfig(t, dataDir, dnsPort, "")
 
@@ -315,14 +352,14 @@ func TestRolodexRealContainerStart(t *testing.T) {
 	key := rolodexTestKey()
 	dnsPort := findFreePort(t)
 
-	mgr := rolodex.NewManager(rolodex.Config{
+	mgr := rolodex.NewManager(pinRolodexDiscovery(t, rolodex.Config{
 		Systemd:        sd,
 		DataDir:        dataDir,
 		Image:          rolodexTestImage(),
 		UnixSocketPath: filepath.Join(dataDir, "rolodex.sock"),
 		DNSPort:        dnsPort,
 		Key:            key,
-	})
+	}))
 
 	writeRolodexBootstrapConfig(t, dataDir, dnsPort, "")
 

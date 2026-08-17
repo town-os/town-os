@@ -33,12 +33,12 @@ func initBlocklistPersistTest(t *testing.T) blocklistPersistEnv {
 	settings := &mockSettingsManager{values: map[string]string{"dns_tld": "home"}}
 
 	dataDir := rolodexTempDir(t, "dns-blocklist-persist-*")
-	rolMgr := rolodex.NewManager(rolodex.Config{
+	rolMgr := rolodex.NewManager(pinRolodexDiscovery(t, rolodex.Config{
 		Systemd:        sd,
 		DataDir:        dataDir,
 		Image:          rolodexTestImage(),
 		UnixSocketPath: filepath.Join(dataDir, "dns-test.sock"),
-	})
+	}))
 
 	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{
 		Storage:       mock,

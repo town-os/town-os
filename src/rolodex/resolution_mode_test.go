@@ -4,6 +4,7 @@
 package rolodex
 
 import (
+	"sync"
 	"testing"
 
 	"gitea.com/town-os/town-os/src/systemd"
@@ -59,6 +60,45 @@ func TestSetResolutionModeIsWhatGetsProgrammed(t *testing.T) {
 	if got := m.ResolutionMode(); got != ResolutionModeRecursive {
 		t.Errorf("ResolutionMode() = %q after SetResolutionMode(recursive)", got)
 	}
+}
+
+// TestResolutionModeIsSafeAgainstAConcurrentForwarderResolution is a race
+// regression, and it needs -race to mean anything (make test-race).
+//
+// The mode used to be read only where rolodex.yml is rendered, so
+// SetResolutionMode wrote it with no lock held. It is on a much busier path now:
+// forwarders() consults it to decide whether `auto` should discover, and that
+// runs on every Forwarders() call — every settings write, and every
+// ProgramRolodex pass on the reconcile goroutine. An operator changing the mode
+// while the reprogramming tick resolves the list is two goroutines on one field.
+func TestResolutionModeIsSafeAgainstAConcurrentForwarderResolution(t *testing.T) {
+	t.Parallel()
+
+	m := NewManager(Config{
+		ResolvConfPaths: []string{writeResolvConf(t, "resolv.conf", "nameserver 192.168.4.1\n")},
+		RouteTablePath:  writeRouteTable(t, ""),
+		ForwarderProbe:  acceptAll,
+	})
+
+	ctx := t.Context()
+	modes := []string{ResolutionModeAuto, ResolutionModeForward, ResolutionModeRecursive}
+
+	var wg sync.WaitGroup
+	for i := range 8 {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			m.SetResolutionMode(modes[i%len(modes)])
+		}()
+		go func() {
+			defer wg.Done()
+			// The value is whatever the interleaving produced; that it is
+			// read at all without tripping the detector is the assertion.
+			_ = m.Forwarders(ctx)
+			_ = m.ResolutionMode()
+		}()
+	}
+	wg.Wait()
 }
 
 // TestConfiguredResolutionModeSurvivesConstruction covers the boot path, where

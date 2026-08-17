@@ -190,7 +190,7 @@ func startRolodexForScrape(t *testing.T) string {
 
 	dnsPort := findFreePort(t)
 	metricsPort := findFreePort(t)
-	mgr := rolodex.NewManager(rolodex.Config{
+	mgr := rolodex.NewManager(pinRolodexDiscovery(t, rolodex.Config{
 		Systemd:        sd,
 		DataDir:        dataDir,
 		Image:          rolodexTestImage(),
@@ -198,7 +198,7 @@ func startRolodexForScrape(t *testing.T) string {
 		DNSPort:        dnsPort,
 		MetricsPort:    metricsPort,
 		Key:            key,
-	})
+	}))
 	writeRolodexBootstrapConfig(t, dataDir, dnsPort, metricsPort)
 
 	startRolodexUnit(t, sd, key, dataDir, "Rolodex DNS (scrape test)")

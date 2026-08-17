@@ -245,9 +245,13 @@ func (m *Manager) MetricsAddr() string {
 	return net.JoinHostPort(DNSLoopback, m.metricsPort())
 }
 
-// resolutionMode returns the configured upstream resolution mode, defaulting
-// to DefaultResolutionMode ("auto").
-func (m *Manager) resolutionMode() string {
+// resolutionModeLocked returns the configured upstream resolution mode,
+// defaulting to DefaultResolutionMode ("auto"). The caller must already hold
+// m.mu; it is named for that because forwarders() reads the mode inside the
+// RLock it takes for the rest of the config, and sync.RWMutex is documented as
+// deadlocking on recursive read locking whenever a writer arrives between the
+// two.
+func (m *Manager) resolutionModeLocked() string {
 	if m.cfg.ResolutionMode != "" {
 		return m.cfg.ResolutionMode
 	}
@@ -256,7 +260,9 @@ func (m *Manager) resolutionMode() string {
 
 // ResolutionMode returns the mode that would be written to rolodex.yml.
 func (m *Manager) ResolutionMode() string {
-	return m.resolutionMode()
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.resolutionModeLocked()
 }
 
 // ValidResolutionMode reports whether mode is one rolodex understands.
@@ -270,7 +276,14 @@ func ValidResolutionMode(mode string) bool {
 // ProgramRolodex pushes to the running server, at boot and after every rolodex
 // restart; a caller changing it at runtime programs the server itself so the
 // change takes effect immediately, with no unit restart.
+//
+// Locked because the mode is no longer read only when rolodex.yml is rendered:
+// forwarders() consults it on every Forwarders() call, which is every settings
+// write and every ProgramRolodex pass, so the HTTP handler storing a mode races
+// the reconcile goroutine resolving the list without it.
 func (m *Manager) SetResolutionMode(mode string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.cfg.ResolutionMode = mode
 }
 
@@ -363,7 +376,7 @@ func (m *Manager) forwarders(ctx context.Context) []string {
 	m.mu.RLock()
 	local := m.cfg.LocalForwarders
 	configured := m.cfg.Forwarders
-	auto := m.resolutionMode() == ResolutionModeAuto
+	auto := m.resolutionModeLocked() == ResolutionModeAuto
 	m.mu.RUnlock()
 
 	// An explicit list wins over discovery in auto: it is the operator naming

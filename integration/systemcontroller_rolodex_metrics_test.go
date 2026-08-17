@@ -41,7 +41,7 @@ func TestRolodexServesPrometheusMetrics(t *testing.T) {
 	dnsPort := findFreePort(t)
 	metricsPort := findFreePort(t)
 
-	mgr := rolodex.NewManager(rolodex.Config{
+	mgr := rolodex.NewManager(pinRolodexDiscovery(t, rolodex.Config{
 		Systemd:        sd,
 		DataDir:        dataDir,
 		Image:          rolodexTestImage(),
@@ -49,7 +49,7 @@ func TestRolodexServesPrometheusMetrics(t *testing.T) {
 		DNSPort:        dnsPort,
 		MetricsPort:    metricsPort,
 		Key:            key,
-	})
+	}))
 
 	writeRolodexBootstrapConfig(t, dataDir, dnsPort, metricsPort)
 

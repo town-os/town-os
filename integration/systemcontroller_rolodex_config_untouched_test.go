@@ -77,12 +77,12 @@ func TestSettingsChangesNeverTouchTheInstallImagesConfig(t *testing.T) {
 		t.Fatalf("stat planted config: %v", err)
 	}
 
-	rolMgr := rolodex.NewManager(rolodex.Config{
+	rolMgr := rolodex.NewManager(pinRolodexDiscovery(t, rolodex.Config{
 		Systemd:        sd,
 		DataDir:        dataDir,
 		Image:          rolodexTestImage(),
 		UnixSocketPath: filepath.Join(dataDir, "rolodex.sock"),
-	})
+	}))
 	rolClient := &rolodex.MockClient{ResolutionMode: rolodex.ResolutionModeAuto}
 
 	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{
@@ -159,12 +159,12 @@ func TestNoTownOSPathCreatesARolodexConfig(t *testing.T) {
 	}}
 	dataDir := rolodexTempDir(t, "config-absent-*")
 
-	rolMgr := rolodex.NewManager(rolodex.Config{
+	rolMgr := rolodex.NewManager(pinRolodexDiscovery(t, rolodex.Config{
 		Systemd:        sd,
 		DataDir:        dataDir,
 		Image:          rolodexTestImage(),
 		UnixSocketPath: filepath.Join(dataDir, "rolodex.sock"),
-	})
+	}))
 	rolClient := &rolodex.MockClient{ResolutionMode: rolodex.ResolutionModeAuto}
 
 	ts := systemcontroller.InitTestServer(systemcontroller.ServerConfig{
