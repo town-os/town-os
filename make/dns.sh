@@ -20,6 +20,12 @@ DNS_BACKUP="${STATE_DIR}/resolv.conf.bak"
 RESOLVED_BACKUP="${STATE_DIR}/resolved-dns.bak"
 ROLODEX_DNS="127.0.0.2"
 
+# The systemd unit the dev container runs rolodex under, which is what
+# systemd.SystemServiceUnitName("rolodex") produces. Named here because the
+# readiness wait below asks the container about it directly rather than
+# inferring rolodex's health from a socket.
+ROLODEX_UNIT="town-os-system--rolodex.service"
+
 # The two host paths the DNS redirect touches, overridable ONLY so the test
 # suite can drive the whole restore path against a temp directory. A test able
 # to reach the real /etc/resolv.conf is a test that can take the machine
@@ -211,24 +217,88 @@ adopt_orphan_dns_backup() {
   RESOLVED_BACKUP="${dir}/resolved-dns.bak"
 }
 
-# redirect_host_dns — route the host's name resolution through the dev rolodex,
-# both halves of it: systemd-resolved's per-link servers and /etc/resolv.conf.
-redirect_host_dns() {
-  # Wait for rolodex to be listening on 127.0.0.2:53
+# rolodex_dns_is_bound — true when something holds ROLODEX_DNS:53 in the HOST
+# network namespace, which is the only namespace there is here: every Town OS
+# container runs --net host, the dev container included, so a rolodex started
+# inside it binds the host's 127.0.0.2:53.
+#
+# Both transports, because rolodex binds udp and tcp separately and either one
+# alone is a rolodex that is only half up.
+rolodex_dns_is_bound() {
+  [ -n "$(ss -H -lntu "src ${ROLODEX_DNS}:53" 2>/dev/null)" ]
+}
+
+# require_free_rolodex_dns — refuse to start a dev box whose resolver address is
+# already taken, BEFORE anything is launched.
+#
+# There is exactly one 127.0.0.2:53 on this machine and more than one thing that
+# wants it: the install repo's host rolodex (`town-os-host-rolodex`), a dev
+# container from another checkout, an orphaned system-service container from a
+# dev run that was killed hard. Whichever got there first keeps it, so the
+# rolodex this run starts fails to bind — and the old redirect could not tell the
+# difference, because a TCP connect to 127.0.0.2:53 succeeds just as well when
+# the answer is coming from somebody else's resolver. The host then resolved
+# through a rolodex that knows nothing about this dev box, which reads exactly
+# like the dev box's own DNS being broken.
+#
+# Called after this checkout's dev container is removed, so anything still
+# holding the address is genuinely foreign rather than our own leftovers.
+require_free_rolodex_dns() {
+  rolodex_dns_is_bound || return 0
+
+  warn "${ROLODEX_DNS}:53 is already bound — something else is serving DNS there:"
+  ss -lntu "src ${ROLODEX_DNS}:53" 2>&1 | sed 's/^/  ** /' || true
+  warn "That is the address this dev box's rolodex needs, and pointing the host"
+  warn "at it would resolve through a resolver that is not this checkout's."
+  warn "Usual suspects, in order:"
+  warn "  - the install repo's host rolodex: ${SUDO} podman rm -f town-os-host-rolodex"
+  warn "  - another checkout's dev box:      make dev-stop (from that checkout)"
+  warn "  - an orphan from a hard kill:      ${SUDO} podman rm -f town-os-system--rolodex"
+  exit 1
+}
+
+# wait_for_rolodex_dns CONTAINER [TIMEOUT] — block until THIS checkout's rolodex
+# is serving DNS, and say why in the container's own words when it never does.
+#
+# Two conditions, because neither alone is the thing being waited for. The unit
+# being active is what makes it ours: it is the rolodex the systemcontroller in
+# this dev container started, asked about by name rather than inferred. The
+# address being bound is what makes it usable: the unit goes active the moment
+# `podman run` is up, which is before rolodex has parsed its config and opened a
+# socket, and redirecting into that window points the host at a closed port.
+#
+# Fatal rather than a warning. This used to warn and carry on, which produced a
+# dev box that looked like it had started — UI up, API answering — while every
+# .home name on the host went to the LAN resolver and came back NXDOMAIN. A dev
+# box whose whole purpose is to mirror a real one is not usable without its
+# resolver, so it fails here with the journal that explains it.
+wait_for_rolodex_dns() {
+  local container="$1" timeout="${2:-60}" i
   substep "Waiting for rolodex DNS on ${ROLODEX_DNS}:53"
-  local waited=0
-  while [ "${waited}" -lt 30 ]; do
-    if (echo >"/dev/tcp/${ROLODEX_DNS}/53") 2>/dev/null; then
-      break
+  for i in $(seq 1 "${timeout}"); do
+    if ${SUDO} podman exec "${container}" systemctl is-active --quiet "${ROLODEX_UNIT}" \
+      && rolodex_dns_is_bound; then
+      substep "Rolodex is serving DNS"
+      return 0
     fi
     sleep 1
-    waited=$((waited + 1))
   done
-  if [ "${waited}" -ge 30 ]; then
-    warn "Rolodex did not start within 30s — skipping DNS redirect"
-    return 0
-  fi
-  substep "Rolodex is listening"
+
+  warn "rolodex is not serving DNS on ${ROLODEX_DNS}:53 after ${timeout}s"
+  warn "systemctl status ${ROLODEX_UNIT}:"
+  timeout 60 ${SUDO} podman exec "${container}" \
+    systemctl status --no-pager --full "${ROLODEX_UNIT}" 2>&1 | tail -40 || true
+  warn "journalctl -u ${ROLODEX_UNIT} (last 100 lines):"
+  timeout 60 ${SUDO} podman exec "${container}" \
+    journalctl --no-pager -n 100 -u "${ROLODEX_UNIT}" 2>&1 | tail -100 || true
+  exit 1
+}
+
+# redirect_host_dns CONTAINER — route the host's name resolution through the dev
+# rolodex, both halves of it: systemd-resolved's per-link servers and
+# /etc/resolv.conf.
+redirect_host_dns() {
+  wait_for_rolodex_dns "$1"
 
   redirect_resolved_dns
 

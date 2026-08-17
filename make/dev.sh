@@ -100,6 +100,11 @@ case "$1" in
       ${SUDO} podman rm -f "$c" 2>/dev/null || true
     done
     ${SUDO} podman rm -f "${PODMAN_DEV_CONTAINER}"
+    # After our own container is gone, so what this checks for is somebody
+    # else's resolver on the address this one needs. Checked before anything is
+    # launched: the failure it prevents is a dev box that boots normally and
+    # resolves through a rolodex belonging to another checkout.
+    require_free_rolodex_dns
     mkdir -p "${STATE_DIR}/dev-data" "${STATE_DIR}/dev-repos" "${STATE_DIR}/dev-rolodex"
     # Object storage runs for real in dev only if `make gfeh-image` has been run:
     # quay.io/town/gfeh is not public, so a GFEH_IMAGE the dev container cannot
@@ -157,20 +162,14 @@ case "$1" in
     ${SUDO} podman exec "${PODMAN_DEV_CONTAINER}" systemctl restart town-os-systemcontroller.service
     substep "Waiting for systemcontroller API to be ready"
     require_controller_ready "${PODMAN_DEV_CONTAINER}" "http://localhost:5309/status/ping" 120
-    # Create a default dev account and authenticate unless NO_ACCOUNT=1.
-    DEV_TOKEN=""
-    if [ "${NO_ACCOUNT:-}" != "1" ]; then
-      step "Creating dev account (townos / townos!!)"
-      curl -sf -X POST http://localhost:5309/account/create \
-        -H 'Content-Type: application/json' \
-        -d '{"username":"townos","password":"townos!!","email":"dev@town-os.local","phone":"555-0100","real_name":"Town OS Developer","admin":true}' \
-        >/dev/null 2>&1 || true
-      DEV_TOKEN=$(curl -sf -X POST http://localhost:5309/account/authenticate \
-        -H 'Content-Type: application/json' \
-        -d '{"username":"townos","password":"townos!!"}' \
-        2>/dev/null | grep -o '"token":"[^"]*"' | cut -d'"' -f4) || true
-    fi
     step "Redirecting host DNS to rolodex"
+    # Here, and not after the account and the UI server, because this is the
+    # first moment it CAN happen: the controller has booted, which is what
+    # starts rolodex. Everything below this line is a dev box that is already
+    # up, and a dev box that is up while the host still resolves through the
+    # LAN's resolver is a dev box whose own names do not work — for every
+    # minute of `bun install`, and for good if any step below fails first.
+    #
     # Registered before the redirect, so a failure part-way through it still
     # restores. The signal traps matter as much as EXIT: bash does not reliably
     # run an EXIT trap when it dies from a signal it has no handler for, and
@@ -196,7 +195,20 @@ case "$1" in
     #   cannot be re-entered on the way out.
     trap restore_host_dns EXIT
     trap 'trap - EXIT; dev_teardown; exit 0' INT HUP TERM
-    redirect_host_dns
+    redirect_host_dns "${PODMAN_DEV_CONTAINER}"
+    # Create a default dev account and authenticate unless NO_ACCOUNT=1.
+    DEV_TOKEN=""
+    if [ "${NO_ACCOUNT:-}" != "1" ]; then
+      step "Creating dev account (townos / townos!!)"
+      curl -sf -X POST http://localhost:5309/account/create \
+        -H 'Content-Type: application/json' \
+        -d '{"username":"townos","password":"townos!!","email":"dev@town-os.local","phone":"555-0100","real_name":"Town OS Developer","admin":true}' \
+        >/dev/null 2>&1 || true
+      DEV_TOKEN=$(curl -sf -X POST http://localhost:5309/account/authenticate \
+        -H 'Content-Type: application/json' \
+        -d '{"username":"townos","password":"townos!!"}' \
+        2>/dev/null | grep -o '"token":"[^"]*"' | cut -d'"' -f4) || true
+    fi
     step "Starting UI dev server"
     substep "API server: http://$(hostname):5309"
     if [ -n "${DEV_TOKEN}" ]; then

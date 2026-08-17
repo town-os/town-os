@@ -100,7 +100,23 @@ if [ -f "${STUB_STATE}/resolved-active" ]; then exit 0; fi
 exit 1
 `)
 
+	// ss: the listener table, keyed by nothing -- every caller in dns.sh asks
+	// the same question (is ROLODEX_DNS:53 held?) and the fixture is the answer.
+	// Absent means the address is free, which is the ordinary case.
+	h.writeStub("ss", `
+f="${STUB_STATE}/ss-listeners"
+if [ -f "${f}" ]; then cat "${f}"; fi
+exit 0
+`)
+
 	return h
+}
+
+// dnsBound makes the ss stub report something already listening on the rolodex
+// address, in the shape ss prints it.
+func (h *devDNSHarness) dnsBound() {
+	h.t.Helper()
+	h.fixture("ss-listeners", "udp UNCONN 0 0 127.0.0.2:53 0.0.0.0:*\ntcp LISTEN 0 4096 127.0.0.2:53 0.0.0.0:*\n")
 }
 
 func (h *devDNSHarness) writeStub(name, body string) {
@@ -184,6 +200,93 @@ func assertLogged(t *testing.T, log []string, want string) {
 		return
 	}
 	t.Errorf("privileged call %q was never made; got %v", want, log)
+}
+
+// There is one 127.0.0.2:53 on a machine and several things that want it: the
+// install repo's host rolodex, another checkout's dev box, an orphaned system
+// service from a dev run that was killed hard. Whichever bound first keeps it,
+// so this run's rolodex does not -- and the host would be pointed at a resolver
+// that knows nothing about this dev box.
+func TestDevDNSRefusesToStartWhenTheRolodexAddressIsTaken(t *testing.T) {
+	t.Parallel()
+	h := newDevDNSHarness(t)
+	h.dnsBound()
+
+	out := h.run(`( require_free_rolodex_dns ); echo "rc=$?"`)
+
+	if !strings.Contains(out, "rc=1") {
+		t.Errorf("require_free_rolodex_dns exited 0 with the address already bound; output:\n%s", out)
+	}
+	if log := h.privilegedLog(); len(log) != 0 {
+		t.Errorf("touched host state before refusing: %v", log)
+	}
+}
+
+// The ordinary case: nothing holds the address, and the check is silent and
+// out of the way. A guard that failed here would make `make dev` unusable on
+// every box, which is worse than the bug it prevents.
+func TestDevDNSStartsWhenTheRolodexAddressIsFree(t *testing.T) {
+	t.Parallel()
+	h := newDevDNSHarness(t)
+
+	out := h.run(`( require_free_rolodex_dns ); echo "rc=$?"`)
+
+	if !strings.Contains(out, "rc=0") {
+		t.Errorf("require_free_rolodex_dns refused a free address; output:\n%s", out)
+	}
+}
+
+// The readiness wait is two conditions and needs both. The unit being active is
+// what makes the resolver OURS -- the one the controller in this dev container
+// started. The address being bound is what makes it usable, because the unit
+// goes active when `podman run` is up, which is before rolodex has opened a
+// socket.
+func TestDevDNSWaitReturnsOnceRolodexIsActiveAndBound(t *testing.T) {
+	t.Parallel()
+	h := newDevDNSHarness(t)
+	h.dnsBound()
+
+	// SUDO is the recorder, which succeeds: the unit reads as active.
+	out := h.run(`( wait_for_rolodex_dns town-os-dev 1 ); echo "rc=$?"`)
+
+	if !strings.Contains(out, "rc=0") {
+		t.Errorf("wait_for_rolodex_dns failed with rolodex active and bound; output:\n%s", out)
+	}
+	assertLogged(t, h.privilegedLog(),
+		"podman exec town-os-dev systemctl is-active --quiet town-os-system--rolodex.service")
+}
+
+// A socket on the address is not enough on its own. Before this the wait was a
+// bare TCP connect, which succeeds just as well when the answer is coming from
+// somebody else's rolodex -- the exact case require_free_rolodex_dns exists to
+// catch, and the reason the unit is asked about by name.
+func TestDevDNSWaitFailsWhenTheRolodexUnitIsNotActive(t *testing.T) {
+	t.Parallel()
+	h := newDevDNSHarness(t)
+	h.dnsBound()
+
+	// `false` swallows its arguments and returns 1, so every ${SUDO} call --
+	// the is-active probe included -- reads as a unit that is not running.
+	out := h.run(`SUDO=false; ( wait_for_rolodex_dns town-os-dev 1 ); echo "rc=$?"`)
+
+	if !strings.Contains(out, "rc=1") {
+		t.Errorf("wait_for_rolodex_dns passed with the unit down; output:\n%s", out)
+	}
+}
+
+// And the other direction: the unit is up but nothing is listening yet. This
+// used to warn and carry on, which produced a dev box that looked started --
+// UI up, API answering -- while every .home name on the host went to the LAN
+// resolver and came back NXDOMAIN.
+func TestDevDNSWaitFailsWhenNothingIsListening(t *testing.T) {
+	t.Parallel()
+	h := newDevDNSHarness(t)
+
+	out := h.run(`( wait_for_rolodex_dns town-os-dev 1 ); echo "rc=$?"`)
+
+	if !strings.Contains(out, "rc=1") {
+		t.Errorf("wait_for_rolodex_dns passed with nothing bound to the address; output:\n%s", out)
+	}
 }
 
 // dns_links picks the interfaces that actually carry traffic. Getting this

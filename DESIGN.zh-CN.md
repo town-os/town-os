@@ -2339,6 +2339,8 @@ SIGINT 触发 context 取消。HTTP 服务器关闭，所有后台 goroutine 经
 
 下列每一项各自迁移其中一个端口，并且**默认为生产端口**，因此未设置任何环境变量时会精确复现今天的启动行为。`make/lib.sh` 的 `system_port_env` 按次运行把它们分配到 `SYSTEM_PORT_FILES` 并传给测试容器——IRON RULE。`make dev` 刻意**一个都不设置**：dev 镜像的是真实机器，那里 `redirect_host_dns` 需要 rolodex 在 `:53` 上，浏览器需要 ingress 在 `:443` 上。无法解析的值会在 stderr 上报告并回退到默认值，因为打字错误否则看起来会与根本没设置一模一样。
 
+`make dev` 也因此成了唯一可能被一个端口拦下来的目标：一台机器上只有一个 `127.0.0.2:53`，而想要它的东西不止一个——install 仓库的宿主 rolodex、另一个 checkout 的 dev 机器、某次被硬杀掉的 dev 运行遗留下来的系统服务容器。于是 `require_free_rolodex_dns`（`make/dns.sh`）会在本 checkout 自己的容器已被移除、而该地址仍被占用时拒绝启动，并指名该停掉什么。以前的重定向只是等待对该地址的一次 TCP 连接成功，可当应答者是别人的解析器时，这个连接同样会成功：本 checkout 的 rolodex 绑定失败，而宿主被指向一个对这台 dev 机器一无所知的 rolodex——从浏览器看去，与这台 dev 机器自己的 DNS 坏掉毫无区别。`wait_for_rolodex_dns` 现在要求两半都成立：单元处于 active（这是让解析器成为*我们的*那一半），以及地址已被绑定（这是让它可用的那一半，因为 `podman run` 一起来单元就 active 了，那时 rolodex 还没打开套接字）；并且它是**致命的**而非一句警告——解析器从未起来的 dev 机器算不上 dev 机器，而继续跑下去只会造出一台看起来已启动、宿主上每个 `.home` 名字却都跑去问 LAN 解析器的机器。重定向在控制器就绪后立刻发生，早于账号和 UI 服务器，因为那一行之后的一切都已经是一台起来了的 dev 机器。由 `TestDevDNSRefusesToStartWhenTheRolodexAddressIsTaken` 及若干 `TestDevDNSWait*` 测试覆盖，它们对 `ss`、`resolvectl` 与 `${SUDO}` 都打了桩——任何测试都不得碰宿主的解析器。
+
 - `TOWN_OS_DNS_PORT` —— rolodex 提供 DNS 服务的端口（默认 `53`，位于 `DNSLoopback`）。**当它为非默认值时，systemd-resolved 的路由配置会被完全跳过**：resolved 的按域名服务器地址不携带端口，因此把 resolved 指向 `DNSLoopback` 只会悄悄黑洞掉该 `.tld` 之下的每一次查询，而不是把它们留给正常的解析路径。
 - `TOWN_OS_ROLODEX_METRICS_PORT` —— rolodex 提供其 Prometheus `/metrics` 端点的端口，同样位于 `DNSLoopback`（默认 `9153`）。它与 DNS 端口是彼此独立的监听器，需要各自的覆盖项；`rolodex.Manager.MetricsAddr()` 是 `rolodex.yml` 与 Prometheus 抓取目标共同构建自的那一个字符串，因此迁移它会同时移动两者。
 - `TOWN_OS_NODE_EXPORTER_PORT` —— node-exporter 的环回指标端口（默认 `9100`）。
