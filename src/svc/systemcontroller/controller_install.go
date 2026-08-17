@@ -605,6 +605,12 @@ func (s *SystemControllerHandlers) uninstallPackage(c *echo.Context) error {
 			pw.Err(err)
 			return nil
 		}
+		// The volumes are gone, so the identity a vendor credential was minted
+		// against is gone with them. Forget those answers too, or the next
+		// install silently re-uses a token bound to a server that no longer
+		// exists -- and the operator cannot even ask for the flow again,
+		// because the dialog pre-fills the answer they wanted to replace.
+		s.forgetOAuthResponses(req.Repo, parentName, effectiveName, req.Version)
 	} else if st := s.Controller.GetStorage(); st != nil {
 		_, otherVersionInstalled, err := inst.GetInstalledVersion(req.Repo, effectiveName)
 		if err != nil {
@@ -616,8 +622,17 @@ func (s *SystemControllerHandlers) uninstallPackage(c *echo.Context) error {
 			storage := packages.StoragePath(effectiveName)
 			src := fmt.Sprintf("%s/%s/%s", PackagesVolumePrefix, req.Repo, storage)
 			dst := fmt.Sprintf("%s/%s/%s", UninstalledVolumePrefix, req.Repo, storage)
+			// os.Rename cannot create uninstalled/<repo>/, and on a box where
+			// nothing from this repo has been uninstalled before, it does not
+			// exist. The volumes then stayed put under installed/ while the
+			// install record said otherwise, so the reuse reinstall looked in
+			// uninstalled/, found nothing, and built an empty volume beside the
+			// real data. Same failure as the upgrade and reuse moves.
+			if err := ensureVolumeParent(s.Controller.GetBtrfsBasePath(), dst); err != nil {
+				slog.Warn(fmt.Sprintf("preserve volumes: rename %s -> %s: create parent: %v", src, dst, err))
+			}
 			if err := st.RenameFilesystem(src, dst); err != nil {
-				slog.Debug(fmt.Sprintf("preserve volumes: rename %s -> %s: %v", src, dst, err))
+				slog.Warn(fmt.Sprintf("preserve volumes: rename %s -> %s: %v", src, dst, err))
 			}
 		}
 	}

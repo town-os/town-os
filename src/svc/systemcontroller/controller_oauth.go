@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -258,6 +259,55 @@ func (s *SystemControllerHandlers) oauthAllowPrivate() bool {
 		return false
 	}
 	return b.GetOAuthAllowPrivate()
+}
+
+// responseForgetter is the part of the installer that can drop stored answers.
+// Read through an optional interface rather than added to packages.Installer so
+// the many test doubles implementing that interface do not all have to grow a
+// method about OAuth -- the same reason oauthAllowPrivate is shaped this way.
+type responseForgetter interface {
+	ForgetResponseKeys(repoName, pkgName string, keys []string) error
+}
+
+// forgetOAuthResponses drops a package's device-flow answers from every stored
+// response, so the next install has to run the flow again instead of silently
+// re-using a credential minted for an instance that no longer exists.
+//
+// Best-effort and never fatal: this runs after the volumes are already gone, and
+// failing the uninstall at that point would leave the operator with a
+// half-removed package. It is logged at Warn rather than Debug because the
+// consequence of skipping it is an install that looks fine and comes up
+// unauthorized.
+//
+// The questions are read from the package definition in the repository, not from
+// the install record, because the record has already been removed by this point.
+// parentName rather than effectiveName: a dependency instance shares its
+// parent's definition, and only the definition carries the question types.
+func (s *SystemControllerHandlers) forgetOAuthResponses(repoName, parentName, effectiveName, version string) {
+	inst, ok := s.Controller.GetInstaller().(responseForgetter)
+	if !ok {
+		return
+	}
+
+	rr := s.Controller.GetRepositoryRoot()
+	if rr == nil {
+		return
+	}
+
+	ip, err := rr.LoadPackage(repoName, parentName, version)
+	if err != nil {
+		slog.Warn(fmt.Sprintf("forget oauth responses %s/%s@%s: load package: %v", repoName, parentName, version, err))
+		return
+	}
+
+	names := packages.OAuthQuestionNames(ip.Questions)
+	if len(names) == 0 {
+		return
+	}
+
+	if err := inst.ForgetResponseKeys(repoName, effectiveName, names); err != nil {
+		slog.Warn(fmt.Sprintf("forget oauth responses %s/%s: %v", repoName, effectiveName, err))
+	}
 }
 
 type OAuthStartRequest struct {
