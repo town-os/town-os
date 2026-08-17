@@ -95,6 +95,12 @@ type Config struct {
 	// Defaults to the UI container (town-os-system--ui:80). Tests that do not run
 	// a UI set it to "-" to disable the fallback vhost entirely.
 	DefaultBackend string
+	// Locale is the box's configured language, passed to the ingress as
+	// --locale. It is the language the retry page falls back to when a client
+	// asks for one Town OS ships no catalog for; the languages it does ship are
+	// matched per request on Accept-Language inside the rendered Caddyfile.
+	// Empty leaves the flag off, and the ingress defaults to en-US.
+	Locale string
 	// EnableIPv6 makes the ingress serve dual-stack: the podman network is
 	// created with --ipv6 and the HTTPS port is also published on [::] so AAAA
 	// clients reach the same caddy. Set by the systemcontroller only when the
@@ -267,6 +273,14 @@ func (m *Manager) unitConfig() systemd.SystemServiceUnitConfig {
 	}
 	if db := m.defaultBackend(); db != "" {
 		command = append(command, "--default-backend", db)
+	}
+	// The box's language, for the retry page the ingress serves when a backend
+	// is down. It rides the unit rather than the gRPC route push because it is
+	// not per-route: one setting, read once, and a change to it reaches the
+	// ingress the way every other unit-level change does — the rendered unit
+	// differs, so Start restarts the container.
+	if loc := m.cfg.Locale; loc != "" {
+		command = append(command, "--locale", loc)
 	}
 
 	return systemd.SystemServiceUnitConfig{

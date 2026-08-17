@@ -156,4 +156,10 @@ var koKRMessages = map[string]string{
 	MsgAuditAddGfehGrant:         "오브젝트 스토리지 권한 추가",
 	MsgAuditRevokeGfehGrant:      "오브젝트 스토리지 권한 취소",
 	MsgAuditWithdrawGfehExposure: "오브젝트 스토리지 링크 회수",
+
+	// The ingress retry page.
+	MsgIngressUnavailableTitle:  "%s을(를) 사용할 수 없습니다",
+	MsgIngressUnavailableBody:   "Town OS는 이 주소를 계속 라우팅하고 있지만, 뒤에 있는 서비스가 응답하지 않습니다. 시작 중이거나, 업데이트 후 재시작 중이거나, 잠시 과부하 상태일 가능성이 높습니다.",
+	MsgIngressUnavailableRetry:  "할 일은 없습니다. 이 페이지는 %d초마다 다시 시도하고, 서비스가 응답하는 즉시 보여 줍니다.",
+	MsgIngressUnavailableFooter: "Town OS 인그레스",
 }

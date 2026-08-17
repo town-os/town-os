@@ -156,4 +156,10 @@ var ruRUMessages = map[string]string{
 	MsgAuditAddGfehGrant:         "добавить право объектного хранилища",
 	MsgAuditRevokeGfehGrant:      "отозвать право объектного хранилища",
 	MsgAuditWithdrawGfehExposure: "отозвать ссылку объектного хранилища",
+
+	// The ingress retry page.
+	MsgIngressUnavailableTitle:  "%s недоступен",
+	MsgIngressUnavailableBody:   "Town OS по-прежнему маршрутизирует этот адрес, но служба за ним не отвечает. Скорее всего, она запускается, перезапускается после обновления или ненадолго перегружена.",
+	MsgIngressUnavailableRetry:  "Ничего делать не нужно: эта страница повторяет попытку каждые %d секунд и покажет службу, как только она снова ответит.",
+	MsgIngressUnavailableFooter: "Ingress Town OS",
 }

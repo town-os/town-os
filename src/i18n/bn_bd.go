@@ -156,4 +156,10 @@ var bnBDMessages = map[string]string{
 	MsgAuditAddGfehGrant:         "অবজেক্ট স্টোরেজ অনুমতি যোগ",
 	MsgAuditRevokeGfehGrant:      "অবজেক্ট স্টোরেজ অনুমতি প্রত্যাহার",
 	MsgAuditWithdrawGfehExposure: "অবজেক্ট স্টোরেজ লিঙ্ক প্রত্যাহার",
+
+	// The ingress retry page.
+	MsgIngressUnavailableTitle:  "%s এখন পাওয়া যাচ্ছে না",
+	MsgIngressUnavailableBody:   "Town OS এখনও এই ঠিকানার রুট ধরে রেখেছে, কিন্তু এর পেছনের সেবাটি সাড়া দিচ্ছে না। সম্ভবত সেটি চালু হচ্ছে, হালনাগাদের পরে পুনরায় চালু হচ্ছে, অথবা কিছু সময়ের জন্য অতিরিক্ত চাপে আছে।",
+	MsgIngressUnavailableRetry:  "কিছু করার নেই: এই পৃষ্ঠাটি প্রতি %d সেকেন্ড পরপর আবার চেষ্টা করে, এবং সেবাটি সাড়া দেওয়ামাত্র তা দেখাবে।",
+	MsgIngressUnavailableFooter: "Town OS ইনগ্রেস",
 }

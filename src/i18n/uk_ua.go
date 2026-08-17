@@ -156,4 +156,10 @@ var ukUAMessages = map[string]string{
 	MsgAuditAddGfehGrant:         "додати дозвіл об'єктного сховища",
 	MsgAuditRevokeGfehGrant:      "відкликати дозвіл об'єктного сховища",
 	MsgAuditWithdrawGfehExposure: "відкликати посилання об'єктного сховища",
+
+	// The ingress retry page.
+	MsgIngressUnavailableTitle:  "%s недоступний",
+	MsgIngressUnavailableBody:   "Town OS і далі маршрутизує цю адресу, але служба за нею не відповідає. Найімовірніше, вона запускається, перезапускається після оновлення або ненадовго перевантажена.",
+	MsgIngressUnavailableRetry:  "Нічого робити не потрібно: ця сторінка повторює спробу кожні %d секунд і покаже службу, щойно вона знову відповість.",
+	MsgIngressUnavailableFooter: "Ingress Town OS",
 }

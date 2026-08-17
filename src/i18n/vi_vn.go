@@ -156,4 +156,10 @@ var viVNMessages = map[string]string{
 	MsgAuditAddGfehGrant:         "thêm quyền lưu trữ đối tượng",
 	MsgAuditRevokeGfehGrant:      "thu hồi quyền lưu trữ đối tượng",
 	MsgAuditWithdrawGfehExposure: "thu hồi liên kết lưu trữ đối tượng",
+
+	// The ingress retry page.
+	MsgIngressUnavailableTitle:  "%s hiện không khả dụng",
+	MsgIngressUnavailableBody:   "Town OS vẫn định tuyến địa chỉ này, nhưng dịch vụ phía sau không phản hồi. Nhiều khả năng nó đang khởi động, khởi động lại sau khi cập nhật, hoặc quá tải trong chốc lát.",
+	MsgIngressUnavailableRetry:  "Không cần làm gì: trang này thử lại sau mỗi %d giây và sẽ hiển thị dịch vụ ngay khi nó phản hồi trở lại.",
+	MsgIngressUnavailableFooter: "Ingress của Town OS",
 }

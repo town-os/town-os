@@ -156,4 +156,10 @@ var deDEMessages = map[string]string{
 	MsgAuditAddGfehGrant:         "Objektspeicher-Berechtigung hinzufügen",
 	MsgAuditRevokeGfehGrant:      "Objektspeicher-Berechtigung widerrufen",
 	MsgAuditWithdrawGfehExposure: "Objektspeicher-Link zurückziehen",
+
+	// The ingress retry page.
+	MsgIngressUnavailableTitle:  "%s ist nicht erreichbar",
+	MsgIngressUnavailableBody:   "Town OS leitet diese Adresse weiterhin weiter, aber der Dienst dahinter antwortet nicht. Wahrscheinlich startet er gerade, wird nach einer Aktualisierung neu gestartet oder ist kurzzeitig überlastet.",
+	MsgIngressUnavailableRetry:  "Es ist nichts zu tun: Diese Seite versucht es alle %d Sekunden erneut und zeigt den Dienst, sobald er wieder antwortet.",
+	MsgIngressUnavailableFooter: "Town OS Ingress",
 }

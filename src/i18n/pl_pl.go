@@ -156,4 +156,10 @@ var plPLMessages = map[string]string{
 	MsgAuditAddGfehGrant:         "dodaj uprawnienie magazynu obiektów",
 	MsgAuditRevokeGfehGrant:      "cofnij uprawnienie magazynu obiektów",
 	MsgAuditWithdrawGfehExposure: "wycofaj odnośnik magazynu obiektów",
+
+	// The ingress retry page.
+	MsgIngressUnavailableTitle:  "%s jest niedostępna",
+	MsgIngressUnavailableBody:   "Town OS wciąż kieruje ruch na ten adres, ale usługa za nim nie odpowiada. Najprawdopodobniej właśnie się uruchamia, restartuje po aktualizacji albo jest chwilowo przeciążona.",
+	MsgIngressUnavailableRetry:  "Nie trzeba nic robić: ta strona ponawia próbę co %d sekund i pokaże usługę, gdy tylko znowu odpowie.",
+	MsgIngressUnavailableFooter: "Ingress Town OS",
 }

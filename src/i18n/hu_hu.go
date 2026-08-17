@@ -161,4 +161,10 @@ var huHUMessages = map[string]string{
 	MsgAuditAddGfehGrant:         "objektumtároló-jogosultság hozzáadása",
 	MsgAuditRevokeGfehGrant:      "objektumtároló-jogosultság visszavonása",
 	MsgAuditWithdrawGfehExposure: "objektumtároló-hivatkozás visszavonása",
+
+	// The ingress retry page.
+	MsgIngressUnavailableTitle:  "A(z) %s nem érhető el",
+	MsgIngressUnavailableBody:   "A Town OS továbbra is útválasztja ezt a címet, de a mögötte lévő szolgáltatás nem válaszol. Valószínűleg éppen indul, frissítés után újraindul, vagy rövid ideig túlterhelt.",
+	MsgIngressUnavailableRetry:  "Nincs teendő: ez az oldal %d másodpercenként újrapróbálkozik, és megjeleníti a szolgáltatást, amint az újra válaszol.",
+	MsgIngressUnavailableFooter: "Town OS ingress",
 }

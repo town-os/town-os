@@ -156,4 +156,10 @@ var itITMessages = map[string]string{
 	MsgAuditAddGfehGrant:         "aggiungi autorizzazione di archiviazione a oggetti",
 	MsgAuditRevokeGfehGrant:      "revoca autorizzazione di archiviazione a oggetti",
 	MsgAuditWithdrawGfehExposure: "ritira collegamento di archiviazione a oggetti",
+
+	// The ingress retry page.
+	MsgIngressUnavailableTitle:  "%s non è disponibile",
+	MsgIngressUnavailableBody:   "Town OS continua a instradare questo indirizzo, ma il servizio dietro di esso non risponde. Molto probabilmente si sta avviando, sta ripartendo dopo un aggiornamento o è momentaneamente sovraccarico.",
+	MsgIngressUnavailableRetry:  "Non c'è nulla da fare: questa pagina riprova ogni %d secondi e mostrerà il servizio appena tornerà a rispondere.",
+	MsgIngressUnavailableFooter: "Ingress di Town OS",
 }

@@ -156,4 +156,10 @@ var esESMessages = map[string]string{
 	MsgAuditAddGfehGrant:         "añadir permiso de almacenamiento de objetos",
 	MsgAuditRevokeGfehGrant:      "revocar permiso de almacenamiento de objetos",
 	MsgAuditWithdrawGfehExposure: "retirar enlace de almacenamiento de objetos",
+
+	// The ingress retry page.
+	MsgIngressUnavailableTitle:  "%s no está disponible",
+	MsgIngressUnavailableBody:   "Town OS sigue enrutando esta dirección, pero el servicio que hay detrás no responde. Lo más probable es que esté arrancando, reiniciándose tras una actualización o brevemente sobrecargado.",
+	MsgIngressUnavailableRetry:  "No hay nada que hacer: esta página reintenta cada %d segundos y mostrará el servicio en cuanto vuelva a responder.",
+	MsgIngressUnavailableFooter: "Ingress de Town OS",
 }

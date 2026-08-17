@@ -286,4 +286,29 @@ const (
 	// the answer to "what do I need" is different: not administrator, but
 	// either administrator or an account scoped to that network.
 	MsgAuthObjectStorageRequired = "auth.object_storage_required"
+
+	// The ingress retry page, served when a backend behind a programmed route
+	// answers 5xx or does not answer at all.
+	//
+	// These four are the only strings in this catalog that are not read by the
+	// systemcontroller: the ingress renders them into its Caddyfile, one
+	// rendering per language, and Caddy serves whichever the client's
+	// Accept-Language asked for. They are here anyway rather than in
+	// src/ingress, because a user-facing sentence that lives outside this
+	// catalog is a sentence that never gets translated.
+
+	// MsgIngressUnavailableTitle is the page's heading and tab title. The verb
+	// carries the service name (a hostname, or the box's name for the fallback
+	// vhost), and it is a verb rather than a concatenation because the name does
+	// not go in the same place in every language.
+	MsgIngressUnavailableTitle = "ingress.unavailable.title"
+	// MsgIngressUnavailableBody says what is happening: the address is still
+	// routed and the service behind it is not answering yet.
+	MsgIngressUnavailableBody = "ingress.unavailable.body"
+	// MsgIngressUnavailableRetry says the page retries by itself, and how often.
+	// The verb is the interval in seconds.
+	MsgIngressUnavailableRetry = "ingress.unavailable.retry"
+	// MsgIngressUnavailableFooter names what served the page, so a reader can
+	// tell a Town OS page from whatever the service itself might have shown.
+	MsgIngressUnavailableFooter = "ingress.unavailable.footer"
 )

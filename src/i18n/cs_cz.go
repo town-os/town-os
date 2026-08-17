@@ -156,4 +156,10 @@ var csCZMessages = map[string]string{
 	MsgAuditAddGfehGrant:         "přidat oprávnění objektového úložiště",
 	MsgAuditRevokeGfehGrant:      "odvolat oprávnění objektového úložiště",
 	MsgAuditWithdrawGfehExposure: "stáhnout odkaz objektového úložiště",
+
+	// The ingress retry page.
+	MsgIngressUnavailableTitle:  "%s není dostupná",
+	MsgIngressUnavailableBody:   "Town OS tuto adresu stále směruje, ale služba za ní neodpovídá. Nejspíš se právě spouští, restartuje po aktualizaci nebo je krátce přetížená.",
+	MsgIngressUnavailableRetry:  "Není třeba nic dělat: tato stránka to zkouší znovu každých %d sekund a jakmile služba odpoví, zobrazí ji.",
+	MsgIngressUnavailableFooter: "Ingress Town OS",
 }

@@ -22,6 +22,7 @@ import (
 
 	"gitea.com/town-os/town-os/src/account"
 	"gitea.com/town-os/town-os/src/git"
+	"gitea.com/town-os/town-os/src/i18n"
 	"gitea.com/town-os/town-os/src/ingress"
 	"gitea.com/town-os/town-os/src/ingress/ingressctl"
 	"gitea.com/town-os/town-os/src/monitoring"
@@ -740,6 +741,25 @@ func (b *boot) startMonitoring(ctx context.Context) {
 	monWG.Wait()
 }
 
+// ingressLocale reads the box's configured language for the ingress unit,
+// falling back to the default locale.
+//
+// The same "locale" row the handlers read through getLocale, and the same
+// treatment: a missing row, an unreadable settings manager, or an empty value
+// all mean English. It is read here rather than pushed over gRPC because it is
+// one box-wide setting rather than route state — and reading it at unit
+// generation means a language change reaches the ingress the way every other
+// unit change does, by rendering a different unit on the next reconcile.
+func (b *boot) ingressLocale(ctx context.Context) string {
+	if b.settingsMgr == nil {
+		return i18n.DefaultLocale
+	}
+	if val, err := b.settingsMgr.Get(ctx, "locale"); err == nil && val != "" {
+		return val
+	}
+	return i18n.DefaultLocale
+}
+
 // startIngress brings up the shared :443 SNI router and the pages service it
 // reverse-proxies to. Programmed over gRPC later (programIngress), plus the
 // per-package and page-CRUD handlers.
@@ -765,6 +785,11 @@ func (b *boot) startIngress(ctx context.Context) {
 		// readMonitoringSettings, so the published port and the scrape target
 		// cannot disagree about where this ingress serves /metrics.
 		MetricsPort: ingressMetricsPortFromEnv(),
+		// The box's language, for the retry page the ingress serves while a
+		// backend is down. Non-fatal by construction: an unreadable or unset
+		// setting leaves the flag off and the page falls back to en-US, which
+		// is the same answer the systemcontroller's own getLocale gives.
+		Locale: b.ingressLocale(ctx),
 	})
 	if startErr := b.ingressMgr.Start(ctx); startErr != nil {
 		fmt.Fprintf(os.Stderr, "ingress: %v\n", startErr)

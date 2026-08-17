@@ -156,4 +156,10 @@ var zhCNMessages = map[string]string{
 	MsgAuditAddGfehGrant:         "添加对象存储授权",
 	MsgAuditRevokeGfehGrant:      "撤销对象存储授权",
 	MsgAuditWithdrawGfehExposure: "撤回对象存储链接",
+
+	// The ingress retry page.
+	MsgIngressUnavailableTitle:  "%s 当前不可用",
+	MsgIngressUnavailableBody:   "Town OS 仍在为这个地址保留路由，但它背后的服务没有应答。多半是正在启动、更新后正在重启，或者一时负载过高。",
+	MsgIngressUnavailableRetry:  "你不需要做任何事：本页每 %d 秒自动重试一次，服务一恢复应答就会显示出来。",
+	MsgIngressUnavailableFooter: "Town OS ingress",
 }

@@ -161,4 +161,10 @@ var roROMessages = map[string]string{
 	MsgAuditAddGfehGrant:         "adaugă permisiune de stocare de obiecte",
 	MsgAuditRevokeGfehGrant:      "revocă permisiune de stocare de obiecte",
 	MsgAuditWithdrawGfehExposure: "retrage linkul de stocare de obiecte",
+
+	// The ingress retry page.
+	MsgIngressUnavailableTitle:  "%s nu este disponibil",
+	MsgIngressUnavailableBody:   "Town OS încă rutează această adresă, dar serviciul din spatele ei nu răspunde. Cel mai probabil pornește, repornește după o actualizare sau este supraîncărcat pentru scurt timp.",
+	MsgIngressUnavailableRetry:  "Nu e nimic de făcut: această pagină reîncearcă la fiecare %d secunde și va afișa serviciul de îndată ce răspunde din nou.",
+	MsgIngressUnavailableFooter: "Ingress Town OS",
 }

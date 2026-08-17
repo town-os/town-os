@@ -174,12 +174,47 @@ func TestAllMessageKeysHaveEnUSTranslation(t *testing.T) {
 		MsgAuditClearLastResponses,
 		MsgAuditSetSystemServiceStatus,
 		MsgAuditRefreshSystemServices,
+		MsgIngressUnavailableTitle,
+		MsgIngressUnavailableBody,
+		MsgIngressUnavailableRetry,
+		MsgIngressUnavailableFooter,
 	}
 
 	for _, key := range keys {
 		msg := T("en-US", key)
 		if msg == key {
 			t.Errorf("message key %q has no en-US translation", key)
+		}
+	}
+}
+
+// The retry page's heading carries the service name and its retry sentence
+// carries the interval, both as format verbs, because neither goes in the same
+// place in every language. A translation that dropped one renders
+// "%!s(MISSING)" to the people reading that language and to nobody else — the
+// exact class of breakage a test run in English cannot see.
+//
+// The body and the footer take no arguments, so a stray verb in one of them is
+// the same bug pointed the other way: T does not Sprintf a message it was given
+// no arguments for, and the verb reaches the page as literal text.
+func TestIngressRetryPageKeepsItsFormatVerbs(t *testing.T) {
+	for _, code := range PopulatedLocales() {
+		for key, verb := range map[string]string{
+			MsgIngressUnavailableTitle: "%s",
+			MsgIngressUnavailableRetry: "%d",
+		} {
+			msg := T(code, key)
+			if !strings.Contains(msg, verb) {
+				t.Errorf("%s: %q carries no %s: %q", code, key, verb, msg)
+			}
+			if n := strings.Count(msg, "%"); n != 1 {
+				t.Errorf("%s: %q has %d format verbs, want exactly one (%s): %q", code, key, n, verb, msg)
+			}
+		}
+		for _, key := range []string{MsgIngressUnavailableBody, MsgIngressUnavailableFooter} {
+			if msg := T(code, key); strings.Contains(msg, "%") {
+				t.Errorf("%s: %q takes no arguments but carries a format verb: %q", code, key, msg)
+			}
 		}
 	}
 }

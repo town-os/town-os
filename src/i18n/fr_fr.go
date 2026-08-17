@@ -156,4 +156,10 @@ var frFRMessages = map[string]string{
 	MsgAuditAddGfehGrant:         "ajouter une autorisation de stockage d'objets",
 	MsgAuditRevokeGfehGrant:      "révoquer une autorisation de stockage d'objets",
 	MsgAuditWithdrawGfehExposure: "retirer un lien de stockage d'objets",
+
+	// The ingress retry page.
+	MsgIngressUnavailableTitle:  "%s est indisponible",
+	MsgIngressUnavailableBody:   "Town OS achemine toujours cette adresse, mais le service qui se trouve derrière ne répond pas. Il est probablement en train de démarrer, de redémarrer après une mise à jour, ou brièvement surchargé.",
+	MsgIngressUnavailableRetry:  "Il n'y a rien à faire : cette page réessaie toutes les %d secondes et affichera le service dès qu'il répondra de nouveau.",
+	MsgIngressUnavailableFooter: "Ingress Town OS",
 }

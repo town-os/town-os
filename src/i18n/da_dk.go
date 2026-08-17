@@ -156,4 +156,10 @@ var daDKMessages = map[string]string{
 	MsgAuditAddGfehGrant:         "tilføj objektlagertilladelse",
 	MsgAuditRevokeGfehGrant:      "tilbagekald objektlagertilladelse",
 	MsgAuditWithdrawGfehExposure: "tilbagekald objektlagerlink",
+
+	// The ingress retry page.
+	MsgIngressUnavailableTitle:  "%s er ikke tilgængelig",
+	MsgIngressUnavailableBody:   "Town OS dirigerer stadig denne adresse, men tjenesten bagved svarer ikke. Den er sandsynligvis ved at starte op, genstarte efter en opdatering eller kortvarigt overbelastet.",
+	MsgIngressUnavailableRetry:  "Der er ikke noget at gøre: denne side prøver igen hvert %d. sekund og viser tjenesten, så snart den svarer igen.",
+	MsgIngressUnavailableFooter: "Town OS-ingress",
 }

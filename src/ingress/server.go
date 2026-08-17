@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"gitea.com/town-os/town-os/src/caddysup"
+	"gitea.com/town-os/town-os/src/i18n"
 	ingresspb "gitea.com/town-os/town-os/src/ingress/proto"
 )
 
@@ -35,6 +36,12 @@ type Server struct {
 	// is proxied over https with verification skipped rather than sending
 	// plaintext at a TLS socket.
 	defaultBackendTLS bool
+
+	// locale is the language the retry page falls back to for a client whose
+	// own language Town OS ships no catalog for — the box's configured locale.
+	// Every language it does ship is matched per-request on Accept-Language,
+	// so this is the last resort rather than the usual answer.
+	locale string
 
 	// lastReloadOK is when the last successful reload happened, guarded by mu
 	// and exported as townos_ingress_last_reload_success_time_seconds.
@@ -63,6 +70,7 @@ func NewServer(sup caddysup.CaddySupervisor, httpsPort, httpPort int, defaultBac
 		httpPort:       httpPort,
 		adminPort:      DefaultAdminPort,
 		defaultBackend: defaultBackend,
+		locale:         i18n.DefaultLocale,
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -85,6 +93,21 @@ type ServerOption func(*Server)
 // sending plaintext at a TLS socket.
 func WithDefaultBackendTLS(enabled bool) ServerOption {
 	return func(s *Server) { s.defaultBackendTLS = enabled }
+}
+
+// WithDefaultLocale sets the language the retry page falls back to when the
+// client asks for one Town OS ships no catalog for. It is the box's `locale`
+// setting, passed in by the systemcontroller when it generates the unit.
+//
+// A code with no catalog is ignored rather than rejected: the setting is a
+// free-text row in the settings table, and the cost of a bad one should be an
+// English page, not an ingress that will not start.
+func WithDefaultLocale(code string) ServerOption {
+	return func(s *Server) {
+		if code != "" && i18n.IsPopulated(code) {
+			s.locale = code
+		}
+	}
 }
 
 // WithCaddyAdminPort moves caddy's admin API off its default port, for callers
@@ -126,7 +149,8 @@ func (s *Server) applyLocked() error {
 	for _, r := range s.routes {
 		list = append(list, r)
 	}
-	content, tally := renderCaddyfileTally(list, s.httpsPort, s.httpPort, s.adminPort, s.defaultBackend, s.defaultBackendTLS)
+	content, tally := renderCaddyfileTally(list, s.httpsPort, s.httpPort, s.adminPort,
+		s.defaultBackend, s.defaultBackendTLS, s.locale)
 	s.recordTally(tally)
 	err := s.sup.Reload(content)
 	s.recordReloadLocked(err)

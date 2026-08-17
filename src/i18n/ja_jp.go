@@ -156,4 +156,10 @@ var jaJPMessages = map[string]string{
 	MsgAuditAddGfehGrant:         "オブジェクトストレージ権限の追加",
 	MsgAuditRevokeGfehGrant:      "オブジェクトストレージ権限の取り消し",
 	MsgAuditWithdrawGfehExposure: "オブジェクトストレージリンクの取り下げ",
+
+	// The ingress retry page.
+	MsgIngressUnavailableTitle:  "%s は利用できません",
+	MsgIngressUnavailableBody:   "Town OS はこのアドレスの経路をそのまま保っていますが、その先のサービスが応答していません。起動中か、更新後の再起動中か、一時的に負荷が高い状態と思われます。",
+	MsgIngressUnavailableRetry:  "することはありません。このページは %d 秒ごとに再試行し、サービスが応答し次第それを表示します。",
+	MsgIngressUnavailableFooter: "Town OS イングレス",
 }

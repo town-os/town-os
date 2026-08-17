@@ -156,4 +156,10 @@ var trTRMessages = map[string]string{
 	MsgAuditAddGfehGrant:         "nesne depolama izni ekle",
 	MsgAuditRevokeGfehGrant:      "nesne depolama iznini iptal et",
 	MsgAuditWithdrawGfehExposure: "nesne depolama bağlantısını geri çek",
+
+	// The ingress retry page.
+	MsgIngressUnavailableTitle:  "%s kullanılamıyor",
+	MsgIngressUnavailableBody:   "Town OS bu adresi yönlendirmeye devam ediyor, ancak arkasındaki hizmet yanıt vermiyor. Büyük olasılıkla başlatılıyor, bir güncellemeden sonra yeniden başlatılıyor ya da kısa süreliğine aşırı yüklenmiş durumda.",
+	MsgIngressUnavailableRetry:  "Yapılacak bir şey yok: bu sayfa her %d saniyede bir yeniden deniyor ve hizmet yanıt verir vermez onu gösterecek.",
+	MsgIngressUnavailableFooter: "Town OS ingress",
 }

@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"gitea.com/town-os/town-os/src/i18n"
 	ingresspb "gitea.com/town-os/town-os/src/ingress/proto"
 )
 
@@ -82,7 +83,19 @@ const (
 // defaultBackendTLS marks that fallback as speaking HTTPS, so it is reached
 // through writeReverseProxy like every other hop rather than being the one
 // place in this renderer that could only send plaintext.
-func renderCaddyfileTally(routes []*ingresspb.Route, httpsPort, httpPort, adminPort int, defaultBackend string, defaultBackendTLS bool) ([]byte, renderTally) {
+//
+// Every proxy the file emits also carries the retry page (render_unavailable.go):
+// a backend answering 5xx, or not answering at all, is served a page that says
+// the service is unavailable and reloads itself until it is back, instead of
+// caddy's bare 502. A home box restarts services constantly — an upgrade, a
+// settings change, a reboot — and the honest state during those seconds is
+// "coming back", which is not what a browser error page says.
+//
+// locale is the language that page falls back to when the client's own is one
+// Town OS ships no catalog for — the box's configured locale, the same rule the
+// UI follows. It is the `default` row of the language map; every language Town
+// OS does ship gets a row of its own, matched against Accept-Language.
+func renderCaddyfileTally(routes []*ingresspb.Route, httpsPort, httpPort, adminPort int, defaultBackend string, defaultBackendTLS bool, locale string) ([]byte, renderTally) {
 	var tally renderTally
 	sorted := append([]*ingresspb.Route(nil), routes...)
 	sort.Slice(sorted, func(i, j int) bool {
@@ -93,6 +106,12 @@ func renderCaddyfileTally(routes []*ingresspb.Route, httpsPort, httpPort, adminP
 	b.WriteString("{\n\tauto_https off\n")
 	fmt.Fprintf(&b, "\tadmin %s\n", adminAddr(adminPort))
 	b.WriteString("\tservers {\n\t\tprotocols h1 h2\n\t}\n}\n")
+	// The retry-page snippets, defined once and imported by every site block
+	// that proxies anywhere. Unconditionally, even for an empty route set: a
+	// snippet nothing imports is never parsed as directives, and emitting it on
+	// a fixed line keeps the render deterministic — which is what lets the
+	// supervisor no-op a reload whose bytes have not changed.
+	b.WriteString(unavailableSnippets(locale))
 	for _, r := range sorted {
 		host := r.GetHostname()
 		if host == "" || r.GetBackend() == "" {
@@ -142,6 +161,7 @@ func renderCaddyfileTally(routes []*ingresspb.Route, httpsPort, httpPort, adminP
 				fmt.Fprintf(&b, "\ttls %s/cert.pem %s/key.pem\n", cd, cd)
 			}
 			writeRouteBody(&b, r, paths)
+			writeUnavailableError(&b, host)
 			b.WriteString("}\n")
 		}
 		// :80 vhost. Pages serve over plain HTTP; packages redirect to HTTPS
@@ -151,6 +171,7 @@ func renderCaddyfileTally(routes []*ingresspb.Route, httpsPort, httpPort, adminP
 		case r.GetServeHttp():
 			fmt.Fprintf(&b, "\nhttp://%s {\n", siteAddr(host, httpPort, 80))
 			writeRouteBody(&b, r, paths)
+			writeUnavailableError(&b, host)
 			b.WriteString("}\n")
 		case httpsReady:
 			fmt.Fprintf(&b, "\nhttp://%s {\n\tredir https://%s{uri} permanent\n}\n",
@@ -166,6 +187,7 @@ func renderCaddyfileTally(routes []*ingresspb.Route, httpsPort, httpPort, adminP
 		// that terminates its own TLS is reachable too. This was the last place
 		// in the renderer that could only speak plaintext.
 		writeReverseProxy(&b, "\t", defaultBackend, defaultBackendTLS)
+		writeUnavailableError(&b, defaultBackendLabel)
 		b.WriteString("}\n")
 	}
 	return []byte(b.String()), tally
@@ -179,9 +201,11 @@ func renderCaddyfileTally(routes []*ingresspb.Route, httpsPort, httpPort, adminP
 // The admin port is the default here, not a parameter, because no render test
 // cares which one is emitted and threading it through every one of them would
 // only obscure the port they DO assert on. The tests that need a real one are
-// the ones that start a real caddy, and those go through NewServer.
+// the ones that start a real caddy, and those go through NewServer. The
+// fallback locale is the default for the same reason; the tests that care about
+// a different one call renderCaddyfileTally.
 func renderCaddyfile(routes []*ingresspb.Route, httpsPort, httpPort int, defaultBackend string, defaultBackendTLS bool) []byte {
-	content, _ := renderCaddyfileTally(routes, httpsPort, httpPort, DefaultAdminPort, defaultBackend, defaultBackendTLS)
+	content, _ := renderCaddyfileTally(routes, httpsPort, httpPort, DefaultAdminPort, defaultBackend, defaultBackendTLS, i18n.DefaultLocale)
 	return content
 }
 
@@ -270,16 +294,25 @@ func writeRouteBody(b *strings.Builder, r *ingresspb.Route, paths []*ingresspb.P
 
 // writeReverseProxy emits one reverse_proxy directive at the given indent,
 // proxying over https with verification skipped when the backend speaks TLS.
+//
+// Every proxy carries the retry-page import, which is why even the plain-HTTP
+// form now opens a block: a backend answering 5xx is intercepted there, inside
+// the proxy that received it, rather than at the site level where caddy cannot
+// see an upstream response at all. What it does with that 5xx is raise a 503
+// into the site's own error handler, so the page itself is written once per
+// site block — see writeUnavailableResponse.
 func writeReverseProxy(b *strings.Builder, indent, backend string, backendTLS bool) {
 	if backendTLS {
 		// Backend serves HTTPS (e.g. a self-signed admin UI): proxy over https
 		// and skip verification on the internal hop — the browser still
 		// validates the ingress's trusted leaf.
-		fmt.Fprintf(b, "%sreverse_proxy https://%s {\n%s\ttransport http {\n%s\t\ttls_insecure_skip_verify\n%s\t}\n%s}\n",
-			indent, backend, indent, indent, indent, indent)
-		return
+		fmt.Fprintf(b, "%sreverse_proxy https://%s {\n%s\ttransport http {\n%s\t\ttls_insecure_skip_verify\n%s\t}\n",
+			indent, backend, indent, indent, indent)
+	} else {
+		fmt.Fprintf(b, "%sreverse_proxy %s {\n", indent, backend)
 	}
-	fmt.Fprintf(b, "%sreverse_proxy %s\n", indent, backend)
+	writeUnavailableResponse(b, indent+"\t")
+	fmt.Fprintf(b, "%s}\n", indent)
 }
 
 // validPathBackends drops the path backends of a route that cannot safely be

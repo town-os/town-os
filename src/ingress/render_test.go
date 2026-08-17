@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"gitea.com/town-os/town-os/src/i18n"
 	ingresspb "gitea.com/town-os/town-os/src/ingress/proto"
 )
 
@@ -239,7 +240,7 @@ func TestRenderCaddyfileDeterministicOrder(t *testing.T) {
 func TestRenderCaddyfileEmitsTheAdminEndpoint(t *testing.T) {
 	const relocated = 41919
 
-	out, _ := renderCaddyfileTally(nil, 443, 80, relocated, "", false)
+	out, _ := renderCaddyfileTally(nil, 443, 80, relocated, "", false, i18n.DefaultLocale)
 	if got, want := string(out), "\tadmin 127.0.0.1:41919\n"; !strings.Contains(got, want) {
 		t.Errorf("rendered Caddyfile does not carry %q:\n%s", want, got)
 	}
@@ -248,7 +249,7 @@ func TestRenderCaddyfileEmitsTheAdminEndpoint(t *testing.T) {
 	}
 
 	// Zero means the default, matching every other port in this renderer.
-	zero, _ := renderCaddyfileTally(nil, 443, 80, 0, "", false)
+	zero, _ := renderCaddyfileTally(nil, 443, 80, 0, "", false, i18n.DefaultLocale)
 	if got, want := string(zero), "\tadmin 127.0.0.1:2019\n"; !strings.Contains(got, want) {
 		t.Errorf("admin port 0 should render the default %q:\n%s", want, got)
 	}
@@ -259,7 +260,7 @@ func TestRenderCaddyfileEmitsTheAdminEndpoint(t *testing.T) {
 // anyone who can reach the box re-point every hostname it serves.
 func TestRenderCaddyfileAdminStaysOnLoopback(t *testing.T) {
 	for _, port := range []int{0, DefaultAdminPort, 41919} {
-		out, _ := renderCaddyfileTally(nil, 443, 80, port, "", false)
+		out, _ := renderCaddyfileTally(nil, 443, 80, port, "", false, i18n.DefaultLocale)
 		for _, bad := range []string{"admin 0.0.0.0:", "admin :", "admin [::]:"} {
 			if strings.Contains(string(out), bad) {
 				t.Errorf("admin port %d rendered a non-loopback endpoint (%q):\n%s", port, bad, out)

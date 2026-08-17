@@ -156,4 +156,10 @@ var hrHRMessages = map[string]string{
 	MsgAuditAddGfehGrant:         "dodaj dopuštenje objektne pohrane",
 	MsgAuditRevokeGfehGrant:      "opozovi dopuštenje objektne pohrane",
 	MsgAuditWithdrawGfehExposure: "povuci poveznicu objektne pohrane",
+
+	// The ingress retry page.
+	MsgIngressUnavailableTitle:  "%s nije dostupna",
+	MsgIngressUnavailableBody:   "Town OS i dalje usmjerava ovu adresu, ali usluga iza nje ne odgovara. Najvjerojatnije se upravo pokreće, ponovno pokreće nakon nadogradnje ili je nakratko preopterećena.",
+	MsgIngressUnavailableRetry:  "Nema se što učiniti: ova stranica pokušava ponovno svakih %d sekundi i prikazat će uslugu čim ponovno odgovori.",
+	MsgIngressUnavailableFooter: "Ingress Town OS",
 }

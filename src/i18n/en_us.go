@@ -156,4 +156,10 @@ var enUSMessages = map[string]string{
 	MsgAuditAddGfehGrant:         "add object storage grant",
 	MsgAuditRevokeGfehGrant:      "revoke object storage grant",
 	MsgAuditWithdrawGfehExposure: "withdraw object storage link",
+
+	// The ingress retry page.
+	MsgIngressUnavailableTitle:  "%s is unavailable",
+	MsgIngressUnavailableBody:   "Town OS is still routing this address, but the service behind it is not answering. It is most likely starting up, restarting after an update, or briefly overloaded.",
+	MsgIngressUnavailableRetry:  "There is nothing to do: this page retries every %d seconds, and shows the service the moment it answers again.",
+	MsgIngressUnavailableFooter: "Town OS ingress",
 }

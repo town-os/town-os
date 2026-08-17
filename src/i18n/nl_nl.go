@@ -156,4 +156,10 @@ var nlNLMessages = map[string]string{
 	MsgAuditAddGfehGrant:         "objectopslagrecht toevoegen",
 	MsgAuditRevokeGfehGrant:      "objectopslagrecht intrekken",
 	MsgAuditWithdrawGfehExposure: "objectopslaglink intrekken",
+
+	// The ingress retry page.
+	MsgIngressUnavailableTitle:  "%s is niet beschikbaar",
+	MsgIngressUnavailableBody:   "Town OS routeert dit adres nog steeds, maar de dienst erachter antwoordt niet. Waarschijnlijk is die aan het opstarten, herstart na een update, of even overbelast.",
+	MsgIngressUnavailableRetry:  "Er is niets te doen: deze pagina probeert het elke %d seconden opnieuw en toont de dienst zodra die weer antwoordt.",
+	MsgIngressUnavailableFooter: "Town OS-ingress",
 }

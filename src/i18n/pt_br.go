@@ -156,4 +156,10 @@ var ptBRMessages = map[string]string{
 	MsgAuditAddGfehGrant:         "adicionar permissão de armazenamento de objetos",
 	MsgAuditRevokeGfehGrant:      "revogar permissão de armazenamento de objetos",
 	MsgAuditWithdrawGfehExposure: "retirar link de armazenamento de objetos",
+
+	// The ingress retry page.
+	MsgIngressUnavailableTitle:  "%s está indisponível",
+	MsgIngressUnavailableBody:   "O Town OS continua roteando este endereço, mas o serviço por trás dele não está respondendo. Provavelmente está iniciando, reiniciando após uma atualização ou brevemente sobrecarregado.",
+	MsgIngressUnavailableRetry:  "Não há nada a fazer: esta página tenta de novo a cada %d segundos e mostrará o serviço assim que ele voltar a responder.",
+	MsgIngressUnavailableFooter: "Ingress do Town OS",
 }

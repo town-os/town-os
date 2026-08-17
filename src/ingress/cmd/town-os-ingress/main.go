@@ -26,6 +26,7 @@ import (
 	"google.golang.org/grpc"
 
 	"gitea.com/town-os/town-os/src/caddysup"
+	"gitea.com/town-os/town-os/src/i18n"
 	"gitea.com/town-os/town-os/src/ingress"
 	ingresspb "gitea.com/town-os/town-os/src/ingress/proto"
 )
@@ -41,6 +42,8 @@ func run() error {
 		"TCP port to serve the Prometheus endpoint on (0 disables it)")
 	adminPort := flag.Int("caddy-admin-port", ingress.DefaultAdminPort,
 		"TCP port for caddy's loopback admin API, which `caddy reload` and the metrics passthrough use (2019 in production, where the ingress has its own netns; ephemeral when caddy shares a namespace with another caddy)")
+	locale := flag.String("locale", i18n.DefaultLocale,
+		"language the retry page falls back to when a client asks for one Town OS has no catalog for (the box's `locale` setting; a code with no catalog is ignored)")
 	flag.Parse()
 
 	// Ensure the socket directory exists and clear a stale socket from a
@@ -61,7 +64,7 @@ func run() error {
 
 	sup := caddysup.NewSupervisor(*caddyBin, *caddyCfg)
 	srv := ingress.NewServer(sup, *port, *httpPort, *defaultBackend,
-		ingress.WithCaddyAdminPort(*adminPort))
+		ingress.WithCaddyAdminPort(*adminPort), ingress.WithDefaultLocale(*locale))
 	// Start caddy with the initial (empty) config so the supervisor is live
 	// before the first route arrives.
 	if err := srv.Bootstrap(); err != nil {

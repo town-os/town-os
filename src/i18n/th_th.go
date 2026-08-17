@@ -156,4 +156,10 @@ var thTHMessages = map[string]string{
 	MsgAuditAddGfehGrant:         "เพิ่มสิทธิ์ที่เก็บอ็อบเจกต์",
 	MsgAuditRevokeGfehGrant:      "เพิกถอนสิทธิ์ที่เก็บอ็อบเจกต์",
 	MsgAuditWithdrawGfehExposure: "ถอนลิงก์ที่เก็บอ็อบเจกต์",
+
+	// The ingress retry page.
+	MsgIngressUnavailableTitle:  "%s ใช้งานไม่ได้ในขณะนี้",
+	MsgIngressUnavailableBody:   "Town OS ยังคงกำหนดเส้นทางไปยังที่อยู่นี้ แต่บริการที่อยู่เบื้องหลังไม่ตอบสนอง เป็นไปได้มากว่ากำลังเริ่มทำงาน กำลังรีสตาร์ทหลังการอัปเดต หรือมีภาระงานสูงชั่วคราว",
+	MsgIngressUnavailableRetry:  "ไม่ต้องทำอะไร หน้านี้จะลองใหม่ทุก %d วินาที และจะแสดงบริการทันทีที่กลับมาตอบสนอง",
+	MsgIngressUnavailableFooter: "Town OS ingress",
 }

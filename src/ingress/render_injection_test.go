@@ -58,6 +58,12 @@ func (c *capturingSupervisor) Shutdown() error { return nil }
 
 // injectionHostnames are the shapes a page domain can take that a Caddyfile
 // site address must never be built from verbatim.
+//
+// The markers are asserted against sitesOnly(): every render emits the
+// retry-page snippets, and those contain a `respond` of their own. Stripping
+// them is what keeps the assertion about what this test is about — whether a
+// HOSTNAME introduced a directive — rather than about boilerplate that is
+// present whether or not any route was programmed at all.
 var injectionHostnames = []struct {
 	name     string
 	hostname string
@@ -99,7 +105,7 @@ func TestRenderCaddyfileRejectsInjectedHostnames(t *testing.T) {
 			}
 			out := string(renderCaddyfile([]*ingresspb.Route{route}, 443, 80, "", false))
 
-			if strings.Contains(out, tc.marker) {
+			if strings.Contains(sitesOnly(out), tc.marker) {
 				t.Errorf("rendered Caddyfile carries %q, injected through a hostname:\n%s", tc.marker, out)
 			}
 		})
@@ -129,7 +135,7 @@ func TestRenderCaddyfileBadHostnameDoesNotDropGoodRoutes(t *testing.T) {
 			if !strings.Contains(out, "https://gitea.core.home {") {
 				t.Errorf("a malformed hostname removed the healthy route from the config:\n%s", out)
 			}
-			if strings.Contains(out, tc.marker) {
+			if strings.Contains(sitesOnly(out), tc.marker) {
 				t.Errorf("rendered Caddyfile carries %q, injected through a hostname:\n%s", tc.marker, out)
 			}
 		})
@@ -156,7 +162,7 @@ func TestIngressSetRoutesRejectsInjectedHostnames(t *testing.T) {
 			}
 
 			out := string(sup.last)
-			if strings.Contains(out, tc.marker) {
+			if strings.Contains(sitesOnly(out), tc.marker) {
 				t.Errorf("SetRoutes rendered %q, injected through a hostname:\n%s", tc.marker, out)
 			}
 			if !strings.Contains(out, "https://gitea.core.home {") {
@@ -176,10 +182,15 @@ func TestIngressSetRoutesRejectsInjectedHostnames(t *testing.T) {
 func TestIngressBadHostnameDoesNotBreakCaddyValidation(t *testing.T) {
 	caddyBin := findCaddy(t)
 
+	// A real leaf on the good route: validate provisions the TLS app and opens
+	// every certificate the config names, so a made-up CertDir fails the same
+	// way a broken config would (see testLeafDir). The bad route keeps a made-up
+	// one, which costs nothing — it is dropped before it can be rendered, and
+	// that is the property under test.
 	good := &ingresspb.Route{
 		Hostname: "gitea.core.home",
 		Backend:  "town-os-package--core-gitea-1.0:3000",
-		CertDir:  "/c/gitea",
+		CertDir:  testLeafDir(t, "gitea.core.home"),
 	}
 
 	for _, tc := range injectionHostnames {

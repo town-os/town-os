@@ -50,8 +50,9 @@ func TestRenderCaddyfilePathBackendSplitsTheVhost(t *testing.T) {
 	// a bare one matches everything, so a bare block written first would make
 	// every path backend after it dead config — and the index would never be
 	// reached even though it renders in the file.
-	rooted := strings.Index(out, "handle / {")
-	catchAll := strings.Index(out, "handle {")
+	sites := sitesOnly(out)
+	rooted := strings.Index(sites, "handle / {")
+	catchAll := strings.Index(sites, "handle {")
 	if rooted < 0 || catchAll < 0 || catchAll < rooted {
 		t.Errorf("the catch-all handle is not last (root at %d, catch-all at %d):\n%s", rooted, catchAll, out)
 	}
@@ -76,10 +77,13 @@ func TestRenderCaddyfileWithoutPathBackendsIsUnchanged(t *testing.T) {
 		CertDir:  "/c/gitea",
 	}}, 443, 80, "", false))
 
-	if !strings.Contains(out, "\treverse_proxy town-os-package--core-gitea-1.0:3000\n") {
+	if !strings.Contains(out, "\treverse_proxy town-os-package--core-gitea-1.0:3000 {\n") {
 		t.Errorf("a plain route no longer renders a plain reverse_proxy:\n%s", out)
 	}
-	if strings.Contains(out, "handle") {
+	// sitesOnly, because the retry-page snippets carry handle blocks of their
+	// own and every site block imports them. What this test is about is that the
+	// VHOST has no path-splitting handles, not that the word never appears.
+	if strings.Contains(sitesOnly(out), "handle") {
 		t.Errorf("a route with no path backends rendered handle blocks:\n%s", out)
 	}
 }
@@ -107,7 +111,7 @@ func TestRenderCaddyfileDropsInjectedPathBackends(t *testing.T) {
 			if strings.Contains(out, "evil") {
 				t.Errorf("an injected path reached the config:\n%s", out)
 			}
-			if strings.Contains(out, "handle") {
+			if strings.Contains(sitesOnly(out), "handle") {
 				t.Errorf("a rejected path backend still rendered a handle block:\n%s", out)
 			}
 			// The route survives on its own backend: losing the index is not a
@@ -174,9 +178,17 @@ func TestRenderCaddyfilePathBackendsAreDeterministic(t *testing.T) {
 func TestRenderCaddyfilePathBackendValidatesWithCaddy(t *testing.T) {
 	caddyBin := findCaddy(t)
 
+	// Real leaves: validate provisions the TLS app and opens every certificate
+	// the config names, so a made-up CertDir fails as though the config were
+	// malformed (see testLeafDir).
+	gfeh := httpViewRoute()
+	gfeh.CertDir = testLeafDir(t, gfeh.GetHostname())
 	content := renderCaddyfile([]*ingresspb.Route{
-		httpViewRoute(),
-		{Hostname: "gitea.core.home", Backend: "town-os-package--core-gitea-1.0:3000", CertDir: "/c/gitea"},
+		gfeh,
+		{
+			Hostname: "gitea.core.home", Backend: "town-os-package--core-gitea-1.0:3000",
+			CertDir: testLeafDir(t, "gitea.core.home"),
+		},
 	}, 443, 80, "town-os-system--ui:80", false)
 
 	path := filepath.Join(t.TempDir(), "Caddyfile")

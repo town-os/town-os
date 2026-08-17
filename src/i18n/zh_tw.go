@@ -156,4 +156,10 @@ var zhTWMessages = map[string]string{
 	MsgAuditAddGfehGrant:         "新增物件儲存授權",
 	MsgAuditRevokeGfehGrant:      "撤銷物件儲存授權",
 	MsgAuditWithdrawGfehExposure: "撤回物件儲存連結",
+
+	// The ingress retry page.
+	MsgIngressUnavailableTitle:  "%s 目前無法使用",
+	MsgIngressUnavailableBody:   "Town OS 仍為這個位址保留路由，但它背後的服務沒有應答。多半是正在啟動、更新後正在重新啟動，或是一時負載過高。",
+	MsgIngressUnavailableRetry:  "你不需要做任何事：本頁每 %d 秒自動重試一次，服務一恢復應答就會顯示出來。",
+	MsgIngressUnavailableFooter: "Town OS ingress",
 }

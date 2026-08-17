@@ -156,4 +156,10 @@ var fiFIMessages = map[string]string{
 	MsgAuditAddGfehGrant:         "lisää objektitallennuksen käyttöoikeus",
 	MsgAuditRevokeGfehGrant:      "peruuta objektitallennuksen käyttöoikeus",
 	MsgAuditWithdrawGfehExposure: "peruuta objektitallennuksen linkki",
+
+	// The ingress retry page.
+	MsgIngressUnavailableTitle:  "%s ei ole käytettävissä",
+	MsgIngressUnavailableBody:   "Town OS reitittää tätä osoitetta edelleen, mutta sen takana oleva palvelu ei vastaa. Se on todennäköisesti käynnistymässä, käynnistymässä uudelleen päivityksen jälkeen tai hetkellisesti ylikuormittunut.",
+	MsgIngressUnavailableRetry:  "Mitään ei tarvitse tehdä: tämä sivu yrittää uudelleen %d sekunnin välein ja näyttää palvelun heti, kun se taas vastaa.",
+	MsgIngressUnavailableFooter: "Town OS -ingress",
 }

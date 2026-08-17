@@ -156,4 +156,10 @@ var arSAMessages = map[string]string{
 	MsgAuditAddGfehGrant:         "إضافة صلاحية تخزين الكائنات",
 	MsgAuditRevokeGfehGrant:      "إلغاء صلاحية تخزين الكائنات",
 	MsgAuditWithdrawGfehExposure: "سحب رابط تخزين الكائنات",
+
+	// The ingress retry page.
+	MsgIngressUnavailableTitle:  "%s غير متاح",
+	MsgIngressUnavailableBody:   "لا يزال Town OS يوجّه هذا العنوان، لكن الخدمة التي خلفه لا تستجيب. على الأرجح أنها قيد بدء التشغيل، أو يُعاد تشغيلها بعد تحديث، أو أنها محمّلة بشكل زائد لفترة قصيرة.",
+	MsgIngressUnavailableRetry:  "لا يوجد ما تفعله: تعيد هذه الصفحة المحاولة كل %d ثوانٍ، وتعرض الخدمة فور استجابتها من جديد.",
+	MsgIngressUnavailableFooter: "بوابة Town OS",
 }

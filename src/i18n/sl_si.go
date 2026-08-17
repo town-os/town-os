@@ -156,4 +156,10 @@ var slSIMessages = map[string]string{
 	MsgAuditAddGfehGrant:         "dodaj dovoljenje objektne shrambe",
 	MsgAuditRevokeGfehGrant:      "prekliči dovoljenje objektne shrambe",
 	MsgAuditWithdrawGfehExposure: "umakni povezavo objektne shrambe",
+
+	// The ingress retry page.
+	MsgIngressUnavailableTitle:  "%s ni na voljo",
+	MsgIngressUnavailableBody:   "Town OS ta naslov še vedno usmerja, vendar storitev za njim ne odgovarja. Najverjetneje se prav zdaj zaganja, ponovno zaganja po posodobitvi ali je za kratek čas preobremenjena.",
+	MsgIngressUnavailableRetry:  "Ni treba storiti ničesar: ta stran poskuša znova vsakih %d sekund in bo storitev prikazala takoj, ko spet odgovori.",
+	MsgIngressUnavailableFooter: "Ingress Town OS",
 }

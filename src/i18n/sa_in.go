@@ -156,4 +156,10 @@ var saINMessages = map[string]string{
 	MsgAuditAddGfehGrant:         "वस्तुसंग्रहानुज्ञायाः योजनम्",
 	MsgAuditRevokeGfehGrant:      "वस्तुसंग्रहानुज्ञायाः निवर्तनम्",
 	MsgAuditWithdrawGfehExposure: "वस्तुसंग्रहसम्पर्कस्य निवर्तनम्",
+
+	// The ingress retry page.
+	MsgIngressUnavailableTitle:  "%s इत्येतत् न उपलभ्यते",
+	MsgIngressUnavailableBody:   "Town OS इदं सङ्केतं मार्गयति एव, किन्तु तस्य पृष्ठतः स्थिता सेवा न प्रतिवदति। सम्भवतः सा प्रारभ्यते, परिष्कारानन्तरं पुनः प्रारभ्यते, अथवा क्षणं भाराधिक्ये वर्तते।",
+	MsgIngressUnavailableRetry:  "किमपि करणीयं नास्ति। इदं पृष्ठं प्रति %d क्षणेषु पुनः यतते, सेवा प्रतिवदति चेत् तां तत्क्षणमेव दर्शयति।",
+	MsgIngressUnavailableFooter: "Town OS इनग्रेसः",
 }

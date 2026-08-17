@@ -156,4 +156,10 @@ var skSKMessages = map[string]string{
 	MsgAuditAddGfehGrant:         "pridať oprávnenie objektového úložiska",
 	MsgAuditRevokeGfehGrant:      "odvolať oprávnenie objektového úložiska",
 	MsgAuditWithdrawGfehExposure: "stiahnuť odkaz objektového úložiska",
+
+	// The ingress retry page.
+	MsgIngressUnavailableTitle:  "%s nie je dostupná",
+	MsgIngressUnavailableBody:   "Town OS túto adresu stále smeruje, ale služba za ňou neodpovedá. Pravdepodobne sa práve spúšťa, reštartuje po aktualizácii alebo je krátko preťažená.",
+	MsgIngressUnavailableRetry:  "Netreba nič robiť: táto stránka to skúša znova každých %d sekúnd a hneď ako služba odpovie, zobrazí ju.",
+	MsgIngressUnavailableFooter: "Ingress Town OS",
 }

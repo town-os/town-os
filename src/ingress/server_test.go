@@ -9,6 +9,7 @@ import (
 	"sync"
 	"testing"
 
+	"gitea.com/town-os/town-os/src/i18n"
 	ingresspb "gitea.com/town-os/town-os/src/ingress/proto"
 )
 
@@ -44,6 +45,50 @@ func (s *stubSupervisor) reloadCount() int { s.mu.Lock(); defer s.mu.Unlock(); r
 
 func route(host, backend, cert string) *ingresspb.Route {
 	return &ingresspb.Route{Hostname: host, Backend: backend, CertDir: cert}
+}
+
+// The box's language reaches the rendered config, and a code nobody translated
+// is ignored rather than rejected.
+//
+// The setting is a free-text row in the settings table. Refusing to render on a
+// typo would mean an ingress that will not start — the whole box unreachable —
+// over the language of one error page, so a bad value costs English and nothing
+// else.
+func TestServerDefaultLocale(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		code string
+		want string
+	}{
+		{name: "a shipped language", code: "ja-JP", want: "ja-JP"},
+		{name: "a country variant", code: "de-AT", want: "de-AT"},
+		{name: "nobody translated it", code: "xx-XX", want: i18n.DefaultLocale},
+		{name: "unset", code: "", want: i18n.DefaultLocale},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := NewServer(&stubSupervisor{}, 443, 80, "", WithDefaultLocale(tc.code))
+			if srv.locale != tc.want {
+				t.Errorf("locale = %q, want %q", srv.locale, tc.want)
+			}
+		})
+	}
+
+	// And it reaches the bytes: the configured catalog is rendered twice — once
+	// in its own Accept-Language branch, once as the fallthrough — where a
+	// language that is only a branch appears once.
+	sup := &stubSupervisor{}
+	srv := NewServer(sup, 443, 80, "", WithDefaultLocale("ja-JP"))
+	if err := srv.Bootstrap(); err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
+	ja := caddyHTMLText(i18n.T("ja-JP", i18n.MsgIngressUnavailableBody))
+	if n := strings.Count(sup.last(), ja); n != 2 {
+		t.Errorf("the Japanese page appears %d times, want 2 (its branch and the fallthrough):\n%s", n, sup.last())
+	}
+	fr := caddyHTMLText(i18n.T("fr-FR", i18n.MsgIngressUnavailableBody))
+	if n := strings.Count(sup.last(), fr); n != 1 {
+		t.Errorf("the French page appears %d times, want 1 (its branch only)", n)
+	}
 }
 
 func TestServerSetRoutes(t *testing.T) {

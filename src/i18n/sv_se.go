@@ -156,4 +156,10 @@ var svSEMessages = map[string]string{
 	MsgAuditAddGfehGrant:         "lägg till objektlagringsbehörighet",
 	MsgAuditRevokeGfehGrant:      "återkalla objektlagringsbehörighet",
 	MsgAuditWithdrawGfehExposure: "dra tillbaka objektlagringslänk",
+
+	// The ingress retry page.
+	MsgIngressUnavailableTitle:  "%s är inte tillgänglig",
+	MsgIngressUnavailableBody:   "Town OS dirigerar fortfarande den här adressen, men tjänsten bakom svarar inte. Den startar troligen upp, startar om efter en uppdatering eller är kortvarigt överbelastad.",
+	MsgIngressUnavailableRetry:  "Det finns inget att göra: den här sidan försöker igen var %d sekund och visar tjänsten så snart den svarar igen.",
+	MsgIngressUnavailableFooter: "Town OS-ingress",
 }

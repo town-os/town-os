@@ -77,6 +77,33 @@ func TestUnitConfigDefaultBackendDisabled(t *testing.T) {
 	}
 }
 
+// The box's language reaches the ingress on the unit's command line, which is
+// what puts the retry page in it for a client whose own language Town OS ships
+// no catalog for.
+//
+// Both arms, because the flag is conditional: an unset locale must leave it off
+// rather than pass an empty string, which the ingress would have to special-case
+// on the other side.
+func TestUnitConfigCarriesTheLocale(t *testing.T) {
+	cfg := Config{
+		Image:        "localhost/ingress:test",
+		DataDir:      "/data/ingress",
+		TLSHostDir:   "/data/tls",
+		HostPort:     8443,
+		HTTPHostPort: 8080,
+	}
+
+	cfg.Locale = "de-DE"
+	if uc := NewManager(cfg).unitConfig(); !hasFlagValue(uc.Command, "--locale", "de-DE") {
+		t.Fatalf("expected --locale de-DE in command, got: %v", uc.Command)
+	}
+
+	cfg.Locale = ""
+	if uc := NewManager(cfg).unitConfig(); hasFlag(uc.Command, "--locale") {
+		t.Fatalf("an unset locale must omit --locale, got: %v", uc.Command)
+	}
+}
+
 // hasFlag reports whether args contains the given flag token.
 func hasFlag(args []string, flag string) bool {
 	return slices.Contains(args, flag)

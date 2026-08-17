@@ -156,4 +156,10 @@ var hiINMessages = map[string]string{
 	MsgAuditAddGfehGrant:         "ऑब्जेक्ट स्टोरेज अनुमति जोड़ें",
 	MsgAuditRevokeGfehGrant:      "ऑब्जेक्ट स्टोरेज अनुमति निरस्त करें",
 	MsgAuditWithdrawGfehExposure: "ऑब्जेक्ट स्टोरेज लिंक वापस लें",
+
+	// The ingress retry page.
+	MsgIngressUnavailableTitle:  "%s उपलब्ध नहीं है",
+	MsgIngressUnavailableBody:   "Town OS इस पते को अब भी रूट कर रहा है, लेकिन इसके पीछे की सेवा उत्तर नहीं दे रही। संभवतः वह शुरू हो रही है, अद्यतन के बाद फिर से चालू हो रही है, या थोड़ी देर के लिए अत्यधिक भार में है।",
+	MsgIngressUnavailableRetry:  "कुछ करने की आवश्यकता नहीं: यह पृष्ठ हर %d सेकंड में पुनः प्रयास करता है और सेवा के उत्तर देते ही उसे दिखा देगा।",
+	MsgIngressUnavailableFooter: "Town OS इनग्रेस",
 }
