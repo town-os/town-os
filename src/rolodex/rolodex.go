@@ -305,8 +305,8 @@ func (m *Manager) UnitName() string {
 }
 
 // forwarders returns the upstream forwarder addresses programmed into rolodex:
-// the host's own resolvers when LocalForwarders is set and discovery found any
-// that ANSWER, otherwise the configured list, otherwise DefaultForwarders.
+// the host's own resolvers when discovery is in play and found any that ANSWER,
+// otherwise the configured list, otherwise DefaultForwarders.
 //
 // The fallback ordering is deliberate. Discovery reads files that may hold
 // nothing usable — a box with no DHCP lease yet, or one whose only nameserver
@@ -314,19 +314,63 @@ func (m *Manager) UnitName() string {
 // silently delete the local tier of the auto chain. Keeping the previous
 // addresses degrades to today's behavior instead.
 //
-// "Found any" now means "proved any", which is the substantive change. A
-// candidate is only kept once it has resolved a name through it; see
-// ForwarderDiscovery. An address that is merely configured is exactly the thing
-// that was wrong on a filtered network, where the local tier held two public
-// resolvers that could not be reached and every query that got that far paid
-// both timeouts on its way to SERVFAIL.
+// "Found any" means "proved any". A candidate is only kept once it has resolved
+// a name through it; see ForwarderDiscovery. An address that is merely
+// configured is exactly the thing that was wrong on a filtered network, where
+// the local tier held two public resolvers that could not be reached and every
+// query that got that far paid both timeouts on its way to SERVFAIL.
+//
+// AUTO DISCOVERS ON ITS OWN, without LocalForwarders being set. The flag stays
+// the explicit opt-in it always was for the other modes; `auto` no longer waits
+// for it, and here is why the privacy argument that made it opt-in does not
+// reach this mode:
+//
+// LocalForwarders is off by default because the local resolver sees every name
+// the household looks up, which is the thing resolving from the roots exists to
+// avoid. That reasoning holds wherever the local tier answers ORDINARY traffic.
+// In `auto` it never does. The tier is reached only after the roots AND the
+// encrypted upstreams have both failed, so by the time anything consults it the
+// private paths are already gone — the choice on offer is not "roots or the
+// local resolver", it is "the local resolver or SERVFAIL". Leaving the tier
+// pointed at DefaultForwarders on a network that filters :53 to its own servers
+// does not buy privacy, it just guarantees the failure: those are precisely the
+// addresses such a network drops, so every query that gets that far pays both
+// timeouts and dies anyway. Nothing is protected by the box refusing to notice
+// the one resolver that answers.
+//
+// In `forward` the tier IS the only upstream and takes every query always, so
+// the trade is real and the flag still governs it. In `recursive` the list is
+// unused. An operator who wants no local resolver in the path at all under any
+// circumstance asks for `recursive`, which is that request stated directly;
+// `dns_forwarders` remains the way to name the tier's contents by hand, and it
+// still wins over discovery below.
+//
+// Precisely what changes for the flag in `auto`: turning it OFF no longer
+// suppresses discovery WHEN THERE IS NO EXPLICIT LIST to fall back on. It is
+// still consulted otherwise — with `dns_forwarders` set, flag-off uses that list
+// and flag-on overrides it with discovery, which is what the flag has always
+// meant. The flag is only inert in the case where honoring "off" would mean
+// programming DefaultForwarders into a tier reached solely because everything
+// else already failed.
+//
+// It has to be inert in exactly that case, because the flag cannot express
+// "explicitly off" separately from "never set" — it is a bool defaulting to
+// false, so both are the same stored value, and honoring the first would mean
+// never discovering for the second, which is the box this exists for. An
+// operator wanting no local resolver in the path says so with `recursive`, or
+// names the tier's contents with `dns_forwarders`.
 func (m *Manager) forwarders(ctx context.Context) []string {
 	m.mu.RLock()
 	local := m.cfg.LocalForwarders
 	configured := m.cfg.Forwarders
+	auto := m.resolutionMode() == ResolutionModeAuto
 	m.mu.RUnlock()
 
-	if local {
+	// An explicit list wins over discovery in auto: it is the operator naming
+	// the tier's contents, and silently overriding it would answer a question
+	// they did not ask. With LocalForwarders deliberately set, discovery keeps
+	// winning as it always has — that flag IS the request to derive the list.
+	if local || (auto && len(configured) == 0) {
 		if found := m.discoverForwarders(ctx); len(found) > 0 {
 			return found
 		}

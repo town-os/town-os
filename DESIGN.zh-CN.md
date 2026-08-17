@@ -1567,7 +1567,15 @@ Town OS 默认写出的 `forwarders:` 列表是 `DefaultForwarders`——公共�
 
 `dns_local_forwarders` 设置（默认 `false`，由 `ValidateBool` 校验）把转发器列表替换为本机自身网络配置所指向的解析器。它**不是一种解析模式**：它改变的是本地那一层*持有哪些*地址，而是否会去查询那一层仍由模式决定——在 `auto` 中它是最后手段，在 `forward` 中它是唯一上游，在 `recursive` 中它根本不被使用。因此打开它绝不能改变模式。
 
-**默认关闭，而这个方向才是要紧的。** 本地解析器会看到这个家庭查询的每一个名称，而那正是从根解析所要避免的事情。这是运维在知情下做出的权衡，而不是机器在网络第一次出问题时替他做的决定。
+**`auto` 会自行发现，不需要这个开关。** 只有在根与加密上游都已失败*之后*才会到达这一层，所以摆在它面前的选择从来不是「根，还是本地解析器」，而是「本地解析器，还是 SERVFAIL」。在一个把 `:53` 过滤到只剩自家服务器的网络上，把 `DefaultForwarders` 留在那里既买不到隐私，又坐实了失败：那些恰恰就是被丢弃的地址，因此每一个到达该层的查询都要付掉两次超时，然后照样死掉。机器拒绝去注意那唯一会应答的解析器，并没有保护到任何东西。所以当模式为 `auto` 且没有配置显式列表时，`Manager.forwarders` 就会走发现这条路——无论 `dns_local_forwarders` 怎么说。
+
+**在权衡真实存在的那些模式里，默认仍然是关闭，而那个方向仍然要紧。** 本地解析器会看到这个家庭查询的每一个名称，而那正是从根解析所要避免的事情。这是运维在知情下做出的权衡，而不是机器在网络第一次出问题时替他做的决定——而在 `forward` 中，这一层是唯一上游、永远承接每一个查询，那正是实际正在做的那笔权衡。所以这个开关仍然管着 `forward`；在 `recursive` 中，那份列表反正也不会被用到。
+
+**在 `auto` 中，关掉这个开关不再抑制发现，仅限于没有显式列表可退守的场合。** 这一点很容易说得过宽——「auto 会忽略这个开关」是错的。当 `dns_forwarders` 已设置时，开关仍然说了算：关，就保留运维的那份列表；开，就导出一份并覆盖它——而这正是打开这个开关一直以来的含义。开关变得不起作用的，恰恰只是那种情形：尊重「关」将意味着把 `DefaultForwarders` 编程进一个仅仅因为其他一切都已失败才会到达的层。
+
+在那种情形下它只能不起作用，因为这个开关无法把「刻意关掉」与「从未设置过」区分表达——它是一个默认为 `false` 的布尔值，两者是同一个存储值，而尊重前者就意味着永远不为后者去发现，而后者恰恰就是这个功能存在的理由所在的那类机器。不希望路径中出现本地解析器的运维，应当选择直接表达该诉求的 `recursive`，或者用 `dns_forwarders` 指名这一层的内容。回归测试是 `TestAutoDiscoversWithoutTheFlag`、`TestAutoIgnoresTheFlagBeingOffWithNoExplicitList`、`TestAutoStillConsultsTheFlagAgainstAnExplicitList`、`TestAutoLeavesAnExplicitForwarderListAlone` 与 `TestNonAutoModesDoNotDiscoverWithoutTheFlag`。
+
+**发现如今位于默认代码路径上，这让它成了测试的隐患。** `auto` 是默认模式，所以一个零值的 `rolodex.Config` 也会走上发现这条路，而 `ForwarderDiscovery` 会回退到机器真实的 `/run/systemd/resolve/resolv.conf` 与 `/proc/net/route`，且 `Probe` 为 nil 意味着一次真实的 DNS 查询。任何构建 `Manager` 并触及 `Forwarders` 的测试——`ProgramRolodex` 每次调用都会触及——都必须钉住 `ResolvConfPaths`、`RouteTablePath` 与 `ForwarderProbe`，否则它就悄悄依赖于自己运行所在的网络，并且在任何网关能解析的机器上都会通过。当调用方没有填时，`newProgramTestManager` 会把这三项补齐。
 
 发现逻辑位于 `src/rolodex/hostdns.go`。`HostResolversFrom` 按顺序读取 `hostResolvConfPaths`——**先**读 `/run/systemd/resolve/resolv.conf`，再读 `/etc/resolv.conf`——胜出的是第一个产出可用地址的文件，而不仅仅是第一个存在的文件。这个顺序是承重的：在使用 resolved 的机器上，`/etc/resolv.conf` 里是那个 stub（`127.0.0.53`），会因是环回地址而被丢弃，因此若发现逻辑止步于第一个*可读*文件，恰恰会在这项功能所服务的那些机器上一无所获。上游文件在容器内部可达，是因为 systemcontroller 单元绑定挂载了 `-v /run/systemd:/run/systemd`；丢掉这个挂载会让发现悄悄退化。环回、未指定、组播与链路本地地址全部被丢弃——转发到 resolved 的 stub 或转发到 rolodex 自己的 `DNSLoopback` 监听器都是查询环路而非上游，而链路本地地址在缺少 `resolv.conf` 行不携带的 zone 时毫无意义。
 

@@ -19,12 +19,33 @@ import (
 // newProgramTestManager builds a manager whose socket path points into a temp
 // dir, so a test can create and recreate that socket to stand in for rolodex
 // restarting.
+//
+// Local-forwarder discovery is neutered unless the caller asked for it. This is
+// not incidental tidiness: `auto` — the DEFAULT mode, so every zero-valued
+// rolodex.Config here — now discovers on its own, and ProgramRolodex resolves
+// the forwarder list on every call. Left alone, these tests would read the test
+// machine's real /run/systemd/resolve/resolv.conf and /proc/net/route and then
+// probe whatever they found with a REAL DNS query (ForwarderDiscovery.Probe is
+// documented as doing exactly that when nil). That makes the suite depend on the
+// network it runs on and, worse, pass on any box whose gateway resolves no
+// matter what the code under it did. Pointing the two paths at files that do not
+// exist makes discovery find nothing; the rejecting probe is belt-and-braces for
+// a future candidate source that does not read a file.
 func newProgramTestManager(t *testing.T, cfg rolodex.Config) (*rolodex.Manager, string) {
 	t.Helper()
 	dir := t.TempDir()
 	socket := filepath.Join(dir, "rolodex.sock")
 	cfg.DataDir = dir
 	cfg.UnixSocketPath = socket
+	if cfg.ResolvConfPaths == nil {
+		cfg.ResolvConfPaths = []string{filepath.Join(dir, "absent-resolv.conf")}
+	}
+	if cfg.RouteTablePath == "" {
+		cfg.RouteTablePath = filepath.Join(dir, "absent-route")
+	}
+	if cfg.ForwarderProbe == nil {
+		cfg.ForwarderProbe = func(context.Context, string) bool { return false }
+	}
 	return rolodex.NewManager(cfg), socket
 }
 
