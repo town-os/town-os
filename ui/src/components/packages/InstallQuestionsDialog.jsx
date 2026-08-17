@@ -34,6 +34,17 @@ function parseBoolean(value) {
 export default function InstallQuestionsDialog({ dialog, onClose, onSubmit, onClearField }) {
   const { t } = useI18n()
   const [networks, setNetworks] = useState([])
+  // Volumes other installed packages have exported. Populated only for a
+  // package that asks a `shared_volume` question; empty is a real answer
+  // (nothing on this box exports anything yet), not a loading state.
+  const [exportedVolumes, setExportedVolumes] = useState([])
+  // The picked reference per shared_volume question. This has to be controlled
+  // state rather than a defaultValue: the options arrive from an async fetch,
+  // and a defaultValue is applied at mount, when the select has no options for
+  // it to match. The browser drops it to '' and never revisits it, so a
+  // reinstall would open with the cached library unselected and submit blank —
+  // silently detaching the package from the library it was already filling.
+  const [sharedVolumes, setSharedVolumes] = useState({})
   const [booleans, setBooleans] = useState({})
   // An oauth question is answered by a device flow rather than by typing. Its
   // status is the ONLY thing the field renders from, and the token is the only
@@ -148,6 +159,19 @@ export default function InstallQuestionsDialog({ dialog, onClose, onSubmit, onCl
     }
   }
 
+  // A reference cached from a previous install is already an answer, so the
+  // question reopens on it once the options it names have loaded.
+  useEffect(() => {
+    if (!dialog.open) return
+    const initial = {}
+    for (const [key, question] of Object.entries(dialog.questions || {})) {
+      if (question.type !== 'shared_volume') continue
+      initial[key] = dialog.responses?.[key] || ''
+    }
+    setSharedVolumes(initial)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dialog.open])
+
   useEffect(() => {
     if (!dialog.open) return
     const initial = {}
@@ -174,6 +198,30 @@ export default function InstallQuestionsDialog({ dialog, onClose, onSubmit, onCl
     return () => {
       cancelled = true
     }
+  }, [dialog.open])
+
+  // Only fetched when the package actually asks for a shared volume. Most
+  // packages do not, and the listing compiles every installed package to read
+  // its volumes -- not work to do on every install dialog.
+  useEffect(() => {
+    if (!dialog.open) return
+    const wantsShared = Object.values(dialog.questions || {}).some(
+      (q) => q.type === 'shared_volume',
+    )
+    if (!wantsShared) return
+    const client = getClient()
+    if (typeof client.listExportedVolumes !== 'function') return
+    let cancelled = false
+    client
+      .listExportedVolumes()
+      .then((list) => {
+        if (!cancelled) setExportedVolumes(list || [])
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dialog.open])
 
   function renderQuestion(key, question) {
@@ -247,6 +295,63 @@ export default function InstallQuestionsDialog({ dialog, onClose, onSubmit, onCl
           )}
           {flow.status === 'error' && (
             <p className="text-sm text-destructive">{flow.error}</p>
+          )}
+          {fieldError && <p className="text-sm text-destructive">{fieldError}</p>}
+        </div>
+      )
+    }
+
+    if (question.type === 'shared_volume') {
+      // A reference is picked, never typed: the valid answers are exactly the
+      // volumes installed packages export right now, and a free-text field
+      // would let someone name one that does not exist and only find out when
+      // the install failed.
+      const hasChoices = exportedVolumes.length > 0
+      // Render the held reference only while it is still on offer. A producer
+      // uninstalled since the last install leaves a cached answer naming a
+      // volume nothing exports any more; showing it selected would submit a
+      // reference the install then rejects. Falling back to '' puts the picker
+      // where it belongs — empty, asking again.
+      const held = sharedVolumes[key] ?? ''
+      const value = exportedVolumes.some((v) => v.reference === held) ? held : ''
+      return (
+        <div key={key} className="space-y-2">
+          <Label htmlFor={key}>
+            {question.query}
+            {question.optional && (
+              <span className="ml-1 text-xs font-normal text-muted-foreground">
+                {t('install_questions.optional_suffix')}
+              </span>
+            )}
+          </Label>
+          <select
+            id={key}
+            name={key}
+            value={value}
+            onChange={(e) =>
+              setSharedVolumes((prev) => ({ ...prev, [key]: e.target.value }))
+            }
+            disabled={!hasChoices}
+            className={cn(
+              'flex h-9 w-full rounded-md border bg-transparent px-3 py-1 text-sm shadow-sm',
+              fieldError ? 'border-destructive' : 'border-input',
+            )}
+          >
+            {/* Always offered, even for a required question: the server
+                rejects an empty required answer with a field error, which is
+                a better outcome than silently pre-selecting somebody's
+                library because it happened to sort first. */}
+            <option value="">{t('install_questions.shared_volume_none')}</option>
+            {exportedVolumes.map((v) => (
+              <option key={v.reference} value={v.reference}>
+                {v.package} / {v.volume} ({v.mountpoint})
+              </option>
+            ))}
+          </select>
+          {!hasChoices && (
+            <p className="text-xs text-muted-foreground">
+              {t('install_questions.shared_volume_empty')}
+            </p>
           )}
           {fieldError && <p className="text-sm text-destructive">{fieldError}</p>}
         </div>

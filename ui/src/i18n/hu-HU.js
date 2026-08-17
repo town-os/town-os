@@ -654,6 +654,8 @@ const huHU = {
   'install_questions.oauth_expired': 'A jóváhagyási kérés lejárt. Csatlakozzon újra.',
   'install_questions.oauth_no_token': 'A szolgáltató jóváhagyta a kérést, de nem adott vissza tokent.',
   'install_questions.optional_suffix': '(nem kötelező)',
+  'install_questions.shared_volume_none': 'Nincs',
+  'install_questions.shared_volume_empty': 'Még egyetlen telepített csomag sem oszt meg kötetet.',
   'install_questions.clear_tooltip': 'Törölje új érték megadásához',
   'install_questions.clear_label': 'Érték törlése',
   'install_questions.recycle_tooltip': 'Titok cseréje — hagyja üresen az új mezőt a generáláshoz',

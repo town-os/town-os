@@ -92,6 +92,13 @@ const (
 	// and is handled exactly like a Secret -- masked, never auto-generated, and
 	// carried forward on upgrade.
 	Oauth OutputType = "oauth"
+	// SharedVolume is answered by picking one of the volumes that packages
+	// already installed on this box have marked `exported: true`. The answer is
+	// an `<repo>/<package>/<volume>` reference, which an `attach:` entry turns
+	// into a bind mount. It is never auto-generated: there is no sensible
+	// default for "whose library should this write into", and guessing one
+	// would silently file somebody's downloads into the wrong place.
+	SharedVolume OutputType = "shared_volume"
 )
 
 func (o OutputType) Output(answer string) (string, error) {
@@ -135,6 +142,17 @@ func (o OutputType) Output(answer string) (string, error) {
 			return "", ErrInvalidType
 		}
 		return answer, nil
+	case SharedVolume:
+		// Shape only. Whether the referenced package is installed and whether
+		// the volume is actually exported are facts about the box, not about
+		// the answer, so they are checked where the mount is resolved and the
+		// installer is in scope. Checking the grammar here still matters: the
+		// value is joined onto the btrfs base to build a bind-mount source.
+		ref, err := ParseExportedVolumeRef(answer)
+		if err != nil {
+			return "", err
+		}
+		return ref.String(), nil
 	case Boolean:
 		// strconv.ParseBool accepts exactly the spellings YAML 1.2 treats as
 		// booleans (plus 1/0/t/f); it is normalized to "true"/"false" so

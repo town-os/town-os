@@ -211,11 +211,31 @@ func (i *InputPackage) iterateFields(iv, response string) {
 		for idx := range dep.Consume {
 			dep.Consume[idx].Path = applyTemplate(dep.Consume[idx].Path, iv, response)
 		}
+		// Parent-injected post-install commands substitute question
+		// responses here; their @dep_KEY_*@ markers are left alone for the
+		// systemcontroller's runtime pass, exactly like dep.Responses.
+		for idx := range dep.PostInstall {
+			dep.PostInstall[idx] = applyTemplate(dep.PostInstall[idx], iv, response)
+		}
 		i.Dependencies[key] = dep
+	}
+
+	// An attach's Volume is normally a bare `@question@` backed by a
+	// shared_volume picker, so this is where the operator's choice lands.
+	// Subpath and Path are substituted too, matching regular mountpoints.
+	for name, att := range i.Attach {
+		att.Volume = applyTemplate(att.Volume, iv, response)
+		att.Subpath = applyTemplate(att.Subpath, iv, response)
+		att.Path = applyTemplate(att.Path, iv, response)
+		i.Attach[name] = att
 	}
 
 	for idx := range i.PostUpdate {
 		i.PostUpdate[idx] = applyTemplate(i.PostUpdate[idx], iv, response)
+	}
+
+	for idx := range i.PostInstall {
+		i.PostInstall[idx] = applyTemplate(i.PostInstall[idx], iv, response)
 	}
 }
 
@@ -492,6 +512,25 @@ func (i *InputPackage) Validate() error {
 			}
 			seenConsumePaths[cons.Path] = true
 		}
+		// A dep's parent-injected post_install runs via `podman exec` into
+		// the dep's container, so an empty command is as meaningless here as
+		// it is at the top level. The dep's own runtime is not knowable from
+		// this YAML — a VM dep is caught when the dep itself compiles.
+		for idx, cmd := range dep.PostInstall {
+			if strings.TrimSpace(cmd) == "" {
+				return fmt.Errorf("dependency %q post_install[%d]: %w", key, idx, ErrEmptyPostInstallCommand)
+			}
+		}
+	}
+
+	for name, att := range i.Attach {
+		if err := ValidateAttach(name, att); err != nil {
+			return err
+		}
+	}
+	// A VM has no container to bind-mount into; its disk is the whole story.
+	if hasVM && len(i.Attach) > 0 {
+		return ErrAttachVMNotSupported
 	}
 
 	if hasVM && len(i.PostUpdate) > 0 {
@@ -500,6 +539,15 @@ func (i *InputPackage) Validate() error {
 	for idx, cmd := range i.PostUpdate {
 		if strings.TrimSpace(cmd) == "" {
 			return fmt.Errorf("post_update[%d]: %w", idx, ErrEmptyPostUpdateCommand)
+		}
+	}
+
+	if hasVM && len(i.PostInstall) > 0 {
+		return ErrPostInstallVMNotSupported
+	}
+	for idx, cmd := range i.PostInstall {
+		if strings.TrimSpace(cmd) == "" {
+			return fmt.Errorf("post_install[%d]: %w", idx, ErrEmptyPostInstallCommand)
 		}
 	}
 
@@ -713,7 +761,7 @@ func (i *InputPackage) Compile(response Responses) (*Package, error) {
 			}
 		}
 
-		volumes[name] = PackageVolume{Mountpoint: vol.Mountpoint, Quota: quota, Archive: vol.Archive, Git: vol.Git, UID: vol.UID, GID: vol.GID, Shareable: vol.Shareable}
+		volumes[name] = PackageVolume{Mountpoint: vol.Mountpoint, Quota: quota, Archive: vol.Archive, Git: vol.Git, UID: vol.UID, GID: vol.GID, Shareable: vol.Shareable, Exported: vol.Exported}
 	}
 
 	// Compile templates: validate volume references, paths, and content syntax.
@@ -768,6 +816,9 @@ func (i *InputPackage) Compile(response Responses) (*Package, error) {
 				resolved.Consume = make([]InputDepConsume, len(dep.Consume))
 				copy(resolved.Consume, dep.Consume)
 			}
+			if len(dep.PostInstall) > 0 {
+				resolved.PostInstall = trimCommands(dep.PostInstall)
+			}
 			compiledDeps[key] = resolved
 		}
 	}
@@ -813,7 +864,9 @@ func (i *InputPackage) Compile(response Responses) (*Package, error) {
 		Runtime:      rt,
 		Proton:       proton,
 		Dependencies: compiledDeps,
-		PostUpdate:   trimPostUpdate(i.PostUpdate),
+		Attach:       compileAttach(i.Attach),
+		PostUpdate:   trimCommands(i.PostUpdate),
+		PostInstall:  trimCommands(i.PostInstall),
 	}
 
 	// Compile VM configuration if present.
@@ -883,6 +936,37 @@ func validateCompiledNoControlChars(p *Package) error {
 			return err
 		}
 	}
+	// post_install lands in `podman exec <container> sh -c <cmd>` the same way
+	// post_update does, so a response-borne newline would be just as free to
+	// append a second command. Dependency-injected lists are swept here too:
+	// they are the parent's own YAML and carry the parent's responses.
+	for idx, cmd := range p.PostInstall {
+		if err := ValidateNoControlChars(fmt.Sprintf("post_install[%d]", idx), cmd); err != nil {
+			return err
+		}
+	}
+	for key, dep := range p.Dependencies {
+		for idx, cmd := range dep.PostInstall {
+			if err := ValidateNoControlChars(fmt.Sprintf("dependency %q post_install[%d]", key, idx), cmd); err != nil {
+				return err
+			}
+		}
+	}
+	// An attach's three string fields all reach a podman `-v` flag in a
+	// systemd ExecStart line, and all three can carry a response. The volume
+	// reference is re-parsed strictly when the mount is resolved, but Path and
+	// Subpath are not, so this is where a response-borne newline is caught.
+	for name, att := range p.Attach {
+		if err := ValidateNoControlChars(fmt.Sprintf("attach %q volume", name), att.Volume); err != nil {
+			return err
+		}
+		if err := ValidateNoControlChars(fmt.Sprintf("attach %q subpath", name), att.Subpath); err != nil {
+			return err
+		}
+		if err := ValidateNoControlChars(fmt.Sprintf("attach %q path", name), att.Path); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -910,9 +994,34 @@ func compileVM(vm *InputPackageVM) (*PackageVM, error) {
 	}, nil
 }
 
-// trimPostUpdate returns a copy of the commands with leading/trailing
-// whitespace stripped from each entry. nil input returns nil.
-func trimPostUpdate(cmds []string) []string {
+// compileAttach copies the attach map into the compiled package, trimming the
+// operator-supplied volume reference. Entries left unselected are dropped here
+// rather than at every resolver: an optional shared_volume question compiles to
+// the empty string, and an attach with nothing to attach to is not an attach.
+// nil input returns nil, and a map whose entries are all unselected also
+// returns nil so callers can branch on len().
+func compileAttach(in map[string]InputPackageAttach) map[string]InputPackageAttach {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]InputPackageAttach, len(in))
+	for name, att := range in {
+		att.Volume = strings.TrimSpace(att.Volume)
+		if !att.Selected() {
+			continue
+		}
+		out[name] = att
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// trimCommands returns a copy of the commands with leading/trailing
+// whitespace stripped from each entry. nil input returns nil. Shared by
+// post_update and post_install (top-level and dependency-injected).
+func trimCommands(cmds []string) []string {
 	if len(cmds) == 0 {
 		return cmds
 	}

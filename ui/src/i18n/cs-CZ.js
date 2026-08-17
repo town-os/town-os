@@ -654,6 +654,8 @@ const csCZ = {
   'install_questions.oauth_expired': 'Žádost o schválení vypršela. Připojte se znovu.',
   'install_questions.oauth_no_token': 'Poskytovatel žádost schválil, ale nevrátil žádný token.',
   'install_questions.optional_suffix': '(volitelné)',
+  'install_questions.shared_volume_none': 'Žádný',
+  'install_questions.shared_volume_empty': 'Žádný nainstalovaný balíček zatím nesdílí svazek.',
   'install_questions.clear_tooltip': 'Vymažte pro zadání nové hodnoty',
   'install_questions.clear_label': 'Vymazat tuto hodnotu',
   'install_questions.recycle_tooltip': 'Nahradit toto tajemství — ponechte nové pole prázdné pro vygenerování',

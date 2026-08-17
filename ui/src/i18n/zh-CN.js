@@ -659,6 +659,8 @@ const zhCN = {
   'install_questions.oauth_expired': '批准请求已过期。请重新连接。',
   'install_questions.oauth_no_token': '提供方已批准请求，但未返回令牌。',
   'install_questions.optional_suffix': '（可选）',
+  'install_questions.shared_volume_none': '无',
+  'install_questions.shared_volume_empty': '尚无已安装的软件包共享卷。',
   'install_questions.clear_tooltip': '清除以输入新值',
   'install_questions.clear_label': '清除此值',
   'install_questions.recycle_tooltip': '替换此密钥——将新字段留空则会生成一个',

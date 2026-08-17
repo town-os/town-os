@@ -604,6 +604,24 @@ func reconcilePackage(ctx context.Context, cfg ReconcileConfig, pi packages.Pack
 		}
 		unitCfg.HostVolumeMounts = append(unitCfg.HostVolumeMounts, consumeMounts...)
 	}
+	// Attach: exported volumes owned by other installed packages. Rebuilt from
+	// the persisted answer on every boot rather than remembered as a path,
+	// which is what re-points a consumer after its producer upgrades to a new
+	// version (and so a new subvolume path).
+	//
+	// Non-strict, unlike the install path: a producer that has since been
+	// uninstalled must not stop this package from coming back up after a
+	// reboot. The mount is dropped and the loss is logged at Error.
+	if len(compiled.Attach) > 0 {
+		attachMounts, err := resolveAttachMounts(
+			cfg.BtrfsBasePath, compiled.Attach,
+			reconcileAttachResolver(cfg.Installer), newCompiledPackageLoader(cfg.RepositoryRoot), false,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("resolve attached volumes: %w", err)
+		}
+		applyAttachMounts(&unitCfg, attachMounts)
+	}
 
 	units := systemd.GeneratePackageUnits(unitCfg)
 

@@ -13,7 +13,6 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strconv"
@@ -834,13 +833,11 @@ func (b *boot) reconcile(ctx context.Context) error {
 		Gfeh:                   b.gfehReg,
 		Git:                    &git.GoGitClient{},
 		PostUpdateExec: func(ctx context.Context, containerName string, command string) error {
-			execCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-			defer cancel()
-			out, execErr := exec.CommandContext(execCtx, "podman", "exec", containerName, "sh", "-c", command).CombinedOutput() //nolint:gosec // G204 -- containerName and command from trusted package YAML
+			out, execErr := systemcontroller.PodmanContainerExec(ctx, containerName, command)
 			if execErr != nil {
-				return fmt.Errorf("%w: %s", execErr, string(out))
+				return execErr
 			}
-			slog.Info(fmt.Sprintf("post-update %s: %s", containerName, strings.TrimSpace(string(out))))
+			slog.Info(fmt.Sprintf("post-update %s: %s", containerName, strings.TrimSpace(out)))
 			return nil
 		},
 	})

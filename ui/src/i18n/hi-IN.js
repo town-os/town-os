@@ -659,6 +659,8 @@ const hiIN = {
   'install_questions.oauth_expired': 'अनुमोदन अनुरोध समाप्त हो गया। फिर से कनेक्ट करें।',
   'install_questions.oauth_no_token': 'प्रदाता ने अनुरोध को अनुमोदित किया लेकिन कोई टोकन नहीं लौटाया।',
   'install_questions.optional_suffix': '(वैकल्पिक)',
+  'install_questions.shared_volume_none': 'कोई नहीं',
+  'install_questions.shared_volume_empty': 'अभी तक किसी इंस्टॉल किए गए पैकेज ने वॉल्यूम साझा नहीं किया है।',
   'install_questions.clear_tooltip': 'नया मान दर्ज करने के लिए साफ़ करें',
   'install_questions.clear_label': 'इस मान को साफ़ करें',
   'install_questions.recycle_tooltip': 'इस गुप्त को बदलें — नया उत्पन्न करने के लिए नया फ़ील्ड खाली छोड़ें',

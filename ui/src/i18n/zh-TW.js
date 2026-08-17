@@ -659,6 +659,8 @@ const zhTW = {
   'install_questions.oauth_expired': '核准請求已過期。請重新連線。',
   'install_questions.oauth_no_token': '提供者已核准請求，但未傳回權杖。',
   'install_questions.optional_suffix': '（選填）',
+  'install_questions.shared_volume_none': '無',
+  'install_questions.shared_volume_empty': '尚無已安裝的套件共享磁碟區。',
   'install_questions.clear_tooltip': '清除以輸入新的值',
   'install_questions.clear_label': '清除此值',
   'install_questions.recycle_tooltip': '取代此密鑰——將新欄位留空即可產生一個',

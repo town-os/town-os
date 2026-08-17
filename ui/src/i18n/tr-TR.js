@@ -659,6 +659,8 @@ const trTR = {
   'install_questions.oauth_expired': 'Onay isteğinin süresi doldu. Yeniden bağlanın.',
   'install_questions.oauth_no_token': 'Sağlayıcı isteği onayladı ancak hiçbir belirteç döndürmedi.',
   'install_questions.optional_suffix': '(isteğe bağlı)',
+  'install_questions.shared_volume_none': 'Yok',
+  'install_questions.shared_volume_empty': 'Henüz hiçbir kurulu paket birim paylaşmıyor.',
   'install_questions.clear_tooltip': 'Yeni bir değer girmek için temizleyin',
   'install_questions.clear_label': 'Bu değeri temizle',
   'install_questions.recycle_tooltip': 'Bu gizli değeri değiştir — bir tane oluşturmak için yeni alanı boş bırakın',

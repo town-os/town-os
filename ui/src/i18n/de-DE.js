@@ -659,6 +659,8 @@ const deDE = {
   'install_questions.oauth_expired': 'Die Genehmigungsanfrage ist abgelaufen. Verbinden Sie sich erneut.',
   'install_questions.oauth_no_token': 'Der Anbieter hat die Anfrage genehmigt, aber kein Token zurückgegeben.',
   'install_questions.optional_suffix': '(optional)',
+  'install_questions.shared_volume_none': 'Keines',
+  'install_questions.shared_volume_empty': 'Noch kein installiertes Paket teilt ein Volume.',
   'install_questions.clear_tooltip': 'Löschen, um einen neuen Wert einzugeben',
   'install_questions.clear_label': 'Diesen Wert löschen',
   'install_questions.recycle_tooltip': 'Dieses Geheimnis ersetzen – lassen Sie das neue Feld leer, um eines zu generieren',

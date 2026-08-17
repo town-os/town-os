@@ -659,6 +659,8 @@ const saIN = {
   'install_questions.oauth_expired': 'अनुमोदन-अनुरोधः समाप्तः। पुनः सम्बध्नातु।',
   'install_questions.oauth_no_token': 'प्रदाता अनुरोधम् अनुमोदितवान् परन्तु कञ्चित् चिह्नकं न प्रत्यागमयत्।',
   'install_questions.optional_suffix': '(वैकल्पिकम्)',
+  'install_questions.shared_volume_none': 'न किमपि',
+  'install_questions.shared_volume_empty': 'अद्यापि कोऽपि संस्थापितः संपुटः आयतनं न विभजति।',
   'install_questions.clear_tooltip': 'नवीन-मानं प्रवेष्टुं मार्जयतु',
   'install_questions.clear_label': 'इदं मानं मार्जयतु',
   'install_questions.recycle_tooltip': 'इदं रहस्यं प्रतिस्थापयतु — एकं जनयितुं नवीन-क्षेत्रं रिक्तं त्यजतु',

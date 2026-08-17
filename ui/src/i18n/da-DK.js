@@ -659,6 +659,8 @@ const daDK = {
   'install_questions.oauth_expired': 'Godkendelsesanmodningen udløb. Forbind igen.',
   'install_questions.oauth_no_token': 'Udbyderen godkendte anmodningen, men returnerede ingen token.',
   'install_questions.optional_suffix': '(valgfri)',
+  'install_questions.shared_volume_none': 'Ingen',
+  'install_questions.shared_volume_empty': 'Ingen installeret pakke deler endnu et volume.',
   'install_questions.clear_tooltip': 'Ryd for at indtaste en ny værdi',
   'install_questions.clear_label': 'Ryd denne værdi',
   'install_questions.recycle_tooltip': 'Udskift denne hemmelighed — lad det nye felt stå tomt for at generere en',

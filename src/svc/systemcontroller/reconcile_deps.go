@@ -105,17 +105,42 @@ func buildTemplateDepEntry(containerName string, depCompiled *packages.Package) 
 	return entry
 }
 
+// depTemplateResponses turns the flat TOWNOS_DEP_* env map into the response
+// namespace the @dep_KEY_*@ markers are written against: strip the TOWNOS_
+// prefix and lowercase, so TOWNOS_DEP_DB_HOST becomes dep_db_host.
+func depTemplateResponses(depEnvVars map[string]string) packages.Responses {
+	responses := make(packages.Responses, len(depEnvVars))
+	for k, v := range depEnvVars {
+		templateKey := strings.ToLower(strings.TrimPrefix(k, "TOWNOS_"))
+		responses[templateKey] = v
+	}
+	return responses
+}
+
+// applyDepTemplatesSlice is applyDepTemplates for an ordered list rather than
+// a keyed map — post_install commands, where there is no key to skip and every
+// entry is a candidate.
+//
+// It is called even when depEnvVars is empty, for the same reason the parent's
+// environment is: ApplyTemplates is also what collapses `@@` → `@`, and
+// compile deliberately leaves that escape intact on any field that still has a
+// runtime substitution pass ahead of it. Skipping the empty case would ship
+// `@@` through to `sh -c`.
+func applyDepTemplatesSlice(cmds []string, depEnvVars map[string]string) {
+	responses := depTemplateResponses(depEnvVars)
+	for i, v := range cmds {
+		if resolved := packages.ApplyTemplates(v, responses); resolved != v {
+			cmds[i] = resolved
+		}
+	}
+}
+
 // applyDepTemplates resolves @dep_KEY_host@ and @dep_KEY_port_N@ template
 // variables in environment values using the dependency environment variables.
 // This mirrors the compile-time template substitution described in the spec:
 // TOWNOS_DEP_DB_HOST becomes template key dep_db_host, etc.
 func applyDepTemplates(env map[string]string, depEnvVars map[string]string) {
-	// Build template responses: strip TOWNOS_ prefix and lowercase.
-	responses := packages.Responses{}
-	for k, v := range depEnvVars {
-		templateKey := strings.ToLower(strings.TrimPrefix(k, "TOWNOS_"))
-		responses[templateKey] = v
-	}
+	responses := depTemplateResponses(depEnvVars)
 
 	for k, v := range env {
 		// Skip the TOWNOS_DEP_* vars themselves.

@@ -659,6 +659,8 @@ const bnBD = {
   'install_questions.oauth_expired': 'অনুমোদনের অনুরোধের মেয়াদ শেষ হয়েছে। আবার সংযোগ করুন।',
   'install_questions.oauth_no_token': 'প্রদানকারী অনুরোধ অনুমোদন করেছে কিন্তু কোনো টোকেন ফেরত দেয়নি।',
   'install_questions.optional_suffix': '(ঐচ্ছিক)',
+  'install_questions.shared_volume_none': 'কোনোটিই নয়',
+  'install_questions.shared_volume_empty': 'ইনস্টল করা কোনো প্যাকেজ এখনও ভলিউম শেয়ার করছে না।',
   'install_questions.clear_tooltip': 'একটি নতুন মান লিখতে মুছুন',
   'install_questions.clear_label': 'এই মানটি মুছুন',
   'install_questions.recycle_tooltip': 'এই সিক্রেটটি প্রতিস্থাপন করুন — একটি তৈরি করতে নতুন ফিল্ডটি খালি রাখুন',

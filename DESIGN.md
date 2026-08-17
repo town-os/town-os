@@ -171,6 +171,8 @@ Packages are defined in YAML with the following structure:
 - `archives` -- list of container image archives to populate volumes at install time (container runtime only).
 - `templates` -- named file templates rendered into volumes via Go text/template. Each template specifies a target volume, file path, and template content.
 - `post_update` -- list of shell commands to execute inside the running container after an image SHA change is detected during reconcile (container runtime only; not supported for VM packages). See **Post-Update Commands** below.
+- `post_install` -- list of shell commands to execute inside the package's own container once, immediately after install starts its units (container runtime only; not supported for VM packages). Also declarable per-dependency as `dependencies.<key>.post_install`, which is how a parent wires one dep to another at the application layer. See **Post-Install Commands** below.
+- `attach` -- named bind mounts of volumes that OTHER installed packages have marked `exported: true`. Provisions nothing; the producer stays the only package that creates, sizes, or deletes the storage. See **Exported Volumes** below.
 
 ### Runtime Type
 
@@ -310,6 +312,40 @@ post_update:
   - "pg_upgrade"
   - "vacuumdb --all --analyze-in-stages"
 ```
+
+### Post-Install Commands
+
+`post_update` fires on an image change; `post_install` fires once, when the package is installed. The two are deliberately separate hooks, because the work is different: a post-update command migrates data an image change invalidated, while a post-install command configures a service that has just come up for the first time — pointing it at a sibling, registering a webhook, seeding a library path.
+
+**Why it exists at all.** [Dependency Shared Volumes](#dependency-shared-volumes) gets two packages looking at the same bytes, and for a media stack that is most of the job. It is not all of it: an *arr also has to be told, over its own HTTP API, that a media server exists and should be asked to rescan after an import. That configuration lives in the application's SQLite database, not in a file a `templates:` block could write, so a bind mount cannot reach it and neither can anything else this repository had. `post_install` is the hook that can.
+
+**Two declaration sites.**
+
+- Top-level `post_install:` runs in the package's own container. This is the package author configuring their own service.
+- `dependencies.<key>.post_install:` runs in **that dependency's** container. This is the parent — the only party that knows the topology — wiring one dep to another. A dep's own list runs first, then the parent's injections.
+
+```yaml
+# a media-stack parent
+dependencies:
+  jellyfin:
+    package: jellyfin
+  radarr:
+    package: radarr
+    post_install:
+      # runs inside radarr's container, once radarr is up
+      - "curl -sf -X POST http://localhost:7878/api/v3/notification -H 'X-Api-Key: @arrkey@' -d @/config/jellyfin-connect.json"
+```
+
+- **Container-only** -- rejected during validation for VM packages (`ErrPostInstallVMNotSupported`), which have no container to exec into. The install path re-checks `Runtime == RuntimeContainer` at the call site.
+- **Two substitution passes, and they are not interchangeable.** `@variable@` question responses resolve at **compile** time, like environment and network fields. `@dep_KEY_host@` / `@dep_KEY_port_NAME@` resolve at **install** time (`applyDepTemplatesSlice`), against the deps that were just brought up — the compile pass deliberately leaves those markers alone, exactly as it does for environment values. The install-time pass runs even for a package with no dependencies, because it is also what collapses `@@` into a literal `@`.
+- **Ordering** -- a `post_install` command that names a sibling via `@dep_KEY_host@` adds an edge to the install DAG built by `orderDependencies`, alongside the existing `dep.Responses` and `consume.from` edges. A dep whose commands name a sibling installs strictly after it, so the marker resolves against an env map that already holds it. Cycles are rejected with the same Kahn's-algorithm check.
+- **Readiness** -- the container is probed with `sh -c true` (up to 90s, every 2s) before the first command. systemd's `StartUnit` job reports `done` once `podman run` has been *launched*, which is strictly earlier than the container being able to serve an exec, so without the probe the first command would race the container into existence. The probe proves three things at once: the container exists, it is running, and it has a shell. **It does not prove the application inside is listening** — a command that needs that must wait for it itself (`until curl -sf …; do sleep 1; done`).
+- **Execution method** -- `podman exec <container> sh -c '<command>'`, 5-minute timeout per command, via `PodmanContainerExec`. `ServerConfig.ContainerExecFunc` overrides it; tests inject a recorder and need no podman.
+- **Whitespace trimming** -- each command is trimmed during compilation; empty or whitespace-only commands are rejected at both declaration sites.
+- **Control characters** -- the compiled sweep at the end of `Compile` covers `post_install` at both levels, for the same reason it covers `post_update`: the YAML holds a bare `@marker@` that carries no control character of its own, and the newline arrives with the operator's response. Without the sweep it would reach `sh -c` free to append a second command.
+- **Non-fatal, and logged at Warn** -- a failing command does not fail the install and does not stop the commands after it. By the time the hook runs, volumes are provisioned, the install record is saved, and the units are started; there is nothing left to roll back, so reporting a failure would report one for an install that happened. For a dependency it would additionally abort the parent's install over a step that is supplementary to it. The journal is where a failed wiring step becomes visible.
+- **Idempotency is the author's responsibility** -- installing a new version over an old one is an install, and so is a reinstall over reused volumes. Both re-run the commands. Reconcile does **not**: `post_install` runs from the install handler only, so a reboot does not re-fire it.
+- **No progress step of its own** -- the hook runs at the tail of the `installing_services` step rather than emitting a new one, because a new step name would need a string in every locale catalog to render as anything but its own key.
 
 ### File Templates
 
@@ -510,6 +546,7 @@ Quotas are enforced at the btrfs qgroup level. A quota of 0 means unlimited.
 - `POST /storage/modify` (auth required) -- modify a volume's name and/or quota. Renaming is only allowed for user filesystems; package volumes cannot be renamed.
 - `POST /storage/remove` (auth required) -- delete a user filesystem.
 - `POST /storage/package-volumes` (auth required) -- list package volumes grouped by package, with optional inclusion of uninstalled volumes.
+- `POST /storage/exported-volumes` (auth required) -- list volumes installed packages have marked `exported: true`; the choices behind a `shared_volume` install question. Dependencies are excluded. See [Exported Volumes](#exported-volumes).
 - `POST /storage/remove-package-volume` (admin required) -- delete a specific package volume by internal name.
 - `POST /storage/remove-package-volume-group` (admin required) -- cascading delete behind the storage tree's non-leaf delete buttons. `repo` and `name` are required; an empty `version` targets every installed version of the package. **Every systemd unit in the target package's dependency tree is stopped before any subvolume is removed**, so a podman container still holding a volume open cannot race the btrfs delete. `include_uninstalled` additionally sweeps the matching `uninstalled/` subtree (wired to the same "Show uninstalled" toggle that drives the volume listing).
 - `POST /storage/upload-archive` (admin required) -- upload and unpack an archive into a volume.
@@ -1282,7 +1319,67 @@ dependencies:
 
 **Uninstall ordering.** Existing `Before=`/`PartOf=` directives already guarantee parent stops before deps and that deps stop before their producers, so when a parent uninstalls (cascade-uninstalling its deps) the consumer's container is gone before the producer's volume is touched. No new uninstall logic is needed.
 
+**This is for a dependency tree only.** Two packages installed independently share nothing through `expose:`/`consume:` — a dep belongs to exactly one parent. Sharing storage between standalone packages is [Exported Volumes](#exported-volumes), which is a different mechanism with a different opt-in flag.
+
+**The other half of sharing.** A bind mount gets two packages looking at the same bytes; it does not tell either one the other exists. Application-layer wiring — an *arr registering a media server so it rescans after an import — lives in the app's own database and is reachable only over its API. That is what [Post-Install Commands](#post-install-commands) are for, and a media-stack parent normally declares both: `expose:`/`consume:` for the library, `dependencies.<key>.post_install:` for the API call.
+
 **Out of scope.** A dep belongs to exactly one parent (existing invariant); shared volumes do not make deps multi-tenant. Reverse-direction sharing (parent's volume → dep) is not supported in v1; the schema stays extensible if it becomes needed. System services (`town-os-system--*`) do not get this feature — `GenerateSystemServiceUnit` does not consult `expose`/`consume`.
+
+### Exported Volumes
+
+Dependency shared volumes cross a *parent/child* boundary. Exported volumes cross no boundary at all: they let two packages that were installed independently, that know nothing about each other, and that each keep their own ingress hostname and web UI, write into the same storage.
+
+**Why the dependency-tree mechanism could not be stretched to cover this.** A dep is internal to its parent by construction — `packageUnitConfig` passes no supplies for a dep, `joinIngress` is `&& !isDep`, `needsNetworkController` is `!isDep &&`, and `collectPackageIngressSites` skips `IsDependency` outright. So a media stack expressed as one parent with three deps has exactly one reachable web UI: the parent's. Jellyfin would be reachable and Radarr and Sonarr would not, which for packages whose entire operation happens in their UI is not a working product. Exported volumes keep all four as ordinary standalone packages — four hostnames, four UIs, four independent lifecycles — and share only the bytes.
+
+**Producer side (`exported: true`).** A volume's owner offers it to the box:
+
+```yaml
+# jellyfin
+volumes:
+  media:
+    mountpoint: /media
+    uid: 1000
+    gid: 1000
+    exported: true
+```
+
+This is a **second flag, not a widening of `shareable`**, and the distinction is the whole security model. `shareable: true` grants one named parent, which the volume's author can go read in that parent's YAML before deciding. `exported: true` grants every package on the box, including ones that do not exist yet. Those are different promises; collapsing them would silently turn every existing `shareable: true` volume into a box-wide offer.
+
+**Consumer side (`attach:` + a `shared_volume` question).** The consumer declares that it wants somebody's exported volume, and the operator picks which one:
+
+```yaml
+# radarr
+questions:
+  library:
+    query: "Media library"
+    type: shared_volume
+    optional: true
+attach:
+  library:
+    volume: "@library@"      # the picked <repo>/<package>/<volume> reference
+    subpath: movies          # a directory INSIDE the exported volume
+    path: /library/movies    # where it lands in this container
+    uid: 1000                # bind mounts pass ownership straight through
+    gid: 1000
+```
+
+`attach:` is deliberately not a `volumes:` entry. A volumes entry provisions a btrfs subvolume and is trailed everywhere by quota accounting, archive seeding, uninstall renames, and purge; an attach resolves to a podman `-v` flag and nothing else. Keeping it a separate field is what makes the producer the only package that creates, sizes, or deletes the storage — an attach cannot outlive, resize, or delete what it borrows.
+
+**The reference carries no version, on purpose.** `<repo>/<package>/<volume>` names "the library Jellyfin is serving", not "the library the 1.0 install of Jellyfin was serving". Package volumes live at `installed/<repo>/<name>/<version>/<vol>`, so a pinned version would leave the consumer bind-mounted at a path that stopped existing the moment the producer upgraded. The version is resolved from the install record every time a mount is built, and reconcile rebuilds every unit on boot, so an upgrade re-points every consumer without anyone re-answering anything.
+
+**The export flag is re-read at every resolve**, from the producer as installed *now*. A new version that withdrew the export stops being mountable; otherwise the flag would only ever be a check on the consumer's first install.
+
+- **The picker** is `POST /storage/exported-volumes` (auth required), which walks installed packages, skips dependencies, compiles each against its saved responses, and returns every `exported: true` volume with its resolved mountpoint and quota. One package whose YAML has since vanished from its repository is skipped rather than fatal — it must not empty the picker for everything else. The install dialog fetches it **only** for a package that actually asks a `shared_volume` question.
+- **Dependencies are never offered.** A dep's storage is nested under its parent and it is internal by design; `ParseExportedVolumeRef` rejects a name carrying the `--dep--` separator, so this is refused by the reference grammar rather than by every resolver remembering to check.
+- **Traversal.** The three segments are joined onto the btrfs base to build a bind-mount source, and both the picker and the install route are `requireAuth`, not `requireAdmin` — any ordinary account can submit a reference. Every segment is validated with `ValidateVolumeName` (which admits no separator, no empty component, and no `.`/`..`), and `subpath` is separately required to be relative and traversal-free, because it is joined on after.
+- **Strict at install, lenient at reconcile.** An unresolvable reference fails the install: the operator picked it moments ago, and a silent skip would hand them a container running without the library it was installed to fill. The same reference at reconcile is logged at Error and skipped, because refusing to bring a package back up after a reboot over a producer uninstalled months ago is worse than running without the mount.
+- **An unselected attach is dropped at compile.** An optional `shared_volume` question left blank compiles to the empty string; `compileAttach` removes the entry rather than letting a resolver see one whose source would be the btrfs root.
+- **Mounts are sorted by attach name.** Map iteration order is random, and an unstable `-v` ordering would rewrite the unit text on every reconcile and restart the service for nothing.
+- **Every attach host path is also an mkdir target** (`applyAttachMounts`). Expose/consume mounts name a producer volume's root, which its own install created; an attach may name a `subpath:` inside one that nothing has ever created. This matters more than a missing directory usually would: the generator emits `MkdirPaths` before the host-mount chowns, and `ExecStartPre=/bin/chown` carries no `-` prefix, so an absent directory does not skip the mount — it fails ExecStartPre and the service never starts.
+- **Ownership is not adjusted for you beyond that chown.** Bind mounts pass host uid/gid through, and the chown is non-recursive, matching `HostVolumeMount` everywhere else. Packages that share a library must agree on `PUID`/`PGID`; the LinuxServer.io convention (1000:1000) is what the shipped media packages align on.
+- **`shared_volume` is never auto-generated.** `autoGenerateResponses` covers port, hostname, secret, and boolean. There is no sensible default for "whose library should this write into", and guessing one would file somebody's downloads into the wrong place without a word.
+
+**Known limitation: uninstalling a producer does not stop its consumers.** `remove-package-volume-group` stops every systemd unit *in the target package's dependency tree* before removing any subvolume, which is what keeps a podman container from racing the btrfs delete. A consumer attached across the box is by definition not in that tree, so it is neither stopped nor consulted: its container keeps the bind mount open while the producer's subvolume is renamed to `uninstalled/` or deleted. The consumer recovers at the next reconcile — the reference stops resolving, the mount is dropped from the regenerated unit, and the loss is logged — but between the uninstall and that reconcile it holds a handle on storage that has moved out from under it. Removing a producer that other packages attach to is therefore an operation to follow with a restart of those packages. Closing this properly means teaching the cascade to find consumers by walking every installed package's `attach:` references, which is a change to the uninstall path, not to this one.
 
 ### Named Ports
 

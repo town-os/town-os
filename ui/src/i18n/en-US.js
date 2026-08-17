@@ -659,6 +659,8 @@ const enUS = {
   'install_questions.oauth_expired': 'The approval request expired. Connect again.',
   'install_questions.oauth_no_token': 'The provider approved the request but returned no token.',
   'install_questions.optional_suffix': '(optional)',
+  'install_questions.shared_volume_none': 'None',
+  'install_questions.shared_volume_empty': 'No installed package is sharing a volume yet.',
   'install_questions.clear_tooltip': 'Clear to enter a new value',
   'install_questions.clear_label': 'Clear this value',
   'install_questions.recycle_tooltip': 'Replace this secret — leave the new field empty to generate one',

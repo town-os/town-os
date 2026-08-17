@@ -31,6 +31,16 @@ var (
 	ErrEntrypointVMNotSupported = errors.New("entrypoint is not supported for VM packages")
 	ErrEmptyPostUpdateCommand   = errors.New("post_update command must not be empty")
 
+	// ErrPostInstallVMNotSupported mirrors ErrPostUpdateVMNotSupported: both
+	// hooks run via `podman exec` into the package's container, which a VM
+	// package does not have.
+	ErrPostInstallVMNotSupported = errors.New("post_install is not supported for VM packages")
+	ErrEmptyPostInstallCommand   = errors.New("post_install command must not be empty")
+
+	// ErrAttachVMNotSupported reports an `attach:` block on a VM package,
+	// which has no container to bind-mount an exported volume into.
+	ErrAttachVMNotSupported = errors.New("attach is not supported for VM packages")
+
 	// ErrUnknownNetworkPortRef is returned when network.direct or
 	// network.tls_mode references a port key that is not declared in
 	// network.external or network.internal.
@@ -198,6 +208,19 @@ type InputPackageVolume struct {
 	// Volumes without this flag cannot be referenced as a shared-mount
 	// source — the cross-package install/reconcile pass rejects them.
 	Shareable bool `yaml:"shareable,omitempty"`
+
+	// Exported offers the volume to ANY package on the box, not only to a
+	// parent in the same dependency tree. An exported volume shows up in the
+	// picker behind a `shared_volume` question, and whichever package the
+	// operator picks it for bind-mounts it via an `attach:` entry.
+	//
+	// This is deliberately a second flag rather than a widening of Shareable.
+	// Shareable grants a named parent, which the volume's author can read in
+	// that parent's YAML; Exported grants every package that gets installed
+	// later, including ones that do not exist yet. Those are different
+	// promises, and collapsing them would silently turn every existing
+	// `shareable: true` volume into an offer to the whole box.
+	Exported bool `yaml:"exported,omitempty"`
 }
 
 type PackageVolume struct {
@@ -208,6 +231,7 @@ type PackageVolume struct {
 	UID        *uint32 `json:"uid,omitempty"`
 	GID        *uint32 `json:"gid,omitempty"`
 	Shareable  bool    `json:"shareable,omitempty"`
+	Exported   bool    `json:"exported,omitempty"`
 }
 
 type InputPackageArchive struct {
@@ -335,7 +359,9 @@ type Package struct {
 	VM           *PackageVM
 	Proton       *PackageProton
 	Dependencies map[string]InputPackageDependency
+	Attach       map[string]InputPackageAttach
 	PostUpdate   []string
+	PostInstall  []string
 }
 
 type InputPackageNetwork struct {
@@ -441,7 +467,16 @@ type InputPackage struct {
 	VM           *InputPackageVM                   `yaml:"vm,omitempty" json:"vm,omitempty"`
 	Proton       *InputPackageProton               `yaml:"proton,omitempty"`
 	Dependencies map[string]InputPackageDependency `yaml:"dependencies,omitempty" json:"dependencies,omitempty"`
-	PostUpdate   []string                          `yaml:"post_update,omitempty" json:"post_update,omitempty"`
+	// Attach binds volumes that OTHER installed packages exported into this
+	// package's container. Unlike Volumes it provisions nothing — see
+	// InputPackageAttach.
+	Attach     map[string]InputPackageAttach `yaml:"attach,omitempty" json:"attach,omitempty"`
+	PostUpdate []string                      `yaml:"post_update,omitempty" json:"post_update,omitempty"`
+	// PostInstall is a list of shell commands run inside this package's own
+	// container once, right after its units are installed and started by the
+	// install handler. Unlike PostUpdate it is not re-run by reconcile or by
+	// a version change — see the Post-Install Commands section of DESIGN.md.
+	PostInstall []string `yaml:"post_install,omitempty" json:"post_install,omitempty"`
 }
 
 // RuntimeType returns the runtime type for this package based on which

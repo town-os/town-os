@@ -55,6 +55,10 @@ type packageBackend interface {
 	GetGitCloner() packages.GitCloner
 	GetDefaultRepoCredentials() (string, string)
 	GetImageExtractFunc() func(ctx context.Context, image, directory, targetPath string) error
+	// GetContainerExecFunc returns the function used to run a package's
+	// post_install commands inside its container. Never nil in production;
+	// tests substitute a recorder so the install path needs no podman.
+	GetContainerExecFunc() ContainerExecFunc
 }
 
 // authBackend is who the caller is and what they may do.
@@ -239,6 +243,9 @@ func (s *SystemControllerHandlers) configureRoutes(e *echo.Echo) {
 	e.Add("POST", "/storage/remove", s.removeFilesystem, s.requireAuth)
 	e.Add("POST", "/storage", s.listFilesystems, s.requireAuth)
 	e.Add("POST", "/storage/package-volumes", s.listPackageVolumes, s.requireAuth)
+	// The picker behind a `shared_volume` question: volumes installed packages
+	// have marked `exported: true` and so offer to the rest of the box.
+	e.Add("POST", "/storage/exported-volumes", s.exportedVolumes, s.requireAuth)
 
 	// Object storage partitions. These four paths are a CONTRACT with gfeh
 	// (TOWNOS_CONTRACT.md in the gfeh repo) and gfeh's `make check-townos-sync`
@@ -493,6 +500,9 @@ type ServerConfig struct {
 	// collectors contribute nothing.
 	GfehRegistry GfehRegistry
 	ImageExtractFunc         func(ctx context.Context, image, directory, targetPath string) error
+	// ContainerExecFunc runs a package's post_install commands inside its
+	// container. nil selects PodmanContainerExec.
+	ContainerExecFunc ContainerExecFunc
 	// ResolvedConfigurator is called after DNS reconcile or TLD change to
 	// configure systemd-resolved routing for the TLD. When nil, the call
 	// is skipped. Set to rolodex.ConfigureResolvedRouting in production.

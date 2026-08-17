@@ -659,6 +659,8 @@ const thTH = {
   'install_questions.oauth_expired': 'คำขออนุมัติหมดอายุแล้ว เชื่อมต่ออีกครั้ง',
   'install_questions.oauth_no_token': 'ผู้ให้บริการอนุมัติคำขอแล้วแต่ไม่ได้ส่งโทเคนกลับมา',
   'install_questions.optional_suffix': '(ไม่บังคับ)',
+  'install_questions.shared_volume_none': 'ไม่มี',
+  'install_questions.shared_volume_empty': 'ยังไม่มีแพ็กเกจที่ติดตั้งไว้แชร์โวลุ่ม',
   'install_questions.clear_tooltip': 'ล้างเพื่อป้อนค่าใหม่',
   'install_questions.clear_label': 'ล้างค่านี้',
   'install_questions.recycle_tooltip': 'แทนที่ความลับนี้ — เว้นฟิลด์ใหม่ให้ว่างเพื่อสร้างขึ้นใหม่',

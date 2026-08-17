@@ -13,6 +13,26 @@ const mockClient = {
       { name: 'lab', enabled: false }, // disabled → must be excluded from the picker
     ]),
   ),
+  listExportedVolumes: vi.fn(() =>
+    Promise.resolve([
+      {
+        reference: 'default/jellyfin/media',
+        repo: 'default',
+        package: 'jellyfin',
+        version: '1.0',
+        volume: 'media',
+        mountpoint: '/media',
+      },
+      {
+        reference: 'default/plex/data',
+        repo: 'default',
+        package: 'plex',
+        version: '3.0',
+        volume: 'data',
+        mountpoint: '/data',
+      },
+    ]),
+  ),
 }
 
 vi.mock('@/lib/client-instance.js', () => ({
@@ -632,5 +652,129 @@ describe('InstallQuestionsDialog show_if conditional questions', () => {
 
     fireEvent.click(checkbox)
     await waitFor(() => expect(host.closest('.hidden')).not.toBeNull())
+  })
+})
+
+describe('InstallQuestionsDialog shared_volume questions', () => {
+  // A reference is picked, never typed: the only valid answers are the volumes
+  // installed packages export right now, and a free-text field would let
+  // someone name one that does not exist and find out at install time.
+  beforeEach(() => {
+    mockClient.listExportedVolumes.mockClear()
+  })
+
+  function renderShared({ question = {}, responses = {} } = {}) {
+    let submitted = null
+    const onSubmit = vi.fn((e) => {
+      e.preventDefault()
+      submitted = e.currentTarget.elements['library'].value
+    })
+    renderDialog({
+      onSubmit,
+      dialog: {
+        questions: { library: { query: 'Media library', type: 'shared_volume', ...question } },
+        responses,
+      },
+    })
+    return {
+      select: () => document.querySelector('select[name="library"]'),
+      submit: () => {
+        fireEvent.submit(document.querySelector('form'))
+        return submitted
+      },
+    }
+  }
+
+  it('renders a select of exported volumes rather than a text field', async () => {
+    const { select } = renderShared()
+    await waitFor(() => expect(select().options.length).toBe(3))
+    // The empty option is always offered, even for a required question: the
+    // server rejects a blank required answer, which beats silently
+    // pre-selecting whichever library happened to sort first.
+    expect(select().options[0].value).toBe('')
+    expect(select().options[1].value).toBe('default/jellyfin/media')
+    expect(select().options[2].value).toBe('default/plex/data')
+    expect(document.querySelector('input[name="library"]')).toBeNull()
+  })
+
+  it('labels each choice by package, volume and mountpoint', async () => {
+    const { select } = renderShared()
+    await waitFor(() => expect(select().options.length).toBe(3))
+    expect(select().options[1].textContent).toContain('jellyfin')
+    expect(select().options[1].textContent).toContain('media')
+    expect(select().options[1].textContent).toContain('/media')
+  })
+
+  it('submits the picked reference', async () => {
+    const { select, submit } = renderShared()
+    await waitFor(() => expect(select().options.length).toBe(3))
+    fireEvent.change(select(), { target: { value: 'default/plex/data' } })
+    expect(submit()).toBe('default/plex/data')
+  })
+
+  it('submits empty when nothing is picked', async () => {
+    const { select, submit } = renderShared()
+    await waitFor(() => expect(select().options.length).toBe(3))
+    expect(submit()).toBe('')
+  })
+
+  // The options arrive from an async fetch, so a defaultValue would be applied
+  // at mount with nothing to match and dropped to '' forever -- a reinstall
+  // would open unselected and submit blank, detaching the package from the
+  // library it was already filling.
+  it('reopens on the cached reference from a previous install', async () => {
+    const { select } = renderShared({ responses: { library: 'default/plex/data' } })
+    await waitFor(() => expect(select().options.length).toBe(3))
+    expect(select().value).toBe('default/plex/data')
+  })
+
+  it('submits the cached reference without the operator touching it', async () => {
+    const { select, submit } = renderShared({ responses: { library: 'default/plex/data' } })
+    await waitFor(() => expect(select().options.length).toBe(3))
+    expect(submit()).toBe('default/plex/data')
+  })
+
+  // A producer uninstalled since the last install leaves a cached answer naming
+  // a volume nothing exports any more. Showing it selected would submit a
+  // reference the install then rejects; the picker should just ask again.
+  it('ignores a cached reference that is no longer exported', async () => {
+    mockClient.listExportedVolumes.mockResolvedValueOnce([
+      {
+        reference: 'default/jellyfin/media',
+        repo: 'default',
+        package: 'jellyfin',
+        version: '1.0',
+        volume: 'media',
+        mountpoint: '/media',
+      },
+    ])
+    const { select, submit } = renderShared({ responses: { library: 'default/plex/data' } })
+    await waitFor(() => expect(select().options.length).toBe(2))
+    expect(select().value).toBe('')
+    expect(submit()).toBe('')
+  })
+
+  it('keeps a re-picked value after the operator changes it', async () => {
+    const { select, submit } = renderShared({ responses: { library: 'default/plex/data' } })
+    await waitFor(() => expect(select().options.length).toBe(3))
+    fireEvent.change(select(), { target: { value: 'default/jellyfin/media' } })
+    expect(select().value).toBe('default/jellyfin/media')
+    expect(submit()).toBe('default/jellyfin/media')
+  })
+
+  it('disables the select and says so when nothing is exported', async () => {
+    mockClient.listExportedVolumes.mockResolvedValueOnce([])
+    const { select } = renderShared()
+    await waitFor(() => expect(select().disabled).toBe(true))
+    expect(screen.getByText(/no installed package is sharing a volume/i)).toBeTruthy()
+  })
+
+  // The listing compiles every installed package to read its volumes. That is
+  // not work to do every time an install dialog opens for a package that never
+  // asked for a shared volume.
+  it('does not fetch exported volumes for a package that asks for none', async () => {
+    renderDialog({ dialog: { questions: { hostname: { query: 'What hostname?' } } } })
+    await screen.findByLabelText('What hostname?')
+    expect(mockClient.listExportedVolumes).not.toHaveBeenCalled()
   })
 })

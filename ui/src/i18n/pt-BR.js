@@ -659,6 +659,8 @@ const ptBR = {
   'install_questions.oauth_expired': 'A solicitação de aprovação expirou. Conecte novamente.',
   'install_questions.oauth_no_token': 'O provedor aprovou a solicitação, mas não retornou nenhum token.',
   'install_questions.optional_suffix': '(opcional)',
+  'install_questions.shared_volume_none': 'Nenhum',
+  'install_questions.shared_volume_empty': 'Nenhum pacote instalado está compartilhando um volume ainda.',
   'install_questions.clear_tooltip': 'Limpe para inserir um novo valor',
   'install_questions.clear_label': 'Limpar este valor',
   'install_questions.recycle_tooltip': 'Substitua este segredo — deixe o novo campo vazio para gerar um',

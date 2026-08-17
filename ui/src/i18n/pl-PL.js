@@ -659,6 +659,8 @@ const plPL = {
   'install_questions.oauth_expired': 'Prośba o zatwierdzenie wygasła. Połącz ponownie.',
   'install_questions.oauth_no_token': 'Dostawca zatwierdził prośbę, ale nie zwrócił tokenu.',
   'install_questions.optional_suffix': '(opcjonalne)',
+  'install_questions.shared_volume_none': 'Brak',
+  'install_questions.shared_volume_empty': 'Żaden zainstalowany pakiet nie udostępnia jeszcze woluminu.',
   'install_questions.clear_tooltip': 'Wyczyść, aby wprowadzić nową wartość',
   'install_questions.clear_label': 'Wyczyść tę wartość',
   'install_questions.recycle_tooltip': 'Zastąp ten sekret — pozostaw nowe pole puste, aby wygenerować nowy',

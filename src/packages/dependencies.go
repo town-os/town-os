@@ -40,13 +40,21 @@ type DependencyRecord struct {
 // dep's container. Each entry references another dep key declared in the same
 // dependencies: map. The producer dep must have the named volume marked
 // `shareable: true`.
+//
+// PostInstall is the parent's injection point for wiring a dep to its
+// siblings at the application layer, where a bind mount is not enough: the
+// commands run inside THIS dep's container after it starts, and they carry
+// @dep_KEY_host@ / @dep_KEY_port_*@ substitution like Responses does, so a
+// parent can hand one dep the coordinates of another. The dep package's own
+// top-level `post_install:` still runs first; this list is appended to it.
 type InputPackageDependency struct {
-	Package   string                    `yaml:"package" json:"package"`
-	Repo      string                    `yaml:"repo,omitempty" json:"repo,omitempty"`
-	Version   string                    `yaml:"version,omitempty" json:"version,omitempty"`
-	Responses map[string]string         `yaml:"responses,omitempty" json:"responses,omitempty"`
-	Expose    map[string]InputDepExpose `yaml:"expose,omitempty" json:"expose,omitempty"`
-	Consume   []InputDepConsume         `yaml:"consume,omitempty" json:"consume,omitempty"`
+	Package     string                    `yaml:"package" json:"package"`
+	Repo        string                    `yaml:"repo,omitempty" json:"repo,omitempty"`
+	Version     string                    `yaml:"version,omitempty" json:"version,omitempty"`
+	Responses   map[string]string         `yaml:"responses,omitempty" json:"responses,omitempty"`
+	Expose      map[string]InputDepExpose `yaml:"expose,omitempty" json:"expose,omitempty"`
+	Consume     []InputDepConsume         `yaml:"consume,omitempty" json:"consume,omitempty"`
+	PostInstall []string                  `yaml:"post_install,omitempty" json:"post_install,omitempty"`
 }
 
 // InputDepExpose is a single entry in a parent's `dependencies.<key>.expose:`

@@ -208,6 +208,10 @@ func (b *archiveTestBackend) GetImageExtractFunc() func(ctx context.Context, ima
 	return reconcileExtractFromImage
 }
 
+func (b *archiveTestBackend) GetContainerExecFunc() ContainerExecFunc {
+	return PodmanContainerExec
+}
+
 type testSettingsManager struct {
 	values map[string]string
 }

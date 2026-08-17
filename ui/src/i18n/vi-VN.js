@@ -659,6 +659,8 @@ const viVN = {
   'install_questions.oauth_expired': 'Yêu cầu phê duyệt đã hết hạn. Hãy kết nối lại.',
   'install_questions.oauth_no_token': 'Nhà cung cấp đã phê duyệt yêu cầu nhưng không trả về token nào.',
   'install_questions.optional_suffix': '(tùy chọn)',
+  'install_questions.shared_volume_none': 'Không có',
+  'install_questions.shared_volume_empty': 'Chưa có gói đã cài đặt nào chia sẻ ổ đĩa.',
   'install_questions.clear_tooltip': 'Xóa để nhập giá trị mới',
   'install_questions.clear_label': 'Xóa giá trị này',
   'install_questions.recycle_tooltip': 'Thay thế secret này — để trống trường mới để tự tạo một cái',

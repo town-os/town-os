@@ -664,6 +664,8 @@ const ukUA = {
   'install_questions.oauth_expired': 'Запит на схвалення сплив. Підключіть знову.',
   'install_questions.oauth_no_token': 'Провайдер схвалив запит, але не повернув токен.',
   'install_questions.optional_suffix': '(необовʼязково)',
+  'install_questions.shared_volume_none': 'Немає',
+  'install_questions.shared_volume_empty': 'Жоден встановлений пакунок ще не надає том.',
   'install_questions.clear_tooltip': 'Очистіть, щоб ввести нове значення',
   'install_questions.clear_label': 'Очистити це значення',
   'install_questions.recycle_tooltip': 'Замініть цей секрет — залиште нове поле порожнім, щоб згенерувати новий',

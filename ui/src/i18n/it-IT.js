@@ -663,6 +663,8 @@ const itIT = {
   'install_questions.oauth_expired': 'La richiesta di approvazione è scaduta. Connetti di nuovo.',
   'install_questions.oauth_no_token': 'Il provider ha approvato la richiesta ma non ha restituito alcun token.',
   'install_questions.optional_suffix': '(facoltativo)',
+  'install_questions.shared_volume_none': 'Nessuno',
+  'install_questions.shared_volume_empty': 'Nessun pacchetto installato condivide ancora un volume.',
   'install_questions.clear_tooltip': 'Cancella per inserire un nuovo valore',
   'install_questions.clear_label': 'Cancella questo valore',
   'install_questions.recycle_tooltip': 'Sostituisci questo segreto: lascia vuoto il nuovo campo per generarne uno',

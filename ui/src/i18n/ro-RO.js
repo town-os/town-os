@@ -660,6 +660,8 @@ const roRO = {
   'install_questions.oauth_expired': 'Cererea de aprobare a expirat. Conectați-vă din nou.',
   'install_questions.oauth_no_token': 'Furnizorul a aprobat cererea, dar nu a returnat niciun token.',
   'install_questions.optional_suffix': '(opțional)',
+  'install_questions.shared_volume_none': 'Niciunul',
+  'install_questions.shared_volume_empty': 'Niciun pachet instalat nu partajează încă un volum.',
   'install_questions.clear_tooltip': 'Ștergeți pentru a introduce o valoare nouă',
   'install_questions.clear_label': 'Șterge această valoare',
   'install_questions.recycle_tooltip': 'Înlocuiți acest secret — lăsați câmpul nou gol pentru a genera unul',

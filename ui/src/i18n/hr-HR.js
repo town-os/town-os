@@ -654,6 +654,8 @@ const hrHR = {
   'install_questions.oauth_expired': 'Zahtjev za odobrenje je istekao. Povežite se ponovno.',
   'install_questions.oauth_no_token': 'Davatelj je odobrio zahtjev, ali nije vratio nijedan token.',
   'install_questions.optional_suffix': '(neobavezno)',
+  'install_questions.shared_volume_none': 'Nijedan',
+  'install_questions.shared_volume_empty': 'Nijedan instalirani paket još ne dijeli volumen.',
   'install_questions.clear_tooltip': 'Očistite za unos nove vrijednosti',
   'install_questions.clear_label': 'Očisti ovu vrijednost',
   'install_questions.recycle_tooltip': 'Zamijeni ovu tajnu — ostavite novo polje prazno da se generira',

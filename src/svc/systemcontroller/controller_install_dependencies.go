@@ -79,6 +79,16 @@ func orderDependencies(deps map[string]packages.InputPackageDependency) ([]strin
 				addEdge(ref)
 			}
 		}
+		// Parent-injected post_install commands resolve @dep_OTHER_host@
+		// against envVars, which only holds siblings already installed. A
+		// command naming a sibling therefore has to order after it, exactly
+		// as a response naming one does — without this edge the marker
+		// survives substitution and reaches `sh -c` verbatim.
+		for _, cmd := range dep.PostInstall {
+			for _, ref := range extractDepKeyRefs(cmd) {
+				addEdge(ref)
+			}
+		}
 		// Volume-consume edges: a dep that consumes from a sibling must
 		// install AFTER the sibling so the sibling's btrfs subvolume is
 		// already on disk by the time the consumer's container starts.
@@ -300,6 +310,8 @@ func (s *SystemControllerHandlers) installDependencies(
 		// consume from it can verify shareability without a re-load.
 		compiledByKey[depKey] = depCompiled
 
+		containerName := systemd.ContainerName(depRepo, effectiveName, depVersion)
+
 		// Install and start systemd units. Dependencies share the parent's
 		// podman network and have systemd ordering (PartOf/Before parent).
 		if sd := s.Controller.GetSystemdManager(); sd != nil {
@@ -314,9 +326,37 @@ func (s *SystemControllerHandlers) installDependencies(
 			// PackageUnitConfig.NetworkAliases for the full rationale.
 			cfg.NetworkAliases = []string{depKey}
 			cfg.HostVolumeMounts = append(cfg.HostVolumeMounts, consumeMounts...)
+			// A dep may declare its own `attach:` against a box-wide exported
+			// volume. Resolved here for the same reason reconcile resolves it:
+			// reconcile has no IsDependency guard, so a dep whose attach were
+			// skipped at install would sprout the mount on the next boot and
+			// restart under the operator, which reads as a spontaneous failure
+			// rather than as a step install forgot.
+			if len(depCompiled.Attach) > 0 {
+				attachMounts, aerr := resolveAttachMounts(
+					s.Controller.GetBtrfsBasePath(), depCompiled.Attach,
+					s.exportedVolumeResolverFor(), s.compiledPackageLoaderFor(), true,
+				)
+				if aerr != nil {
+					return nil, nil, nil, nil, fmt.Errorf("dependency %q: resolve attached volumes: %w", depKey, aerr)
+				}
+				applyAttachMounts(&cfg, attachMounts)
+			}
 			units := systemd.GeneratePackageUnits(cfg)
 			if err := s.installPackageUnits(ctx, sd, units); err != nil {
 				return nil, nil, nil, nil, fmt.Errorf("dependency %q: install units: %w", depKey, err)
+			}
+
+			// The dep's own post_install runs first, then whatever the parent
+			// injected for this key. envVars carries every sibling installed
+			// before this one in the topological order, so an injected command
+			// can name them via @dep_OTHER_host@ — the same namespace, and the
+			// same ordering guarantee, that dep.Responses already relies on.
+			if depCompiled.Runtime == packages.RuntimeContainer {
+				if cmds := postInstallCommands(depCompiled.PostInstall, deps[depKey].PostInstall); len(cmds) > 0 {
+					applyDepTemplatesSlice(cmds, envVars)
+					runPostInstall(ctx, s.Controller.GetContainerExecFunc(), containerName, cmds, postInstallReadyTimeout, postInstallReadyInterval)
+				}
 			}
 		}
 
@@ -338,7 +378,6 @@ func (s *SystemControllerHandlers) installDependencies(
 		// TOWNOS_DEP_<KEY>_PORT_<NAME> (uppercased semantic name) when the
 		// dep declared a name for the port. Numeric form is always emitted
 		// for back-compat with existing parents.
-		containerName := systemd.ContainerName(depRepo, effectiveName, depVersion)
 		upperKey := strings.ToUpper(depKey)
 		envVars[fmt.Sprintf("TOWNOS_DEP_%s_HOST", upperKey)] = containerName
 		emitDepPortEnv(envVars, upperKey, depCompiled.Network.External, depCompiled.Network.ExternalNames)

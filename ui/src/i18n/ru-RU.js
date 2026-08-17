@@ -659,6 +659,8 @@ const ruRU = {
   'install_questions.oauth_expired': 'Срок запроса на подтверждение истёк. Подключитесь снова.',
   'install_questions.oauth_no_token': 'Провайдер подтвердил запрос, но не вернул токен.',
   'install_questions.optional_suffix': '(необязательно)',
+  'install_questions.shared_volume_none': 'Нет',
+  'install_questions.shared_volume_empty': 'Ни один установленный пакет пока не предоставляет том.',
   'install_questions.clear_tooltip': 'Очистите, чтобы ввести новое значение',
   'install_questions.clear_label': 'Очистить это значение',
   'install_questions.recycle_tooltip': 'Заменить этот секрет — оставьте новое поле пустым, чтобы сгенерировать новый',

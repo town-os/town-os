@@ -659,6 +659,8 @@ const koKR = {
   'install_questions.oauth_expired': '승인 요청이 만료되었습니다. 다시 연결하세요.',
   'install_questions.oauth_no_token': '공급자가 요청을 승인했지만 토큰을 반환하지 않았습니다.',
   'install_questions.optional_suffix': '(선택 사항)',
+  'install_questions.shared_volume_none': '없음',
+  'install_questions.shared_volume_empty': '아직 볼륨을 공유하는 설치된 패키지가 없습니다.',
   'install_questions.clear_tooltip': '새 값을 입력하려면 지우세요',
   'install_questions.clear_label': '이 값 지우기',
   'install_questions.recycle_tooltip': '이 시크릿 교체 — 새 필드를 비워 두면 새로 생성됩니다',

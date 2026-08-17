@@ -659,6 +659,8 @@ const arSA = {
   'install_questions.oauth_expired': 'انتهت صلاحية طلب الموافقة. اتصل مرة أخرى.',
   'install_questions.oauth_no_token': 'وافق المزوّد على الطلب لكنه لم يُرجع أي رمز.',
   'install_questions.optional_suffix': '(اختياري)',
+  'install_questions.shared_volume_none': 'لا شيء',
+  'install_questions.shared_volume_empty': 'لا توجد حزمة مثبتة تشارك وحدة تخزين بعد.',
   'install_questions.clear_tooltip': 'امسح لإدخال قيمة جديدة',
   'install_questions.clear_label': 'مسح هذه القيمة',
   'install_questions.recycle_tooltip': 'استبدل هذا السر — اترك الحقل الجديد فارغًا لإنشاء واحد',

@@ -659,6 +659,8 @@ const fiFI = {
   'install_questions.oauth_expired': 'Hyväksyntäpyyntö vanheni. Yhdistä uudelleen.',
   'install_questions.oauth_no_token': 'Palveluntarjoaja hyväksyi pyynnön, mutta ei palauttanut tunnistetta.',
   'install_questions.optional_suffix': '(valinnainen)',
+  'install_questions.shared_volume_none': 'Ei mitään',
+  'install_questions.shared_volume_empty': 'Mikään asennettu paketti ei jaa vielä taltiota.',
   'install_questions.clear_tooltip': 'Tyhjennä antaaksesi uuden arvon',
   'install_questions.clear_label': 'Tyhjennä tämä arvo',
   'install_questions.recycle_tooltip': 'Korvaa tämä salaisuus — jätä uusi kenttä tyhjäksi luodaksesi sellaisen',

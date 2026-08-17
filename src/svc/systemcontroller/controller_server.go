@@ -400,6 +400,13 @@ func (s *serverBase) GetImageExtractFunc() func(ctx context.Context, image, dire
 	}
 	return reconcileExtractFromImage
 }
+
+func (s *serverBase) GetContainerExecFunc() ContainerExecFunc {
+	if s.ContainerExecFunc != nil {
+		return s.ContainerExecFunc
+	}
+	return PodmanContainerExec
+}
 func (s *serverBase) GetRolodexClient() rolodex.Client {
 	if s.RolodexClient != nil {
 		return s.RolodexClient

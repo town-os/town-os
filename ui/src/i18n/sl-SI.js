@@ -654,6 +654,8 @@ const slSI = {
   'install_questions.oauth_expired': 'Zahteva za odobritev je potekla. Povežite se znova.',
   'install_questions.oauth_no_token': 'Ponudnik je zahtevo odobril, vendar ni vrnil nobenega žetona.',
   'install_questions.optional_suffix': '(izbirno)',
+  'install_questions.shared_volume_none': 'Brez',
+  'install_questions.shared_volume_empty': 'Noben nameščen paket še ne deli nosilca.',
   'install_questions.clear_tooltip': 'Počistite za vnos nove vrednosti',
   'install_questions.clear_label': 'Počisti to vrednost',
   'install_questions.recycle_tooltip': 'Zamenjaj to skrivnost — pustite novo polje prazno, da se ustvari sama',

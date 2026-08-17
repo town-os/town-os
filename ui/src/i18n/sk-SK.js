@@ -654,6 +654,8 @@ const skSK = {
   'install_questions.oauth_expired': 'Žiadosť o schválenie vypršala. Pripojte sa znova.',
   'install_questions.oauth_no_token': 'Poskytovateľ žiadosť schválil, ale nevrátil žiadny token.',
   'install_questions.optional_suffix': '(voliteľné)',
+  'install_questions.shared_volume_none': 'Žiadny',
+  'install_questions.shared_volume_empty': 'Žiadny nainštalovaný balík zatiaľ nezdieľa zväzok.',
   'install_questions.clear_tooltip': 'Vymažte pre zadanie novej hodnoty',
   'install_questions.clear_label': 'Vymazať túto hodnotu',
   'install_questions.recycle_tooltip': 'Nahradiť toto tajomstvo — nechajte nové pole prázdne pre vygenerovanie',

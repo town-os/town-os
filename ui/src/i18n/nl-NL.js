@@ -659,6 +659,8 @@ const nlNL = {
   'install_questions.oauth_expired': 'De goedkeuringsaanvraag is verlopen. Verbind opnieuw.',
   'install_questions.oauth_no_token': 'De provider heeft de aanvraag goedgekeurd maar geen token teruggegeven.',
   'install_questions.optional_suffix': '(optioneel)',
+  'install_questions.shared_volume_none': 'Geen',
+  'install_questions.shared_volume_empty': 'Nog geen geïnstalleerd pakket deelt een volume.',
   'install_questions.clear_tooltip': 'Wissen om een nieuwe waarde in te voeren',
   'install_questions.clear_label': 'Deze waarde wissen',
   'install_questions.recycle_tooltip': 'Vervang dit geheim — laat het nieuwe veld leeg om er een te genereren',

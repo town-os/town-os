@@ -322,6 +322,12 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 	// the parent declares any deps.
 	var depRecordsForExpose map[string]packages.DependencyRecord
 	var depCompiledForExpose map[string]*packages.Package
+	// depEnvVarsForHooks outlives the dependency block so the parent's own
+	// post_install commands can resolve @dep_KEY_host@ / @dep_KEY_port_*@
+	// against the deps that were just installed, exactly as its environment
+	// does. It stays nil for a package with no deps, which is still passed to
+	// applyDepTemplatesSlice — see that function on why the empty case matters.
+	var depEnvVarsForHooks map[string]string
 	if len(compiled.Dependencies) > 0 {
 		pw.Step("installing_dependencies")
 		// Compute parent NC unit name so deps can wait for the network.
@@ -337,6 +343,7 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 		depMap = deps
 		depRecordsForExpose = depRecords
 		depCompiledForExpose = depCompiled
+		depEnvVarsForHooks = depEnvVars
 
 		// Inject dependency connection environment variables into the parent
 		// and resolve @dep_KEY_host@ / @dep_KEY_port_N@ template variables.
@@ -445,6 +452,23 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 			cfg.HostVolumeMounts = append(cfg.HostVolumeMounts, exposeMounts...)
 		}
 
+		// Attach: exported volumes belonging to other installed packages,
+		// picked by the operator through a `shared_volume` question. Strict
+		// here — they chose it moments ago, so an unresolvable reference is a
+		// failure they should see rather than a container that comes up
+		// missing the library it was installed to write into.
+		if len(compiled.Attach) > 0 {
+			attachMounts, err := resolveAttachMounts(
+				s.Controller.GetBtrfsBasePath(), compiled.Attach,
+				s.exportedVolumeResolverFor(), s.compiledPackageLoaderFor(), true,
+			)
+			if err != nil {
+				pw.Err(fmt.Errorf("resolve attached volumes: %w", err))
+				return nil
+			}
+			applyAttachMounts(&cfg, attachMounts)
+		}
+
 		units := systemd.GeneratePackageUnits(cfg)
 		if err := s.writePackageNetworkState(c.Request().Context(), repoName, effectiveName, req.Version, network, compiled, ip.Supplies); err != nil {
 			pw.Err(err)
@@ -453,6 +477,22 @@ func (s *SystemControllerHandlers) installPackage(c *echo.Context) error {
 		if err := s.installPackageUnits(ctx, sd, units); err != nil {
 			pw.Err(err)
 			return nil
+		}
+
+		// post_install runs last inside the services step: the container it
+		// execs into only exists once installPackageUnits has started the
+		// unit. It stays under "installing_services" rather than getting a
+		// step of its own because it is the tail of bringing this service up,
+		// and a new step name would need a string in every locale catalog to
+		// render as anything but its own key.
+		//
+		// VM packages have no container to exec into; compile already rejects
+		// post_install on them, and this guard keeps that true at the call
+		// site rather than by reference.
+		if len(compiled.PostInstall) > 0 && compiled.Runtime == packages.RuntimeContainer {
+			cmds := postInstallCommands(compiled.PostInstall, nil)
+			applyDepTemplatesSlice(cmds, depEnvVarsForHooks)
+			runPostInstall(ctx, s.Controller.GetContainerExecFunc(), systemd.ContainerName(repoName, effectiveName, req.Version), cmds, postInstallReadyTimeout, postInstallReadyInterval)
 		}
 	}
 

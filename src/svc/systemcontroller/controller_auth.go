@@ -536,6 +536,7 @@ func (s *SystemControllerHandlers) auditMiddleware(next echo.HandlerFunc) echo.H
 			"/networks/peers":               true,
 			"/networks/peers/connected":     true,
 			"/storage/package-volumes":      true,
+			"/storage/exported-volumes":     true,
 			"/tls/ca.crt":                   true,
 			// Object storage reads. /gfeh/partitions is a POST only because
 			// gfeh's client sends it that way; it is a listing, not an action.

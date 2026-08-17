@@ -659,6 +659,8 @@ const esES = {
   'install_questions.oauth_expired': 'La solicitud de aprobación caducó. Conecte de nuevo.',
   'install_questions.oauth_no_token': 'El proveedor aprobó la solicitud, pero no devolvió ningún token.',
   'install_questions.optional_suffix': '(opcional)',
+  'install_questions.shared_volume_none': 'Ninguno',
+  'install_questions.shared_volume_empty': 'Ningún paquete instalado comparte todavía un volumen.',
   'install_questions.clear_tooltip': 'Borre para introducir un nuevo valor',
   'install_questions.clear_label': 'Borrar este valor',
   'install_questions.recycle_tooltip': 'Reemplace este secreto: deje el nuevo campo vacío para generar uno',

@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 
+	"gitea.com/town-os/town-os/src/packages"
 	"gitea.com/town-os/town-os/src/storage"
 )
 
@@ -98,6 +99,28 @@ func (c *SystemdClient) ListPackageVolumes(ctx context.Context, includeUninstall
 
 	var groups []PackageVolumeGroup
 	return groups, json.NewDecoder(resp.Body).Decode(&groups)
+}
+
+// ListExportedVolumes returns every volume installed packages have marked
+// `exported: true` — the choices behind a `shared_volume` install question.
+func (c *SystemdClient) ListExportedVolumes(ctx context.Context) ([]packages.ExportedVolume, error) {
+	pr, pw := io.Pipe()
+	go pipeEncode(pw, struct{}{})
+
+	resp, err := c.postJSON(ctx, "storage/exported-volumes", pr)
+	if err != nil {
+		return nil, fmt.Errorf("%w: ListExportedVolumes: %w", ErrHTTPRequest, err)
+	}
+	defer func() {
+		err = errors.Join(err, resp.Body.Close())
+	}()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, readProblemDetail(resp, "POST", "storage/exported-volumes")
+	}
+
+	var out ExportedVolumesResponse
+	return out.Volumes, json.NewDecoder(resp.Body).Decode(&out)
 }
 
 // RemovePackageVolume deletes a package volume by its internal name.

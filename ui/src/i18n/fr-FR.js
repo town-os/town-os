@@ -664,6 +664,8 @@ const frFR = {
   'install_questions.oauth_expired': "La demande d'approbation a expiré. Connectez-vous à nouveau.",
   'install_questions.oauth_no_token': "Le fournisseur a approuvé la demande mais n'a renvoyé aucun jeton.",
   'install_questions.optional_suffix': '(facultatif)',
+  'install_questions.shared_volume_none': 'Aucun',
+  'install_questions.shared_volume_empty': 'Aucun paquet installé ne partage encore de volume.',
   'install_questions.clear_tooltip': 'Effacer pour saisir une nouvelle valeur',
   'install_questions.clear_label': 'Effacer cette valeur',
   'install_questions.recycle_tooltip': 'Remplacer ce secret — laissez le nouveau champ vide pour en générer un',

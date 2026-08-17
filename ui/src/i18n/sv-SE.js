@@ -659,6 +659,8 @@ const svSE = {
   'install_questions.oauth_expired': 'Godkännandebegäran löpte ut. Anslut igen.',
   'install_questions.oauth_no_token': 'Leverantören godkände begäran men returnerade ingen token.',
   'install_questions.optional_suffix': '(valfritt)',
+  'install_questions.shared_volume_none': 'Ingen',
+  'install_questions.shared_volume_empty': 'Inget installerat paket delar ännu en volym.',
   'install_questions.clear_tooltip': 'Rensa för att ange ett nytt värde',
   'install_questions.clear_label': 'Rensa detta värde',
   'install_questions.recycle_tooltip': 'Ersätt denna hemlighet — lämna det nya fältet tomt för att generera en',

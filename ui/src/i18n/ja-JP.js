@@ -659,6 +659,8 @@ const jaJP = {
   'install_questions.oauth_expired': '承認リクエストの有効期限が切れました。もう一度接続してください。',
   'install_questions.oauth_no_token': 'プロバイダーはリクエストを承認しましたが、トークンを返しませんでした。',
   'install_questions.optional_suffix': '(任意)',
+  'install_questions.shared_volume_none': 'なし',
+  'install_questions.shared_volume_empty': 'ボリュームを共有しているインストール済みパッケージはまだありません。',
   'install_questions.clear_tooltip': 'クリアして新しい値を入力',
   'install_questions.clear_label': 'この値をクリア',
   'install_questions.recycle_tooltip': 'このシークレットを置き換える — 新しい値を生成するには新しい欄を空欄のままにしてください',

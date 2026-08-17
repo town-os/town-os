@@ -68,6 +68,16 @@ SystemControllerClient.prototype.listPackageVolumes = async function (includeUni
 }
 
 /**
+ * List volumes that installed packages have marked `exported: true` — the
+ * choices behind a `shared_volume` install question.
+ * @returns {Promise<Array<{reference: string, repo: string, package: string, version: string, volume: string, mountpoint: string, quota: number}>>}
+ */
+SystemControllerClient.prototype.listExportedVolumes = async function () {
+  const body = await this.postJSON('/storage/exported-volumes', {})
+  return body?.volumes || []
+}
+
+/**
  * Remove a package volume by its internal name.
  * @param {string} internalName - Full internal path (e.g. "installed/repo/pkg/1.0/data").
  * @returns {Promise<void>}
