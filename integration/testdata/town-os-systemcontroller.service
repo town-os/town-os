@@ -6,13 +6,34 @@ StartLimitIntervalSec=0
 Type=simple
 Restart=on-failure
 RestartSec=2
-# PassEnvironment is an allowlist, so every SYSTEM_PORT_FILES variable the
-# harness sets on the container must be named here too. A variable missing from
-# this line is not an error anywhere — the controller simply sees it unset and
-# falls back to the production port, which is exactly the collision the
-# overrides exist to prevent (IRON RULE). When adding a port override to
-# make/lib.sh's system_port_env, add it here in the same commit.
-PassEnvironment=LOG_LEVEL DEBUG TOWN_OS_REPO_USERNAME TOWN_OS_REPO_PASSWORD TOWN_OS_LISTEN TOWN_OS_TEST TOWN_OS_TEST_REPO_CORE_URL TOWN_OS_TEST_REPO_EXTRAS_URL ROLODEX_IMAGE UI_IMAGE NC_IMAGE INGRESS_IMAGE GFEH_IMAGE TOWN_OS_DNS_PORT TOWN_OS_ROLODEX_METRICS_PORT TOWN_OS_NODE_EXPORTER_PORT TOWN_OS_PROMETHEUS_PORT TOWN_OS_MONITORING_PORT INGRESS_HTTPS_PORT INGRESS_HTTP_PORT INGRESS_METRICS_PORT TOWN_OS_WG_SALT
+# PassEnvironment is an allowlist, so EVERY variable the harness sets on the
+# container with `podman run -e` must be named here too — the SYSTEM_PORT_FILES
+# overrides and everything else. A variable missing from this line is not an
+# error anywhere: the container has it, `podman exec` (and so the integration
+# test binary) sees it, and the controller — the one process it was set for —
+# does not. It simply falls back to its production default.
+#
+# Both omissions this line has carried were exactly that shape, and both were
+# silent:
+#
+#   - TOWN_OS_IMAGE_REFRESH, which make/test.sh and make/dev.sh set to 0 so a
+#     box that had every image loaded into it from the image cache does not
+#     turn around and re-pull the floating ones from quay.io. Blocked here, the
+#     controller re-pulled quay.io/town/rolodex:rc.latest-<arch>, Prometheus and
+#     node-exporter on every boot — over the network, inside parallelEnsureImages,
+#     while the harness's 120s `wait_for_url` on /status/ping counted down. A run
+#     failed at "Waiting for systemcontroller API to be ready" with no further
+#     output, and whether it failed at all depended on the uplink.
+#   - TOWN_OS_TAG, which make/dev.sh sets from the Makefile's TOWN_OS_TAG and
+#     `make help` advertises as "Tag every sibling image derives from". Blocked
+#     here, that documented knob did nothing.
+#
+# When adding a `-e` to the systemcontroller container in make/test.sh or
+# make/dev.sh — a port override in make/lib.sh's system_port_env included — add
+# it here in the same commit. TestHarnessEnvironmentReachesTheController
+# (src/svc/systemcontroller) derives the required set from those scripts and
+# fails when this line falls behind.
+PassEnvironment=LOG_LEVEL DEBUG TOWN_OS_REPO_USERNAME TOWN_OS_REPO_PASSWORD TOWN_OS_LISTEN TOWN_OS_TEST TOWN_OS_TEST_REPO_CORE_URL TOWN_OS_TEST_REPO_EXTRAS_URL ROLODEX_IMAGE UI_IMAGE NC_IMAGE INGRESS_IMAGE GFEH_IMAGE TOWN_OS_DNS_PORT TOWN_OS_ROLODEX_METRICS_PORT TOWN_OS_NODE_EXPORTER_PORT TOWN_OS_PROMETHEUS_PORT TOWN_OS_MONITORING_PORT INGRESS_HTTPS_PORT INGRESS_HTTP_PORT INGRESS_METRICS_PORT TOWN_OS_WG_SALT TOWN_OS_IMAGE_REFRESH TOWN_OS_TAG
 ExecStart=/systemcontroller -db /data/db/dev.db -btrfs /town-os -repo-dir /data/repos
 
 [Install]

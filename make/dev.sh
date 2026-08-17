@@ -156,7 +156,7 @@ case "$1" in
     ${SUDO} podman exec "${PODMAN_DEV_CONTAINER}" systemctl reset-failed town-os-systemcontroller.service || true
     ${SUDO} podman exec "${PODMAN_DEV_CONTAINER}" systemctl restart town-os-systemcontroller.service
     substep "Waiting for systemcontroller API to be ready"
-    wait_for_url "http://localhost:5309/status/ping" 120
+    require_controller_ready "${PODMAN_DEV_CONTAINER}" "http://localhost:5309/status/ping" 120
     # Create a default dev account and authenticate unless NO_ACCOUNT=1.
     DEV_TOKEN=""
     if [ "${NO_ACCOUNT:-}" != "1" ]; then

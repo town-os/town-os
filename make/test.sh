@@ -107,7 +107,7 @@ case "$1" in
     ${SUDO} podman exec "${PODMAN_CONTAINER}" systemctl reset-failed town-os-systemcontroller.service || true
     ${SUDO} podman exec "${PODMAN_CONTAINER}" systemctl restart town-os-systemcontroller.service
     step "Waiting for systemcontroller API to be ready"
-    wait_for_url "http://localhost:$(cat "${STATE_DIR}/.integration-port")/status/ping" 120
+    require_controller_ready "${PODMAN_CONTAINER}" "http://localhost:$(cat "${STATE_DIR}/.integration-port")/status/ping" 120
     ;;
   # Internal: called by make test-full, do not run standalone (cleanup is handled by make test-full's trap).
   integration)
@@ -200,7 +200,7 @@ case "$1" in
     ${SUDO} podman exec "${PODMAN_UI_BACKEND}" systemctl reset-failed town-os-systemcontroller.service || true
     ${SUDO} podman exec "${PODMAN_UI_BACKEND}" systemctl restart town-os-systemcontroller.service
     step "Waiting for systemcontroller API to be ready"
-    wait_for_url "http://localhost:$(cat "${STATE_DIR}/.integration-port")/status/ping" 120
+    require_controller_ready "${PODMAN_UI_BACKEND}" "http://localhost:$(cat "${STATE_DIR}/.integration-port")/status/ping" 120
     step "Running UI integration tests"
     # --replace: ensure concurrent make test-full runs never conflict on container names
     ${SUDO} podman run \
@@ -275,7 +275,7 @@ case "$1" in
     # turns a busy systemd into an unbounded hang. Readiness is proven by the
     # ping poll below, which has a deadline.
     timeout 60 ${SUDO} podman exec "${PODMAN_CONTAINER}" systemctl restart --no-block town-os-systemcontroller.service
-    wait_for_url "http://localhost:$(cat "${STATE_DIR}/.integration-port")/status/ping" 120
+    require_controller_ready "${PODMAN_CONTAINER}" "http://localhost:$(cat "${STATE_DIR}/.integration-port")/status/ping" 120
     # Put the baked fixture unit back. It was collateral from the
     # `town-os-package--*` stop above, which exists to keep real package
     # containers from restart-storming the wipe -- but this one is a

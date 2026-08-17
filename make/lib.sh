@@ -574,6 +574,43 @@ wait_for_url() {
   return 1
 }
 
+# require_controller_ready CONTAINER URL [TIMEOUT] — wait for the
+#   systemcontroller API and, when it never answers, say why before failing.
+#
+#   Every readiness wait in this repo used to be a bare `wait_for_url`, which
+#   under `set -e` ends the run with the step header it printed and NOTHING
+#   after it. A real failure looked like this, in full:
+#
+#     ==> Restarting systemcontroller after image loading
+#     ==> Waiting for systemcontroller API to be ready
+#     make[2]: *** [make/include.mk:125: test-integration-build] Error 1
+#
+#   The controller was booting the whole time, and had said so in its journal —
+#   which the trap then deleted along with the container. So the diagnosis
+#   happens here, while the container still exists: the last ping body (the boot
+#   stub answers 503 with the stage it is on, which is the single most useful
+#   line), the unit's state, and the tail of its journal.
+#
+#   Every command is best-effort and time-boxed; the exit code is not swallowed,
+#   the function exits 1 itself.
+require_controller_ready() {
+  local container="$1" url="$2" timeout="${3:-120}"
+  if wait_for_url "${url}" "${timeout}"; then
+    return 0
+  fi
+
+  warn "systemcontroller API at ${url} did not answer within ${timeout}s"
+  warn "Last response from ${url}:"
+  curl -s --max-time 10 -w '\n  ** HTTP %{http_code}\n' "${url}" 2>&1 | sed 's/^/  ** /' || true
+  warn "systemctl status ${container}:"
+  timeout 60 ${SUDO} podman exec "${container}" \
+    systemctl status --no-pager --full town-os-systemcontroller.service 2>&1 | tail -40 || true
+  warn "journalctl -u town-os-systemcontroller.service (last 200 lines):"
+  timeout 60 ${SUDO} podman exec "${container}" \
+    journalctl --no-pager -n 200 -u town-os-systemcontroller.service 2>&1 | tail -200 || true
+  exit 1
+}
+
 # ---------------------------------------------------------------------------
 # Registry login
 # ---------------------------------------------------------------------------
