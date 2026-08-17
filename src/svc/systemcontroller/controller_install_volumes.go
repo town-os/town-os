@@ -178,8 +178,31 @@ func (s *SystemControllerHandlers) prepareActiveVersion(ctx context.Context, rr 
 				if _, exists := oldIP.Volumes[volName]; exists {
 					src := packageVolumePath(repoName, effectiveName, activeVersion, volName)
 					dst := packageVolumePath(repoName, effectiveName, newVersion, volName)
+					// RenameFilesystem is os.Rename, which cannot create the
+					// destination's parent -- and at this point nothing has:
+					// installed/<repo>/<pkg>/<newVersion>/ is built by
+					// provisionVolumes, which runs AFTER this function returns.
+					// So every upgrade's rename failed ENOENT, the failure was
+					// swallowed at Debug, and provisionVolumes then created a
+					// fresh EMPTY volume -- silently discarding the package's
+					// data on what looked like a successful upgrade. For plex
+					// that is the claim token in Preferences.xml (the server
+					// comes back "not authorized") plus the whole library
+					// database.
+					//
+					// A plain directory is the right thing to create here:
+					// CreateFilesystem tolerates an existing non-subvolume
+					// intermediate on purpose, because btrfs is happy to nest a
+					// subvolume under one.
+					if err := ensureVolumeParent(s.Controller.GetBtrfsBasePath(), dst); err != nil {
+						slog.Warn(fmt.Sprintf("upgrade move volume %s -> %s: create parent: %v", src, dst, err))
+					}
 					if err := st.RenameFilesystem(src, dst); err != nil {
-						slog.Debug(fmt.Sprintf("upgrade move volume %s -> %s: %v", src, dst, err))
+						// Still not fatal: the source may legitimately never
+						// have been provisioned. But it is the difference
+						// between keeping and losing the volume, so it is not a
+						// Debug-level event.
+						slog.Warn(fmt.Sprintf("upgrade move volume %s -> %s: %v (a fresh empty volume will be created)", src, dst, err))
 					}
 				}
 			}
@@ -188,6 +211,20 @@ func (s *SystemControllerHandlers) prepareActiveVersion(ctx context.Context, rr 
 		}
 	}
 	return nil
+}
+
+// ensureVolumeParent creates the directory an upgraded volume is about to be
+// renamed into.
+//
+// base is the btrfs mount root and volPath is a filesystem name relative to it,
+// exactly as packageVolumePath returns it. An empty base means the controller
+// has no btrfs path configured (the mocked backends in the unit tests), and
+// there is nothing to create.
+func ensureVolumeParent(base, volPath string) error {
+	if base == "" {
+		return nil
+	}
+	return os.MkdirAll(filepath.Dir(filepath.Join(base, volPath)), 0o750)
 }
 
 // provisionVolumes creates, reuses, or imports storage volumes for the package.
@@ -201,8 +238,15 @@ func (s *SystemControllerHandlers) provisionVolumes(ctx context.Context, repoNam
 		storage := packages.StoragePath(effectiveName)
 		src := fmt.Sprintf("%s/%s/%s", UninstalledVolumePrefix, repoName, storage)
 		dst := fmt.Sprintf("%s/%s/%s", PackagesVolumePrefix, repoName, storage)
+		// Same os.Rename-cannot-create-its-parent problem as the upgrade move
+		// above: on a box where this repo has no other installed package,
+		// installed/<repo>/ does not exist yet and reinstalling a previously
+		// uninstalled package silently kept none of its data.
+		if err := ensureVolumeParent(s.Controller.GetBtrfsBasePath(), dst); err != nil {
+			slog.Warn(fmt.Sprintf("reuse volumes: rename %s -> %s: create parent: %v", src, dst, err))
+		}
 		if err := st.RenameFilesystem(src, dst); err != nil {
-			slog.Debug(fmt.Sprintf("reuse volumes: rename %s -> %s: %v", src, dst, err))
+			slog.Warn(fmt.Sprintf("reuse volumes: rename %s -> %s: %v", src, dst, err))
 		}
 	}
 
