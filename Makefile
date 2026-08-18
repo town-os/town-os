@@ -371,7 +371,22 @@ dev-image: dev-production-image
 btrfs-dev: check-btrfs clean-btrfs-dev
 dev-stop:
 dev-image: dev-stop
-dev: check-podman check-runc check-bun check-btrfs pull-images-daily dev-image nc-image-dev gfeh-image dev-btrfs ensure-image-cache
+# ingress-image, because the ingress is started at boot and its unit runs
+# --pull=missing: without a locally built one the dev container pulls it from
+# quay INSIDE the 120s require_controller_ready budget, while the ingress's own
+# 30s readiness wait counts down. The pages service runs on the caddy image for
+# the same reason, but that one is a base image and only has to be LOADED (see
+# make/dev.sh) -- nothing builds it.
+#
+# gfeh-image is deliberately NOT here. It is the one local image whose content
+# comes from outside the repo, so it carries a day-granularity cache-bust and
+# recompiles the whole gfehd dependency tree once per calendar day -- minutes,
+# paid by every `make dev` on that day, whether or not object storage is used.
+# make/dev.sh already treats a missing gfeh tar as the documented off switch and
+# says how to turn it on, so this is opt-in via `make gfeh-image` exactly as the
+# comment there has always claimed. A tar built once stays cached and keeps
+# working; it just stops being rebuilt daily behind the operator's back.
+dev: check-podman check-runc check-bun check-btrfs pull-images-daily dev-image nc-image-dev ingress-image dev-btrfs ensure-image-cache
 preflight-dev: ensure-image-cache $(STATE_DIR)/.integration-port
 clean-dev: dev-stop-all clean-cache
 clean-integration: registry-stop gitea-stop

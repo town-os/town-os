@@ -9,6 +9,14 @@ Type=simple
 ExecStartPre=-/usr/bin/podman container cleanup town-os-system--rolodex
 ExecStartPre=-/usr/bin/podman stop -t 10 town-os-system--rolodex
 ExecStartPre=-/usr/bin/podman rm -f town-os-system--rolodex
+# The directory only. rolodex.yml inside it is NOT created here: it is seeded
+# on the host by seed_dev_rolodex_config (make/dns.sh) before `make dev` mounts
+# this path, because the file must not ship in the image. This unit is baked
+# into the integration test image too, and that container runs --net host -- a
+# config binding 127.0.0.2:53 would bind the HOST's :53 on every test run, which
+# the test rules forbid outright. Started without one, rolodex opens no DNS
+# listener at all, which is what the integration suite wants and what a dev box
+# must never get.
 ExecStartPre=/bin/mkdir -p /town-os/rolodex
 ExecStart=/usr/bin/podman run --replace --name town-os-system--rolodex \
   --net host \

@@ -10,6 +10,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"gitea.com/town-os/town-os/src/rolodex"
 )
 
 // make/dns.sh redirects the host's resolver through the dev rolodex. Every
@@ -287,6 +289,146 @@ func TestDevDNSWaitFailsWhenNothingIsListening(t *testing.T) {
 	if !strings.Contains(out, "rc=1") {
 		t.Errorf("wait_for_rolodex_dns passed with nothing bound to the address; output:\n%s", out)
 	}
+}
+
+// rolodex opens its DNS listener ONCE, at startup, from rolodex.yml, and
+// nothing Town OS can say over gRPC afterwards will open one. On a real box the
+// install image renders that file; `make dev` runs no installer, so before the
+// seed the dev directory held nothing and the unit started
+// `--config /data/rolodex.yml` against a file that had never existed. The unit
+// went active regardless -- the container starts, only the listener is missing
+// -- which is why this is asserted on the file's contents rather than inferred
+// from rolodex's health.
+func TestDevRolodexConfigBindsTheLoopbackResolver(t *testing.T) {
+	t.Parallel()
+	h := newDevDNSHarness(t)
+	dir := filepath.Join(h.stateDir, "dev-rolodex")
+
+	h.run(`seed_dev_rolodex_config "` + dir + `"`)
+
+	cfg := readSeededRolodexConfig(t, dir)
+	// Both transports: rolodex binds udp and tcp separately, and a resolver
+	// answering on only one of them is half a resolver. The address is the Go
+	// constant, not a literal -- it is the address redirect_host_dns points the
+	// host at, and the two cannot be allowed to drift apart.
+	for _, want := range []string{
+		`- udp: "` + rolodex.DNSLoopback + `:53"`,
+		`- tcp: "` + rolodex.DNSLoopback + `:53"`,
+	} {
+		if !strings.Contains(cfg, want) {
+			t.Errorf("seeded config is missing %q; got:\n%s", want, cfg)
+		}
+	}
+}
+
+// The two other things in this file that cannot be programmed at runtime. The
+// metrics listener is opened once at startup like the DNS one, and Prometheus
+// is pointed at MetricsAddr() -- a scrape target built from a port the config
+// does not bind collects nothing. The gRPC socket is what the controller dials
+// in reconcileDNSAndNetworks; when it never appears that dial loop burns its
+// own thirty seconds on top of WaitForDNSReady's.
+func TestDevRolodexConfigOpensTheSocketAndMetricsPortTownOSExpects(t *testing.T) {
+	t.Parallel()
+	h := newDevDNSHarness(t)
+	dir := filepath.Join(h.stateDir, "dev-rolodex")
+
+	h.run(`seed_dev_rolodex_config "` + dir + `"`)
+
+	cfg := readSeededRolodexConfig(t, dir)
+	for _, want := range []string{
+		// Paths are the rolodex CONTAINER's view: the unit mounts this
+		// directory as /data.
+		"unix_socket: /data/" + rolodex.DefaultGRPCSocket,
+		`bind: "` + rolodex.DNSLoopback + ":" + rolodex.DefaultMetricsPort + `"`,
+		`bind: "` + RolodexDohBackend + `"`,
+	} {
+		if !strings.Contains(cfg, want) {
+			t.Errorf("seeded config is missing %q; got:\n%s", want, cfg)
+		}
+	}
+}
+
+// Nothing here may bind a routable address. The install script deliberately
+// does -- a real box serves the LAN -- but this one runs on a developer's
+// machine, where claiming :853 on every interface, or :53 on 0.0.0.0, is both
+// intrusive and a collision with whatever else is already there.
+func TestDevRolodexConfigBindsNothingBeyondLoopback(t *testing.T) {
+	t.Parallel()
+	h := newDevDNSHarness(t)
+	dir := filepath.Join(h.stateDir, "dev-rolodex")
+
+	h.run(`seed_dev_rolodex_config "` + dir + `"`)
+
+	cfg := readSeededRolodexConfig(t, dir)
+	for _, forbidden := range []string{"0.0.0.0", "[::]", ":853"} {
+		if strings.Contains(cfg, forbidden) {
+			t.Errorf("seeded config binds %q, which a dev box must not claim; got:\n%s", forbidden, cfg)
+		}
+	}
+}
+
+// dev-rolodex outlives the run that created it -- it holds rolodex.db -- so the
+// config is rewritten every time rather than created-if-absent: a stale file
+// from an older schema would otherwise outlive the checkout that wrote it and
+// fail looking exactly like rolodex being broken. Rewriting it must not take
+// the database with it.
+func TestDevRolodexConfigRewritesItselfAndSparesTheDatabase(t *testing.T) {
+	t.Parallel()
+	h := newDevDNSHarness(t)
+	dir := filepath.Join(h.stateDir, "dev-rolodex")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	db := filepath.Join(dir, "rolodex.db")
+	if err := os.WriteFile(db, []byte("persisted"), 0o600); err != nil {
+		t.Fatalf("write db: %v", err)
+	}
+	// A config from an older schema, of the kind the rewrite exists to replace.
+	if err := os.WriteFile(filepath.Join(dir, "rolodex.yml"), []byte("stale: true\n"), 0o600); err != nil {
+		t.Fatalf("write stale config: %v", err)
+	}
+
+	h.run(`seed_dev_rolodex_config "` + dir + `"`)
+
+	cfg := readSeededRolodexConfig(t, dir)
+	if strings.Contains(cfg, "stale: true") {
+		t.Errorf("stale config survived the seed; got:\n%s", cfg)
+	}
+	if !strings.Contains(cfg, rolodex.DNSLoopback) {
+		t.Errorf("seed did not write a usable config; got:\n%s", cfg)
+	}
+	kept, err := os.ReadFile(db)
+	if err != nil {
+		t.Fatalf("read db after seed: %v", err)
+	}
+	if string(kept) != "persisted" {
+		t.Errorf("seed disturbed rolodex.db: got %q", kept)
+	}
+}
+
+// The seed runs before the dev container is launched and writes one file in a
+// state directory. It has no business escalating, and the recorder proves it
+// did not -- the same guarantee the rest of this file rests on.
+func TestDevRolodexConfigSeedTouchesNoHostState(t *testing.T) {
+	t.Parallel()
+	h := newDevDNSHarness(t)
+
+	h.run(`seed_dev_rolodex_config "` + filepath.Join(h.stateDir, "dev-rolodex") + `"`)
+
+	if log := h.privilegedLog(); len(log) != 0 {
+		t.Errorf("seeding escalated privileges: %v", log)
+	}
+}
+
+// readSeededRolodexConfig returns the config the seed wrote, failing the test
+// when it wrote none -- which is the bug this whole group exists to catch.
+func readSeededRolodexConfig(t *testing.T, dir string) string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(dir, "rolodex.yml"))
+	if err != nil {
+		t.Fatalf("read seeded rolodex.yml: %v", err)
+	}
+	return string(raw)
 }
 
 // dns_links picks the interfaces that actually carry traffic. Getting this

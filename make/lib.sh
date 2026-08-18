@@ -40,7 +40,12 @@ BTRFS_IMAGE_DIR="${BTRFS_IMAGE_DIR:-${PWD}/.cache/btrfs}"
 IMAGE_CACHE="${IMAGE_CACHE:-${PWD}/.cache/images}"
 BUN_CACHE="${BUN_CACHE:-${PWD}/.cache/bun}"
 BUN_INSTALL_CACHE_DIR="${BUN_INSTALL_CACHE_DIR:-${BUN_CACHE}}"
-export IMAGE_CACHE BUN_CACHE BUN_INSTALL_CACHE_DIR
+# Where a harness container may bind-mount IMAGE_CACHE, read-only, so
+# load_images_into_container can hand `podman load` a path instead of copying
+# every tar in. Read-only and shared: several concurrent runs in one checkout
+# mount the same directory, and none of them writes to it.
+IMAGE_CACHE_MOUNT="/image-cache"
+export IMAGE_CACHE BUN_CACHE BUN_INSTALL_CACHE_DIR IMAGE_CACHE_MOUNT
 
 # BUN_BUILD_ARGS — the podman build arguments that hand a build the shared bun
 # cache. Every `podman build` whose Containerfile runs `bun install` passes
@@ -791,15 +796,34 @@ ensure_image() {
 # for the host arch here is stating that constraint rather than adding one.
 load_images_into_container() {
   local container="$1"; shift
+
+  # Prefer reading the tar through a bind mount over copying it in. `podman cp`
+  # writes the whole tar into the container's writable layer, which `podman
+  # load` then expands into the inner store -- three writes of the same bytes
+  # per image, and the image set here runs to hundreds of megabytes. Mounted,
+  # the copy disappears and only the expansion remains.
+  #
+  # Probed rather than assumed: the mount is the caller's to add, and a caller
+  # that has not added it still works exactly as before. That fallback is the
+  # point -- this must not become a way for a harness to silently load nothing.
+  local mounted=""
+  if ${SUDO} podman exec "${container}" test -d "${IMAGE_CACHE_MOUNT}" 2>/dev/null; then
+    mounted=1
+  fi
+
   for img in "$@"; do
     local safe tar
     safe="$(image_safe_name "${img}")"
     tar="$(image_cache_tar "${img}")" || return 1
     if [ -f "${tar}" ]; then
       substep "Loading ${img}"
-      ${SUDO} podman cp "${tar}" "${container}:/tmp/${safe}.tar"
-      ${SUDO} podman exec "${container}" podman load -i "/tmp/${safe}.tar"
-      ${SUDO} podman exec "${container}" rm -f "/tmp/${safe}.tar"
+      if [ -n "${mounted}" ]; then
+        ${SUDO} podman exec "${container}" podman load -i "${IMAGE_CACHE_MOUNT}/$(basename "${tar}")"
+      else
+        ${SUDO} podman cp "${tar}" "${container}:/tmp/${safe}.tar"
+        ${SUDO} podman exec "${container}" podman load -i "/tmp/${safe}.tar"
+        ${SUDO} podman exec "${container}" rm -f "/tmp/${safe}.tar"
+      fi
     else
       warn "Missing cached image $(basename "${tar}") for ${img}"
     fi

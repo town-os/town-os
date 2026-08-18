@@ -38,7 +38,28 @@ ARG ROLODEX_IMAGE
 RUN test -n "${ROLODEX_IMAGE}" && \
     sed -i "s|@ROLODEX_IMAGE@|${ROLODEX_IMAGE}|" /etc/systemd/system/town-os-system--rolodex.service
 RUN printf 'nameserver 127.0.0.1\n' > /etc/resolv.conf
-RUN systemctl enable town-os-systemcontroller.service town-os-system--rolodex.service podman.socket
+# The systemcontroller is deliberately NOT enabled, and rolodex deliberately is.
+#
+# Enabling it bought a guaranteed bad boot: systemd starts it the instant
+# `podman run -d` returns, which is before make/dev.sh has loaded a single image
+# into the inner podman store. That boot found no rolodex image (so it sat out
+# WaitForDNSReady's full 30s), no NC/prometheus/node-exporter/ingress (so it
+# tried to pull them over the network under TOWN_OS_IMAGE_REFRESH=0, which only
+# short-circuits images already present), started monitoring, ingress and pages
+# units against images that were not there, and cloned every package repository
+# -- all of it thrown away moments later by the `systemctl restart` dev.sh
+# issues once the store is populated, and all of it competing for CPU and disk
+# with the loading it was racing. The failed units it left behind are why that
+# restart needs a `systemctl reset-failed` in front of it.
+#
+# dev.sh starts it explicitly after loading, so nothing is lost: `systemctl
+# restart` starts an inactive unit exactly as it restarts a running one.
+#
+# rolodex stays enabled because it is the one service that must be up BEFORE
+# the controller boots -- the controller cannot pull an image until something
+# resolves names -- and its unit is built to survive the same window, with
+# Restart=always and RestartSec=5 while its image is still on its way in.
+RUN systemctl enable town-os-system--rolodex.service podman.socket
 # Masked for the same reason, and with the same list, as in
 # Containerfile.systemd: this container is --privileged in the host's user
 # namespace, binfmt_misc is not namespaced, and both Debian binfmt paths

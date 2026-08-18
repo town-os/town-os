@@ -508,8 +508,18 @@ func (b *boot) bootDNS(ctx context.Context) error {
 	// rolodex is already serving from its own config by the time this runs.
 
 	// Wait for DNS readiness.
+	//
+	// The overwhelmingly likely cause of this failing is rolodex.yml being
+	// absent or binding something other than DNSLoopback: rolodex opens that
+	// listener once, from that file, and nothing here can program it (see the
+	// note below on what this repo does and does not own). The unit reads as
+	// active either way, because the container starts fine and only the
+	// listener is missing — so the path is named here rather than left to be
+	// rediscovered from a bare timeout. Non-fatal: a box that cannot resolve
+	// still has an API worth reaching to fix it.
 	if err := b.rolMgr.WaitForDNSReady(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "rolodex DNS readiness: %v\n", err)
+		fmt.Fprintf(os.Stderr, "rolodex DNS readiness: %v (check %s for a dns.bind on %s)\n",
+			err, filepath.Join(rolDataDir, "rolodex.yml"), rolodex.DNSLoopback)
 	}
 
 	// The settings rolodex does not persist — forwarders, resolution mode,

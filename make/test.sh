@@ -80,6 +80,7 @@ case "$1" in
       --device /dev/btrfs-control:/dev/btrfs-control:rwm \
       -v "$(cat "${STATE_DIR}/town-os.mount"):/town-os:z" \
       -v "${STATE_DIR}/registries.conf:/etc/containers/registries.conf.d/local-registry.conf:ro,z" \
+      -v "${IMAGE_CACHE}:${IMAGE_CACHE_MOUNT}:ro,z" \
       --replace --name="${PODMAN_CONTAINER}" "${PODMAN_TEST_IMAGE}"
     substep "Waiting for systemd to be ready"
     wait_for_systemd "${PODMAN_CONTAINER}"
@@ -97,6 +98,12 @@ case "$1" in
     load_images_into_container "${PODMAN_CONTAINER}" ${NC_IMAGE}
     step "Loading ingress image into test container"
     load_images_into_container "${PODMAN_CONTAINER}" ${INGRESS_IMAGE}
+    # The pages service runs on caddy and is started during boot, on a unit
+    # that runs --pull=missing -- so without this it reaches Docker Hub from
+    # inside `podman run` while require_controller_ready counts down. It is a
+    # base image `pull-images` has always cached; it was just never copied in.
+    step "Loading pages (caddy) image into test container"
+    load_images_into_container "${PODMAN_CONTAINER}" docker.io/library/caddy:latest
     # The real gfehd. Object storage is skipped entirely when GFEH_IMAGE is
     # empty, so an integration test of it needs the actual daemon here -- there
     # is no stand-in that would prove a partition starts, answers its admin
@@ -174,6 +181,7 @@ case "$1" in
       --device /dev/btrfs-control:/dev/btrfs-control:rwm \
       -v "$(cat "${STATE_DIR}/town-os.mount"):/town-os:z" \
       -v "${STATE_DIR}/registries.conf:/etc/containers/registries.conf.d/local-registry.conf:ro,z" \
+      -v "${IMAGE_CACHE}:${IMAGE_CACHE_MOUNT}:ro,z" \
       --replace --name="${PODMAN_UI_BACKEND}" "${PODMAN_TEST_IMAGE}"
     substep "Waiting for systemd to be ready"
     wait_for_systemd "${PODMAN_UI_BACKEND}"
@@ -191,6 +199,12 @@ case "$1" in
     load_images_into_container "${PODMAN_UI_BACKEND}" ${NC_IMAGE}
     step "Loading ingress image into UI integration container"
     load_images_into_container "${PODMAN_UI_BACKEND}" ${INGRESS_IMAGE}
+    # The pages service runs on caddy and is started during boot, on a unit
+    # that runs --pull=missing -- so without this it reaches Docker Hub from
+    # inside `podman run` while require_controller_ready counts down. It is a
+    # base image `pull-images` has always cached; it was just never copied in.
+    step "Loading pages (caddy) image into UI integration container"
+    load_images_into_container "${PODMAN_UI_BACKEND}" docker.io/library/caddy:latest
     # The UI's object storage panel is empty without a running partition, and
     # GFEH_IMAGE is already injected above -- an image that is named but absent
     # leaves the daemon failing to pull on every reconcile.

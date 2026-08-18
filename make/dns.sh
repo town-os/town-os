@@ -228,6 +228,30 @@ rolodex_dns_is_bound() {
   [ -n "$(ss -H -lntu "src ${ROLODEX_DNS}:53" 2>/dev/null)" ]
 }
 
+# rolodex_dns_is_blocked — true when ANYTHING would collide with ROLODEX_DNS:53,
+# including a listener that does not name the address at all.
+#
+# Deliberately wider than rolodex_dns_is_bound, and the two are not
+# interchangeable. Readiness asks "is OUR rolodex up on its address", which is a
+# question about one literal socket. Occupancy asks "can this address still be
+# taken", and a wildcard `0.0.0.0:53` collides with `127.0.0.2:53` just as
+# completely while matching none of an `ss "src 127.0.0.2:53"` filter — that
+# filter compares the socket's own local address, so a wildcard socket is
+# invisible to it.
+#
+# Not a corner case: a rolodex started with no config file binds the wildcard
+# (Config::default is `0.0.0.0:53`), which is what a dev box from before the
+# config seed does, and what one left behind by a hard kill goes on doing. Such a
+# box answers for every loopback address on the machine, so the next dev run
+# would bind nothing, resolve through it, and look like its own DNS was broken.
+rolodex_dns_is_blocked() {
+  local addr
+  for addr in "${ROLODEX_DNS}:53" "0.0.0.0:53" "[::]:53"; do
+    [ -n "$(ss -H -lntu "src ${addr}" 2>/dev/null)" ] && return 0
+  done
+  return 1
+}
+
 # require_free_rolodex_dns — refuse to start a dev box whose resolver address is
 # already taken, BEFORE anything is launched.
 #
@@ -244,17 +268,88 @@ rolodex_dns_is_bound() {
 # Called after this checkout's dev container is removed, so anything still
 # holding the address is genuinely foreign rather than our own leftovers.
 require_free_rolodex_dns() {
-  rolodex_dns_is_bound || return 0
+  rolodex_dns_is_blocked || return 0
 
-  warn "${ROLODEX_DNS}:53 is already bound — something else is serving DNS there:"
-  ss -lntu "src ${ROLODEX_DNS}:53" 2>&1 | sed 's/^/  ** /' || true
+  warn "${ROLODEX_DNS}:53 is already taken — something else is serving DNS there:"
+  # Every shape that collides, not just the literal address: a wildcard holder is
+  # the likeliest one here and naming only 127.0.0.2 would print nothing at all.
+  for _addr in "${ROLODEX_DNS}:53" "0.0.0.0:53" "[::]:53"; do
+    ss -H -lntu "src ${_addr}" 2>/dev/null | sed "s/^/  ** /" || true
+  done
   warn "That is the address this dev box's rolodex needs, and pointing the host"
   warn "at it would resolve through a resolver that is not this checkout's."
   warn "Usual suspects, in order:"
   warn "  - the install repo's host rolodex: ${SUDO} podman rm -f town-os-host-rolodex"
   warn "  - another checkout's dev box:      make dev-stop (from that checkout)"
   warn "  - an orphan from a hard kill:      ${SUDO} podman rm -f town-os-system--rolodex"
+  warn "A holder on 0.0.0.0:53 rather than ${ROLODEX_DNS}:53 is a rolodex that came"
+  warn "up with no config file; it answers for every loopback address on this machine."
   exit 1
+}
+
+# seed_dev_rolodex_config DIR — render the bootstrap rolodex.yml a dev box needs,
+# into the host directory `make dev` mounts at /town-os/rolodex.
+#
+# rolodex reads this file ONCE at startup and it is the only way two of its
+# settings can be set at all: the DNS bind list and the metrics listener. Neither
+# can be programmed over gRPC, which is why ProgramRolodex does not write here
+# and why a rolodex with no config file opens no listener on ROLODEX_DNS at all.
+#
+# On a real box the install image renders it (../install/scripts/rolodex-config.sh
+# is its only writer). `make dev` runs no installer, so before this nothing did:
+# integration/testdata/town-os-system--rolodex.service creates the DIRECTORY with
+# an ExecStartPre mkdir and then starts rolodex `--config /data/rolodex.yml` on a
+# file that never existed. The dev box came up with the unit active and nothing
+# bound, which cost two thirty-second waits inside the controller's own boot
+# (rolodex.Manager.WaitForDNSReady, then the gRPC socket dial loop) and left the
+# host resolving through the LAN for every .home name.
+#
+# Written HERE, on the host, and never baked into the image: the same unit file
+# ships in the integration test image, and a rolodex.yml binding 127.0.0.2:53
+# inside a --net host test container would bind the HOST's :53 — the one thing
+# the test rules forbid outright.
+#
+# Deliberately minimal, and deliberately not a copy of the install script's
+# output. That script enumerates the box's routable addresses and binds :853 on
+# 0.0.0.0; a dev box has no business claiming LAN-facing DNS ports on the
+# developer's machine, so everything here is loopback. Only what cannot be
+# programmed later is set: the binds, the metrics listener, the gRPC socket the
+# controller dials, and a starting forwarder pair. Forwarders, resolution mode
+# and both blocklists are all overwritten by ProgramRolodex moments later.
+#
+# Rewritten on every run rather than created-if-absent. dev-rolodex persists
+# across runs (it holds rolodex.db), so a stale config from an older schema would
+# otherwise outlive the checkout that wrote it and fail in a way that looks like
+# rolodex being broken. Only rolodex.yml is touched; everything beside it stays.
+seed_dev_rolodex_config() {
+  local dir="$1"
+
+  substep "Seeding dev rolodex config"
+  mkdir -p "${dir}"
+  # Paths here are the ROLODEX CONTAINER's view: the unit mounts
+  # /town-os/rolodex (this directory) as /data.
+  cat > "${dir}/rolodex.yml" <<EOF
+database_path: /data/rolodex.db
+dns:
+  bind:
+    - udp: "${ROLODEX_DNS}:53"
+    - tcp: "${ROLODEX_DNS}:53"
+grpc:
+  tcp_bind: ""
+  unix_socket: /data/rolodex.sock
+  shared_secret: ""
+forwarders:
+  - "8.8.8.8:53"
+  - "8.8.4.4:53"
+resolution:
+  mode: auto
+metrics:
+  bind: "${ROLODEX_DNS}:9153"
+doh:
+  bind: "${ROLODEX_DNS}:4443"
+  tls:
+    auto_self_signed: true
+EOF
 }
 
 # wait_for_rolodex_dns CONTAINER [TIMEOUT] — block until THIS checkout's rolodex

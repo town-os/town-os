@@ -106,6 +106,11 @@ case "$1" in
     # resolves through a rolodex belonging to another checkout.
     require_free_rolodex_dns
     mkdir -p "${STATE_DIR}/dev-data" "${STATE_DIR}/dev-repos" "${STATE_DIR}/dev-rolodex"
+    # Before the podman run below mounts the directory, because rolodex reads
+    # this file once at startup and the unit starts with the container. On a
+    # real box the install image renders it; dev has no installer, so without
+    # this rolodex comes up bound to nothing.
+    seed_dev_rolodex_config "${STATE_DIR}/dev-rolodex"
     # Object storage runs for real in dev only if `make gfeh-image` has been run:
     # quay.io/town/gfeh is not public, so a GFEH_IMAGE the dev container cannot
     # load is worse than none — the partition unit crash-loops on the pull and
@@ -125,6 +130,7 @@ case "$1" in
       -e "ROLODEX_IMAGE=${ROLODEX_IMAGE}" \
       -e "UI_IMAGE=" \
       -e "NC_IMAGE=${NC_IMAGE}" \
+      -e "INGRESS_IMAGE=${INGRESS_IMAGE}" \
       -e "GFEH_IMAGE=${DEV_GFEH_IMAGE}" \
       -e "TOWN_OS_WG_SALT=$(wireguard_salt dev)" \
       -e "TOWN_OS_IMAGE_REFRESH=0" \
@@ -134,6 +140,7 @@ case "$1" in
       -v "${STATE_DIR}/dev-data:/data/db:z" \
       -v "${STATE_DIR}/dev-repos:/data/repos:z" \
       -v "${STATE_DIR}/dev-rolodex:/town-os/rolodex:z" \
+      -v "${IMAGE_CACHE}:${IMAGE_CACHE_MOUNT}:ro,z" \
       --name "${PODMAN_DEV_CONTAINER}" "${PODMAN_DEV_IMAGE}"
     substep "Waiting for dev container to be ready"
     for i in $(seq 1 30); do
@@ -142,8 +149,29 @@ case "$1" in
       fi
       sleep 1
     done
+    # Prometheus and node-exporter only. Grafana is ~1.17 GB -- more than every
+    # other image here put together -- and is one of TWO monitoring backends,
+    # the one that is not the default: boot picks it up only when the stored
+    # backend is `grafana` (coreBootImages, main.go), and on the uPlot default
+    # nothing ever runs it. Loading it regardless meant every dev run copied and
+    # expanded it for nothing. DEV_LOAD_GRAFANA=1 puts it back for anyone
+    # actually working on that backend, who would otherwise have it pulled from
+    # Docker Hub the moment they switch.
     step "Loading monitoring images into dev container"
-    load_images_into_container "${PODMAN_DEV_CONTAINER}" ${MONITORING_IMAGES}
+    dev_monitoring_images=""
+    for img in ${MONITORING_IMAGES}; do
+      case "${img}" in
+        *grafana*)
+          if [ "${DEV_LOAD_GRAFANA:-}" != "1" ]; then
+            substep "Skipping ${img} (set DEV_LOAD_GRAFANA=1 to load it)"
+            continue
+          fi
+          ;;
+      esac
+      dev_monitoring_images="${dev_monitoring_images} ${img}"
+    done
+    # shellcheck disable=SC2086 # deliberate word splitting: an image list
+    load_images_into_container "${PODMAN_DEV_CONTAINER}" ${dev_monitoring_images}
     step "Loading rolodex image into dev container"
     load_images_into_container "${PODMAN_DEV_CONTAINER}" ${ROLODEX_IMAGE}
     step "Loading alpine image into dev container"
@@ -152,12 +180,27 @@ case "$1" in
     # container needed hardcoded public DNS, which captive networks block.
     step "Loading network controller image into dev container"
     load_images_into_container "${PODMAN_DEV_CONTAINER}" ${NC_IMAGE}
+    # Both are started during boot and both units run --pull=missing, so an
+    # absent image is not an error that fails fast -- it is a registry pull
+    # happening inside `podman run` while require_controller_ready's 120s and
+    # the ingress's own 30s readiness wait both count down. The ingress is built
+    # locally by the `ingress-image` prerequisite; caddy is a base image that
+    # `pull-images` already cached, and was simply never copied in. The pages
+    # service runs on caddy, so omitting it stalled pages too.
+    step "Loading ingress image into dev container"
+    load_images_into_container "${PODMAN_DEV_CONTAINER}" ${INGRESS_IMAGE}
+    step "Loading pages (caddy) image into dev container"
+    load_images_into_container "${PODMAN_DEV_CONTAINER}" docker.io/library/caddy:latest
     # Built on the host by `make gfeh-image`, for the same reason as the NC.
     if [ -n "${DEV_GFEH_IMAGE}" ]; then
       step "Loading object storage (gfeh) image into dev container"
       load_images_into_container "${PODMAN_DEV_CONTAINER}" ${DEV_GFEH_IMAGE}
     fi
-    step "Restarting systemcontroller after image loading"
+    # Starting, not restarting: the unit is not enabled in the dev image, so
+    # this is its FIRST boot and it happens with every image already in the
+    # inner store. `restart` rather than `start` only because it is also the
+    # correct verb if a future change ever enables it again.
+    step "Starting systemcontroller after image loading"
     ${SUDO} podman exec "${PODMAN_DEV_CONTAINER}" systemctl reset-failed town-os-systemcontroller.service || true
     ${SUDO} podman exec "${PODMAN_DEV_CONTAINER}" systemctl restart town-os-systemcontroller.service
     substep "Waiting for systemcontroller API to be ready"
